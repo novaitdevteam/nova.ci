@@ -1,0 +1,31 @@
+name: CI Build Trigger Switcher
+on:
+  workflow_call:
+
+
+
+jobs:
+  preparation:
+    name: CI Build Trigger Switcher Start
+    runs-on: self-hosted
+    steps:
+      - name: Catch Github Events
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: |
+          echo $GITHUB_CONTEXT
+          echo ${{ github.event_name == 'push' }}
+          echo ${{ contains(github.ref, 'tags') }}
+          echo ${{ contains(github.ref, 'build') }}
+
+  call-external-on-push-tags:
+    name: Call Builder On Push Tags
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags.yaml@main
+    secrets: inherit
+
+  call-external-on-push-branches:
+    name: Call Builder If Push Certain Branches
+    if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && contains(github.ref_name, 'build-me-please') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-branches.yaml@main
+    secrets: inherit

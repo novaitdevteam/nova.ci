@@ -1,0 +1,13 @@
+name: CI Build NTK on Certain Branch
+on:
+  workflow_call:
+
+jobs:
+  build-image:
+    name: Build Image
+    runs-on: self-hosted
+    steps:
+      - name: Prepare Vars
+        id: prep
+        run: |
+          echo "Put some logic here!"
