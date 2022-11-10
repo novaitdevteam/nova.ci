@@ -91,10 +91,12 @@ jobs:
             
             Image assembly has been completed ✅
             
-            ▶️ Repositry_1: ${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}
-            ▶️ Repositry_2: ${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
+            ▶️ Docker Registry: ${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}
+            🔗 [Docker Pull Link](docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }})
+            ▶️ GitHub Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
+            🔗 [GitHub Pull Link](ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}))
 
-            🔵 Image: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
+            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
             Repository: ${{ github.repository }}  
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
