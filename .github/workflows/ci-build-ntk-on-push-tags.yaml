@@ -92,9 +92,9 @@ jobs:
             Image assembly has been completed ✅
             
             ▶️ Docker Registry: ${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 [Docker Pull Link](docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }})
+            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }})
             ▶️ GitHub Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 [GitHub Pull Link](ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}))
+            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}))
 
             🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
