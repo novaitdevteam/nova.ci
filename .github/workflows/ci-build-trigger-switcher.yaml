@@ -29,3 +29,9 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && contains(github.ref_name, 'build-me-please') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-branches.yaml@main
     secrets: inherit
+
+  call-external-on-push-tags-gh-deploy:
+    name: Call GH Pages Deploy On Push Tags
+    if: ${{ github.event.repository.name == 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    uses: novaittestteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
+    secrets: inherit
