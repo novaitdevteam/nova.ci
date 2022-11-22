@@ -15,6 +15,7 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}  
     steps:
       - name: Prepare Vars
         id: prep
@@ -72,7 +73,11 @@ jobs:
           tags: | 
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
-        
+
+      - name: End Step On Failure
+        if: failure()
+        id: end_step
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT        
 
   notify-telegram:
     name: Notifier
@@ -105,6 +110,7 @@ jobs:
             
             ❌Build Failed
             
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}  
     
       - name: Send to Telegram
