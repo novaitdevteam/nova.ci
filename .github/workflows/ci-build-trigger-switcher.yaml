@@ -24,6 +24,11 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
     secrets: inherit
 
+  call-external-on-push-tags-run-test:
+    name: Call Test Runner On Push Tags
+    if: ${{ github.event.repository.name == 'novatalks.engine' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'int-test') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@main
+    secrets: inherit
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags

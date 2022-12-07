@@ -1,0 +1,130 @@
+name: CI Build NTK on Push TAG
+on:
+  workflow_call:
+
+env:
+  #DATABASE CONFIG
+  DATABASE_DIALECT: postgres
+  DATABASE_HOST: 127.0.0.1
+  DATABASE_PORT: 5432
+  DATABASE_USERNAME: postgres
+  DATABASE_PASSWORD: password
+  DATABASE_NAME: db_name
+
+jobs:
+  e2e-test:
+    name: Test Runner
+    runs-on: self-hosted
+    environment: ${{ inputs.environment }}
+    services:
+      postgres:
+        image: postgres:12
+        env:
+          POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
+          POSTGRES_DB: ${{ env.DATABASE_NAME }}
+          POSTGRES_USER: ${{ env.DATABASE_USERNAME }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    outputs:
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Delete Tag
+        uses: dev-drprasad/delete-tag-and-release@v0.2.0
+        with:
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+
+      - name: 💿 Setup NODEJS
+        uses: actions/setup-node@v3
+        id: node_inst
+        with:
+          node-version: 16.17
+
+
+      - name: ▶️ Get Env From Example
+        id: prep_1
+        run: |
+          sed '/^#/d' .env.example > .env
+          cat .env >> $GITHUB_ENV
+
+      - name: ▶️ Delete Lock Files
+        run: |
+          rm package-lock.json
+          rm yarn.lock
+
+      - name: ⏬ Install Dependencies
+        env:
+          NODE_ENV: development
+          #NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          npm pkg delete scripts.prepare
+          npm install --loglevel info
+          
+      - name: ▶️ Migrate DB
+        run: npm run db:migrate #--loglevel info
+
+      - name: 🏃 Run Test Modules
+        run: npm run test #--loglevel info
+        #run: npm run test account.controller.integration.spec.ts #--loglevel info
+        #run: npm run test inbox.controller.integration.spec.ts
+        env:
+          NODE_ENV: development
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          LOG_LEVEL: "error"
+
+      - name: End Step On Failure
+        if: failure()
+        id: end_step
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+
+  notify-telegram:
+    name: Notifier
+    runs-on: self-hosted
+    if: always()
+    needs: e2e-test
+    steps:
+
+      - name: Set Telegram Message
+        uses: haya14busa/action-cond@v1
+        id: telegram_message
+        with:
+          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+          if_true: |
+            👷 ${{ github.actor }} start test
+            
+            Test assembly has been completed ✅
+            
+            Repository: ${{ github.repository }}  
+            See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
+          if_false: |
+            👷 ${{ github.actor }} start test
+            
+            ❌Tests Failed
+              
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.e2e-test.outputs.END_STEP_JOB_ID}}
+            Repository: ${{ github.repository }}  
+    
+      - name: Send to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          message: ${{ steps.telegram_message.outputs.value }}
