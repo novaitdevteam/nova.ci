@@ -18,10 +18,16 @@ jobs:
           echo ${{ contains(github.ref, 'tags') }}
           echo ${{ contains(github.ref, 'build') }}
 
-  call-external-on-push-tags-gh-deploy:
-    name: Call GH Pages Deploy On Push Tags
-    if: ${{ github.event.repository.name == 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
+  call-external-on-push-tags:
+    name: Call Builder On Push Tags
+    if: ${{ github.event.repository.name != 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
+    secrets: inherit
+
+  call-external-on-pull-request-merged:
+    name: Call Builder On Merge PR
+    if: ${{ github.event.repository.name != 'nova.docs' && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
   call-external-on-push-tags-run-test:
@@ -30,11 +36,13 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@main
     secrets: inherit
 
-  call-external-on-push-tags:
-    name: Call Builder On Push Tags
-    if: ${{ github.event.repository.name != 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags.yaml@main
+
+  call-external-on-push-tags-gh-deploy:
+    name: Call GH Pages Deploy On Push Tags
+    if: ${{ github.event.repository.name == 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
     secrets: inherit
+
 
   call-external-on-push-branches:
     name: Call Builder If Push Certain Branches
