@@ -81,7 +81,17 @@ jobs:
       - name: ▶️ Migrate DB
         run: npm run db:migrate #--loglevel info
 
+      - name: 🚶 Run One Test
+        if: ${{ contains(github.ref_name, 'int-test') && endsWith( github.ref_name, '.ts' ) }}
+        run: |
+          echo ${{ github.ref_name }} | cut -d "-" -f3 | xargs npm run test
+        env:
+          NODE_ENV: development
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          LOG_LEVEL: "error"
+
       - name: 🏃 Run Test Modules
+        if: ${{ endsWith( github.ref_name, 'int-test' ) }}
         run: npm run test #--loglevel info
         #run: npm run test account.controller.integration.spec.ts #--loglevel info
         #run: npm run test inbox.controller.integration.spec.ts
