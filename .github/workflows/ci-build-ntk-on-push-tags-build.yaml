@@ -3,6 +3,43 @@ on:
   workflow_call:
 
 jobs:
+
+  linter: 
+    name: Linter
+    runs-on: self-hosted
+    environment: ${{ inputs.environment }}
+    outputs:
+      LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }} 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: 💿 Setup NODEJS
+        uses: actions/setup-node@v3
+        id: node_inst
+        with:
+          node-version: 18
+
+      - name: ▶️ Install Node.js dependencies
+        run: |
+          npm i eslint-plugin-security
+          npm i @typescript-eslint/eslint-plugin
+
+      - name: 🇪🇸 Lint SRC
+        id: linter
+        run: npx eslint --ext .js,.vue,.ts --ignore-path .gitignore . --quiet
+
+      - name: End Linter Step
+        if: success() || failure()
+        id: linter_res
+        run: |
+          if [[ ${{ steps.linter.outcome  }} == 'success' ]];
+          then
+            echo "LINTER_CHECK=✅" | tee -a $GITHUB_OUTPUT
+          else
+            echo "LINTER_CHECK=❌" | tee -a $GITHUB_OUTPUT
+          fi
+
   build-image:
     name: Build Image
     runs-on: self-hosted
@@ -89,7 +126,7 @@ jobs:
     name: Notifier
     runs-on: self-hosted
     if: always()
-    needs: build-image
+    needs: [build-image, linter]
     steps:
 
       - name: Set Telegram Message
@@ -109,6 +146,8 @@ jobs:
 
             🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
+            ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
+
             Repository: ${{ github.repository }}  
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
           if_false: |
@@ -116,6 +155,8 @@ jobs:
             
             ❌Build Failed
             
+            ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
+
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}  
     
