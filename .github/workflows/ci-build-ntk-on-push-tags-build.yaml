@@ -27,7 +27,7 @@ jobs:
 
       - name: 🇪🇸 Lint SRC
         id: linter
-        run: npx eslint --ext .js,.vue,.ts --ignore-path .gitignore . --quiet
+        run: npx eslint --ext .js,.vue,.ts . --quiet
 
       - name: End Linter Step
         if: success() || failure()
