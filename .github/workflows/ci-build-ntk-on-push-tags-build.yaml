@@ -133,7 +133,7 @@ jobs:
         uses: haya14busa/action-cond@v1
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
             
