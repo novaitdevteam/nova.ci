@@ -22,8 +22,8 @@ jobs:
 
       - name: ▶️ Install Node.js dependencies
         run: |
-          npm i eslint-plugin-security
-          npm i @typescript-eslint/eslint-plugin
+          yarn install eslint-plugin-security
+          yarn install @typescript-eslint/eslint-plugin
 
       - name: 🇪🇸 Lint SRC
         id: linter
