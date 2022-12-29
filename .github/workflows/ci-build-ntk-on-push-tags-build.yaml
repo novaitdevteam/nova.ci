@@ -19,11 +19,13 @@ jobs:
         id: node_inst
         with:
           node-version: 18
+          cache: 'yarn'
+
+      - name: Setup yarn
+        run: npm install -g yarn
 
       - name: ▶️ Install Node.js dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y yarn 
           yarn install eslint-plugin-security
           yarn install @typescript-eslint/eslint-plugin
 
