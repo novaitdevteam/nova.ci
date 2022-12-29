@@ -19,7 +19,6 @@ jobs:
         id: node_inst
         with:
           node-version: 18
-          cache: 'yarn'
 
       - name: Setup yarn
         run: npm install -g yarn
