@@ -23,7 +23,7 @@ jobs:
       - name: ▶️ Install Node.js dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install yarn
+          sudo apt-get install -y yarn 
           yarn install eslint-plugin-security
           yarn install @typescript-eslint/eslint-plugin
 
