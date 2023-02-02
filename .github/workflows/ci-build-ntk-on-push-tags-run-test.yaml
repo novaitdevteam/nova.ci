@@ -99,6 +99,7 @@ jobs:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
+          UV_THREADPOOL_SIZE: 32
 
       - name: End Step On Failure
         if: failure()
