@@ -65,10 +65,10 @@ jobs:
           sed '/^#/d' .env.example > .env
           cat .env >> $GITHUB_ENV
 
-      - name: ▶️ Delete Lock Files
-        run: |
-          rm package-lock.json
-          rm yarn.lock
+      # - name: ▶️ Delete Lock Files
+      #   run: |
+      #     rm package-lock.json
+      #     rm yarn.lock
 
       - name: ⏬ Install Dependencies
         env:
