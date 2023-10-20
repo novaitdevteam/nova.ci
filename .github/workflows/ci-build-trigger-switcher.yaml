@@ -20,13 +20,13 @@ jobs:
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags
-    if: ${{ github.event.repository.name != 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow"]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
   call-external-on-pull-request-merged:
     name: Call Builder On Merge PR
-    if: ${{ github.event.repository.name != 'nova.docs' && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
+    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow"]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
@@ -42,6 +42,13 @@ jobs:
     if: ${{ github.event.repository.name == 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
     secrets: inherit
+
+  call-external-on-push-tags-mob-build:
+    name: Call GH Pages Deploy On Push Tags
+    if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-build.yaml@main
+    secrets: inherit
+  
 
 
   call-external-on-push-branches:
