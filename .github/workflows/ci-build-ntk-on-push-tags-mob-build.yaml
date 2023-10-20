@@ -1,0 +1,166 @@
+name: CI Build NTK Moblie Apps on Push TAG
+on:
+  workflow_call:
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: self-hosted
+    environment: ${{ inputs.environment }}
+    # permissions:
+    #   contents: read
+    #   packages: write
+    outputs:
+      REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
+      RELEASE: ${{ steps.prep.outputs.RELEASE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Prepare Vars
+        id: prep
+        run: |
+          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          if [[ ${{ github.ref_type }} == 'branch' ]]; then
+            echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          else
+            echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          fi
+
+      - name: Delete Tag
+        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        with:
+          #delete_release: false # default: false
+          tag_name: ${{ github.ref_name }} # tag name to delete
+          #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}         
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      
+
+      - name: 💿 Setup NODEJS
+        uses: actions/setup-node@v3
+        id: node_inst
+        with:
+          node-version: '18'
+
+      - name: 💿 Setup JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+    
+      - name: 💿 Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: 8.1
+
+      - name: 💿 Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+
+      - name: Generating Release Key
+        run: |
+          keytool -genkey -dname "cn=NovaitDevTeam, ou=IT, o=NovaIT, l=Kyiv, st=Kyiv, c=UA" -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -keyalg RSA -keysize 2048 -validity 20000 -storepass android -keypass android
+          ls -la ./
+
+      - name: Displaying debug.keystore file
+        run: |
+          keytool -list -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -storepass android -keypass android
+
+        
+
+      - name: Setup Components & Build
+        env:
+          ANDROID_HOME: '/home/runner/.android/sdk'
+          ANDROID_SDK_ROOT: '/home/runner/.android/sdk'
+        run: |
+          curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+          echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+          sudo apt-get update && sudo apt-get install yarn -y
+          export PATH="$(yarn global bin):$PATH"
+          export PATH=$ANDROID_SDK_ROOT/platform-tools/:$PATH
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/:$PATH
+          export PATH=$ANDROID_SDK_ROOT/emulator/:$PATH
+          export PATH=$ANDROID_SDK_ROOT/build-tools/:$PATH
+          yarn global add quasar
+          yarn global add @quasar/cli
+          yarn install
+          echo 'com.novatalks.ui.lite' | quasar build -m capacitor -T android
+          chmod +x ./src-capacitor/android/gradlew
+          ./src-capacitor/android/gradlew --project-dir=./src-capacitor/android
+          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
+          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
+          zip -r --junk-paths ./android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./src-capacitor/android/app/build/outputs/apk/release/
+          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
+
+      - name: Create a Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+          release_name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+          body: Automated Deployment
+          draft: false
+          prerelease: false
+        
+      - name: Upload a Release Asset
+        id: upload_release_asset
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
+          asset_name: android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
+          asset_content_type: appliction/zip
+
+
+  notify-telegram:
+    name: Notifier
+    runs-on: self-hosted
+    if: always()
+    needs: [build-apk]
+    steps:
+
+      - name: Set Telegram Message
+        uses: haya14busa/action-cond@v1
+        id: telegram_message
+        with:
+          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
+          if_true: |
+            👷 ${{ github.actor }} created deploy tag.
+            
+            Image building has been completed ✅
+            
+            Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}/android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
+
+            Repository: ${{ github.repository }}  
+            See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
+          if_false: |
+            👷 ${{ github.actor }} created deploy tag.
+            
+            ❌Build Failed
+            
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
+            Repository: ${{ github.repository }}  
+    
+      - name: Send to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          message: ${{ steps.telegram_message.outputs.value }}
