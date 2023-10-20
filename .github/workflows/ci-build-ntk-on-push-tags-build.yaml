@@ -50,6 +50,7 @@ jobs:
     # permissions:
     #   contents: read
     #   packages: write
+    needs: [linter]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
