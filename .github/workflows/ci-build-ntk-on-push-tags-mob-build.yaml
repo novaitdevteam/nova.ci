@@ -97,8 +97,8 @@ jobs:
           yarn global add quasar
           yarn global add @quasar/cli
           yarn install
-          quasar build -m capacitor -T android
           chmod +x ./src-capacitor/android/gradlew
+          quasar build -m capacitor -T android      
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
           zip -r --junk-paths ./android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./src-capacitor/android/app/build/outputs/apk/release/
