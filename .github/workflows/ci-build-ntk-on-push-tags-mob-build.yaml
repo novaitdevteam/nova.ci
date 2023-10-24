@@ -64,7 +64,7 @@ jobs:
       - name: 💿 Setup Gradle
         uses: gradle/gradle-build-action@v2
         with:
-          gradle-version: 8.1
+          gradle-version: 8.0.2
 
       - name: 💿 Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -97,7 +97,7 @@ jobs:
           yarn global add quasar
           yarn global add @quasar/cli
           yarn install
-          echo 'com.novatalks.ui.lite' | quasar build -m capacitor -T android
+          quasar build -m capacitor -T android
           chmod +x ./src-capacitor/android/gradlew
           ./src-capacitor/android/gradlew --project-dir=./src-capacitor/android
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
