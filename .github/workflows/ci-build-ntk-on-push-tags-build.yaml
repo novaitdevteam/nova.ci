@@ -50,6 +50,7 @@ jobs:
     # permissions:
     #   contents: read
     #   packages: write
+    if: always()
     needs: [linter]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
