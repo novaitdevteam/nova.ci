@@ -127,6 +127,10 @@ jobs:
           asset_name: android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
           asset_content_type: appliction/zip
 
+      - name: End Step On Failure
+        if: failure()
+        id: end_step
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT  
 
   notify-telegram:
     name: Notifier
@@ -139,7 +143,7 @@ jobs:
         uses: haya14busa/action-cond@v1
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
+          cond: ${{ contains(join(needs.build-apk.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
             
@@ -154,7 +158,7 @@ jobs:
             
             ❌Build Failed
             
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-apk.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}  
     
       - name: Send to Telegram
