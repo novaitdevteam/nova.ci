@@ -17,7 +17,7 @@ jobs:
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Prepare Vars
         id: prep
@@ -39,14 +39,6 @@ jobs:
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}         
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
       
 
       - name: 💿 Setup NODEJS
@@ -99,9 +91,8 @@ jobs:
           yarn install
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android      
-          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
-          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
-          zip -r --junk-paths ./android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./src-capacitor/android/app/build/outputs/apk/release/
+          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite.apk
 
       - name: Create a Release
@@ -123,9 +114,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
-          asset_name: android-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
-          asset_content_type: appliction/zip
+          asset_path: ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          asset_name: novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          asset_content_type: application/zip
 
       - name: End Step On Failure
         if: failure()
