@@ -93,7 +93,7 @@ jobs:
           quasar build -m capacitor -T android      
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./src-capacitor/android/app/build/outputs/apk/release/novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
 
       - name: Create a Release
         id: create_release
