@@ -139,8 +139,7 @@ jobs:
             👷 ${{ github.actor }} created deploy tag.
             
             Image building has been completed ✅
-            
-            Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/android-release-${{ needs.build-apk.outputs.SHORT_REF_NAME }}-${{ needs.build-apk.outputs.SHORT_SHA }}.zip
+            Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite-${{ needs.build-apk.outputs.SHORT_REF_NAME }}-${{ needs.build-apk.outputs.SHORT_SHA }}.apk
 
             Repository: ${{ github.repository }}  
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
