@@ -61,7 +61,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Prepare Vars
         id: prep
         run: |
@@ -116,6 +116,7 @@ jobs:
         uses: docker/build-push-action@v5
         id: main_build_proc
         with:
+          context: .
           file: ./docker/server.Dockerfile
           builder: ${{ steps.buildx.outputs.name }}
           push: true
