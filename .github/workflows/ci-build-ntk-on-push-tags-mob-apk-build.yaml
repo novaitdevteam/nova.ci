@@ -88,6 +88,7 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/build-tools/:$PATH
           yarn global add quasar
           yarn global add @quasar/cli
+          yarn global add @quasar/icongenie
           yarn install
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android      
