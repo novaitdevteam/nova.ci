@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Remote Checkout Master
         uses: actions/checkout@v4
-        if: ${{ contains(github.ref_name, 'build-apk') }}
+        if: ${{ contains(github.ref_name, 'build') && endsWith( github.ref_name, 'apk' ) }}
         with:
           repository: 'novaitdevteam/novatalks.ui-lite'
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
@@ -28,7 +28,7 @@ jobs:
       - name: Any additional Tag?
         if: ${{ contains(github.ref_name, 'build-apk-') }}    
         run: |
-          echo "REMOTE_BRANCH=`${{ github.ref_name }} | cut -d "-" -f3 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REMOTE_BRANCH=`echo ${{ github.ref_name }} | cut -d "-" -f3-4`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
     
       - name: Remote Checkout On Certain branch
         uses: actions/checkout@v4
