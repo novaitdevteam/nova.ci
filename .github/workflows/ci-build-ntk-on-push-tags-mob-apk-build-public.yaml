@@ -26,9 +26,12 @@ jobs:
           ssh-key: ${{ secrets.NTK_UI_LITE_DEPLOY_KEY }}
 
       - name: Any additional Tag?
-        if: ${{ contains(github.ref_name, 'build-apk-') }}    
         run: |
-          echo "REMOTE_BRANCH=`echo ${{ github.ref_name }} | cut -d "-" -f3-4`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          if [[ ${{ github.ref_name }} == 'build-apk' ]]; then
+            echo "REMOTE_BRANCH=`echo main`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          else
+            echo "REMOTE_BRANCH=`echo ${{ github.ref_name }} | cut -d "-" -f3-4`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          fi
     
       - name: Remote Checkout On Certain branch
         uses: actions/checkout@v4
@@ -57,7 +60,6 @@ jobs:
           fi
 
       - name: Set new vars
-        if: ${{ contains(github.ref_name, 'build-apk-') }}
         run: |
           echo "SHORT_SHA=`echo ${{ env.REMOTE_SHA }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_REF_NAME=`echo ${{ env.REMOTE_BRANCH }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
