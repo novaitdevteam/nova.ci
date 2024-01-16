@@ -39,6 +39,10 @@ jobs:
           path: ./novatalks.ui-lite
           ssh-key: ${{ secrets.NTK_UI_LITE_DEPLOY_KEY }}
           ref: ${{ env.REMOTE_BRANCH }}
+
+      - name: Get Remote SHA
+        working-directory: ./novatalks.ui-lite
+        run: echo "REMOTE_SHA=`/usr/bin/git log -1 --format='%H' | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
       
       - name: Prepare Vars
         id: prep
@@ -51,6 +55,12 @@ jobs:
           else
             echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
+
+      - name: Set new vars
+        if: ${{ contains(github.ref_name, 'build-apk-') }}
+        run: |
+          echo "SHORT_SHA=`echo ${{ env.REMOTE_SHA }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "SHORT_REF_NAME=`echo ${{ env.REMOTE_BRANCH }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
         uses: dev-drprasad/delete-tag-and-release@v0.2.1
@@ -87,14 +97,11 @@ jobs:
         working-directory: ./novatalks.ui-lite
         run: |
           keytool -genkey -dname "cn=NovaitDevTeam, ou=IT, o=NovaIT, l=Kyiv, st=Kyiv, c=UA" -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -keyalg RSA -keysize 2048 -validity 20000 -storepass android -keypass android
-          ls -la ./
 
       - name: Displaying debug.keystore file
         working-directory: ./novatalks.ui-lite
         run: |
           keytool -list -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -storepass android -keypass android
-
-        
 
       - name: Setup Components & Build
         env:
@@ -120,6 +127,7 @@ jobs:
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          cp ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk /home/runner/work/
 
       - name: Create a Release
         id: create_release
@@ -140,7 +148,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          asset_path: /home/runner/work/novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           asset_name: novatalks-ui-lite.apk
           asset_content_type: application/zip
 
