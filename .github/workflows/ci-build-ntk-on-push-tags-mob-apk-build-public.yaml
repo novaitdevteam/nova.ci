@@ -117,45 +117,10 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          asset_name: novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          asset_name: novatalks-ui-lite.apk
           asset_content_type: application/zip
 
       - name: End Step On Failure
         if: failure()
         id: end_step
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT  
-
-  notify-telegram:
-    name: Notifier
-    runs-on: self-hosted
-    if: always()
-    needs: [build-apk]
-    steps:
-
-      - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
-        id: telegram_message
-        with:
-          cond: ${{ contains(join(needs.build-apk.result, ','), 'success') }}
-          if_true: |
-            👷 ${{ github.actor }} created deploy tag.
-            
-            Image building has been completed ✅
-            Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite-${{ needs.build-apk.outputs.SHORT_REF_NAME }}-${{ needs.build-apk.outputs.SHORT_SHA }}.apk
-
-            Repository: ${{ github.repository }}  
-            See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
-          if_false: |
-            👷 ${{ github.actor }} created deploy tag.
-            
-            ❌Build Failed
-            
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-apk.outputs.END_STEP_JOB_ID}}
-            Repository: ${{ github.repository }}  
-    
-      - name: Send to Telegram
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
-          token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
-          message: ${{ steps.telegram_message.outputs.value }}
