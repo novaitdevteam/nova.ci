@@ -16,9 +16,30 @@ jobs:
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
     steps:
-      - name: Checkout
+      - name: Remote Checkout Master
         uses: actions/checkout@v4
+        if: ${{ contains(github.ref_name, 'build-apk') }}
+        with:
+          repository: 'novaitdevteam/novatalks.ui-lite'
+          github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
+          path: ./novatalks.ui-lite
+          ssh-key: ${{ secrets.NTK_UI_LITE_DEPLOY_KEY }}
 
+      - name: Any additional Tag?
+        if: ${{ contains(github.ref_name, 'build-apk-') }}    
+        run: |
+          echo "REMOTE_BRANCH=`${{ github.ref_name }} | cut -d "-" -f3 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+    
+      - name: Remote Checkout On Certain branch
+        uses: actions/checkout@v4
+        if: ${{ contains(github.ref_name, 'build-apk-') }}
+        with:
+          repository: 'novaitdevteam/novatalks.ui-lite'
+          github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
+          path: ./novatalks.ui-lite
+          ssh-key: ${{ secrets.NTK_UI_LITE_DEPLOY_KEY }}
+          ref: ${{ env.REMOTE_BRANCH }}
+      
       - name: Prepare Vars
         id: prep
         run: |
@@ -63,11 +84,13 @@ jobs:
 
 
       - name: Generating Release Key
+        working-directory: ./novatalks.ui-lite
         run: |
           keytool -genkey -dname "cn=NovaitDevTeam, ou=IT, o=NovaIT, l=Kyiv, st=Kyiv, c=UA" -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -keyalg RSA -keysize 2048 -validity 20000 -storepass android -keypass android
           ls -la ./
 
       - name: Displaying debug.keystore file
+        working-directory: ./novatalks.ui-lite
         run: |
           keytool -list -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -storepass android -keypass android
 
@@ -77,6 +100,7 @@ jobs:
         env:
           ANDROID_HOME: '/home/runner/.android/sdk'
           ANDROID_SDK_ROOT: '/home/runner/.android/sdk'
+        working-directory: ./novatalks.ui-lite
         run: |
           curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
           echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
