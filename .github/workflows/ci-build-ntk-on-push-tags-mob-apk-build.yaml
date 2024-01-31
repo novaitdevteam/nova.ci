@@ -71,6 +71,17 @@ jobs:
         run: |
           keytool -list -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -storepass android -keypass android
 
+      - name: Add APK Version
+        run: |
+          ver=""; 
+          while read -r line; do param=( $line ); if [[ "${param[0]}" == "novatalksVersion" ]]; then ver=${param[2]}; fi; done < ./src-capacitor/android/variables.gradle
+          if [ -z "$ver" ];
+          then
+              sed -i s/$ver/\\'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}\\'/g ./src-capacitor/android/variables.gradle
+          else
+              sed -i "2i \    \ novatalksVersion = 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}'" ./src-capacitor/android/variables.gradle
+          fi;
+          cat ./src-capacitor/android/variables.gradle         
         
 
       - name: Setup Components & Build
@@ -97,7 +108,7 @@ jobs:
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
 
-      - name: Create a Release
+      - name: Create an Internal Release
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -109,7 +120,7 @@ jobs:
           draft: false
           prerelease: false
         
-      - name: Upload a Release Asset
+      - name: Upload an Internal Release Asset
         id: upload_release_asset
         uses: actions/upload-release-asset@v1.0.2
         env:
@@ -119,6 +130,44 @@ jobs:
           asset_path: ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           asset_name: novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           asset_content_type: application/zip
+
+      - name: Publish Pre-Release to External Pub Repo
+        uses: actions/github-script@v7 
+        with:
+          github-token: ${{ secrets.CI_GITHUB_PAT }}
+          debug: 'true'
+          script: |
+            const fs = require('fs');
+            const ref =  'heads/main';
+            const repo = 'novatalks.mobile'
+            const author = {
+                name: 'Autodeploy Call',
+                email: 'support@novait.com.ua',
+            };
+            async function generateGithubRelease() {
+                try {                 
+                    let release = await github.rest.repos.createRelease({
+                      owner: context.repo.owner,
+                      repo,
+                      prerelease: true,
+                      name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }},
+                      tag_name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }},
+                    });
+                    releaseID = release.data.id
+                    releaseFilePath = './novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk'
+                    let uploadAPK = await github.rest.repos.uploadReleaseAsset({
+                        owner: context.repo.owner,
+                        repo,
+                        release_id: releaseID,
+                        name: 'novatalks-ui-lite.apk',
+                        data: fs.readFileSync(releaseFilePath),
+                      });         
+                    return result;
+                } catch (e) {
+                console.log(e)
+                }
+              };
+              generateGithubRelease();
 
       - name: End Step On Failure
         if: failure()
@@ -142,6 +191,7 @@ jobs:
             
             Image building has been completed ✅
             Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite-${{ needs.build-apk.outputs.SHORT_REF_NAME }}-${{ needs.build-apk.outputs.SHORT_SHA }}.apk
+            🔗 Public Download Link: https://github.com/novaitdevteam/novatalks.mobile/releases/download/GIT_NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite.apk
 
             Repository: ${{ github.repository }}  
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
