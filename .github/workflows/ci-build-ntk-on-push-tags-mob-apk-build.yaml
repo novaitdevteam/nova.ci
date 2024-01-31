@@ -150,8 +150,8 @@ jobs:
                       owner: context.repo.owner,
                       repo,
                       prerelease: true,
-                      name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }},
-                      tag_name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }},
+                      name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}',
+                      tag_name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}',
                     });
                     releaseID = release.data.id
                     releaseFilePath = './novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk'
