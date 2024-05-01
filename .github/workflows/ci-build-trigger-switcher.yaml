@@ -20,13 +20,13 @@ jobs:
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags
-    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow"]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
+    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api"]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
   call-external-on-pull-request-merged:
     name: Call Builder On Merge PR
-    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow"]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
+    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api"]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
