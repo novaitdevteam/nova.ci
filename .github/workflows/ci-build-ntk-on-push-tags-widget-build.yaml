@@ -127,3 +127,21 @@ jobs:
           to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
           message: ${{ steps.telegram_message.outputs.value }}
+
+      - name: Send Message To GChat
+        uses: actions/github-script@v7 
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          debug: 'true'
+          script: |
+            async function webhook() {
+              const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
+              const res = await fetch(url, {
+                method: "POST",
+                headers: {"Content-Type": "application/json; charset=UTF-8"},
+                body: JSON.stringify({text: `${{ steps.telegram_message.outputs.value }}`})
+              });
+              return await res.json();
+            }
+            
+            webhook();
