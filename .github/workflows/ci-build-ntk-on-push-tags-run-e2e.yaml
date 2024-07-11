@@ -1,0 +1,190 @@
+name: CI E2E Tests NTK on Push TAG
+on:
+  workflow_call:
+
+defaults:
+  run:
+    working-directory: /home/runner/work/
+
+jobs:
+  build-tests:
+    name: Run Playwright Tests
+    runs-on: self-hosted
+    environment: ${{ inputs.environment }}
+    outputs:
+      REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
+      RELEASE: ${{ steps.prep.outputs.RELEASE }}
+      REPORT: ${{ steps.report.outputs.artifact-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+    
+      - name: Prepare Vars
+        id: prep
+        run: |
+          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          if [[ ${{ github.ref_type }} == 'branch' ]]; then
+            echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          else
+            echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          fi
+
+
+      - name: Delete Tag
+        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        with:
+          #delete_release: false # default: false
+          tag_name: ${{ github.ref_name }} # tag name to delete
+          #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 💿 Setup NODEJS
+        uses: actions/setup-node@v4
+        id: node_inst
+        with:
+          node-version: 20
+
+      - name: ▶️ Install Node.js dependencies
+        run: ls -la ./ && npm ci
+        working-directory: ./
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+        working-directory: ./
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ./browsers
+
+
+      - name: 🚶 Run One Test
+        if: ${{ contains(github.ref_name, 'int-test') && endsWith( github.ref_name, '.ts' ) }}
+        run: |
+          echo ${{ github.ref_name }} | cut -d "-" -f2- | npx playwright test
+        working-directory: ./
+        env:
+          ENV_URL: ${{ secrets.LAB_ENV_URL }}
+          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_BOTFLOW_ADMIN_LOGIN }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_BOTFLOW_ADMIN_PASSWORD }}
+          UI_ADMIN_LOGIN: ${{ secrets.LAB_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.LAB_UI_ADMIN_PASSWORD }}
+          API_TOKEN: ${{ secrets.LAB_API_TOKEN }}
+          PLAYWRIGHT_BROWSERS_PATH: ./browsers
+
+      - name: 🏃 Run All Tests
+        if: ${{ endsWith( github.ref_name, 'playtest' ) }}
+        run: npx playwright test # QANT-16-TimerStatus.spec.ts
+        # run: env; npx playwright test #--grep @bug
+        working-directory: ./
+        env:
+          ENV_URL: ${{ secrets.LAB_ENV_URL }}
+          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_BOTFLOW_ADMIN_LOGIN }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_BOTFLOW_ADMIN_PASSWORD }}
+          UI_ADMIN_LOGIN: ${{ secrets.LAB_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.LAB_UI_ADMIN_PASSWORD }}
+          API_TOKEN: ${{ secrets.LAB_API_TOKEN }}
+          PLAYWRIGHT_BROWSERS_PATH: ./browsers
+
+      - name: Save Artifact
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        id: report
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+        
+  publish-report-r2:
+    name: Publish HTML Report
+    # using always() is not ideal here, because it would also run if the workflow was cancelled
+    if: always()
+    needs: [build-tests]
+    runs-on: self-hosted
+    continue-on-error: true
+    env:
+      # Unique URL path for each workflow run attempt
+      HTML_REPORT_URL_PATH: reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}
+    steps:
+      - name: Download zipped HTML report
+        uses: actions/download-artifact@v4
+        with:
+          name: playwright-report
+          path: ${{ env.HTML_REPORT_URL_PATH }}
+
+      - name: install AWS cli
+        working-directory: ./
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -qq awscliv2.zip
+          sudo ./aws/install
+          aws --version
+
+      - name: Upload to R2
+        working-directory: ./
+        run: |
+          aws configure list
+          aws --endpoint-url  https://ae13ef8b693e69bc0f56090c9854eeea.r2.cloudflarestorage.com/ s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://playwright/${{ env.HTML_REPORT_URL_PATH }} --recursive
+        env:  
+          AWS_ACCESS_KEY_ID: ${{ secrets.LAB_AWS_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.LAB_AWS_S3_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eeur"
+
+  notify-telegram:
+    name: Notifier
+    runs-on: self-hosted
+    if: always()
+    needs: [build-tests, publish-report-r2]
+    steps:
+
+      - name: Set Telegram Message
+        uses: haya14busa/action-cond@v1
+        id: telegram_message
+        with:
+          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+          if_true: |
+            👷 ${{ github.actor }} created e2e tag.
+            
+            Playwright tests have been completed ✅
+            
+            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
+            ▶️ Web View Report: https://pub-049f3edc1adf4a598d120d2e4a254436.r2.dev/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+       
+            Repository: ${{ github.repository }}
+          if_false: |
+            👷 ${{ github.actor }} created e2e tag.
+            
+            ❌Playwright tests have been failed
+
+            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
+            ▶️ Web View Report: https://pub-049f3edc1adf4a598d120d2e4a254436.r2.dev/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+ 
+            Repository: ${{ github.repository }}  
+    
+      - name: Send to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          message: ${{ steps.telegram_message.outputs.value }}
+
+    #   - name: Send Message To GChat
+    #     uses: actions/github-script@v7 
+    #     with:
+    #       github-token: ${{ secrets.GITHUB_TOKEN }}
+    #       debug: 'true'
+    #       script: |
+    #         async function webhook() {
+    #           const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
+    #           const res = await fetch(url, {
+    #             method: "POST",
+    #             headers: {"Content-Type": "application/json; charset=UTF-8"},
+    #             body: JSON.stringify({text: `${{ steps.telegram_message.outputs.value }}`})
+    #           });
+    #           return await res.json();
+    #         }
+            
+    #         webhook();
+    
