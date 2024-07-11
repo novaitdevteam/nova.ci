@@ -66,12 +66,12 @@ jobs:
           echo ${{ github.ref_name }} | cut -d "-" -f2- | npx playwright test
         working-directory: ./
         env:
-          ENV_URL: ${{ secrets.LAB_ENV_URL }}
-          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_BOTFLOW_ADMIN_LOGIN }}
-          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_BOTFLOW_ADMIN_PASSWORD }}
-          UI_ADMIN_LOGIN: ${{ secrets.LAB_UI_ADMIN_LOGIN }}
-          UI_ADMIN_PASSWORD: ${{ secrets.LAB_UI_ADMIN_PASSWORD }}
-          API_TOKEN: ${{ secrets.LAB_API_TOKEN }}
+          ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
+          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
+          UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
+          API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
       - name: 🏃 Run All Tests
@@ -80,12 +80,12 @@ jobs:
         # run: env; npx playwright test #--grep @bug
         working-directory: ./
         env:
-          ENV_URL: ${{ secrets.LAB_ENV_URL }}
-          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_BOTFLOW_ADMIN_LOGIN }}
-          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_BOTFLOW_ADMIN_PASSWORD }}
-          UI_ADMIN_LOGIN: ${{ secrets.LAB_UI_ADMIN_LOGIN }}
-          UI_ADMIN_PASSWORD: ${{ secrets.LAB_UI_ADMIN_PASSWORD }}
-          API_TOKEN: ${{ secrets.LAB_API_TOKEN }}
+          ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
+          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
+          UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
+          API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
       - name: Save Artifact
@@ -126,8 +126,9 @@ jobs:
         working-directory: ./
         run: |
           aws configure list
-          aws --endpoint-url  https://ae13ef8b693e69bc0f56090c9854eeea.r2.cloudflarestorage.com/ s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://playwright/${{ env.HTML_REPORT_URL_PATH }} --recursive
-        env:  
+          aws --endpoint-url  ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://playwright/${{ env.HTML_REPORT_URL_PATH }} --recursive
+        env:
+          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
           AWS_ACCESS_KEY_ID: ${{ secrets.LAB_AWS_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.LAB_AWS_S3_SECRET_ACCESS_KEY }}
           AWS_REGION: "eeur"
@@ -163,12 +164,12 @@ jobs:
  
             Repository: ${{ github.repository }}  
     
-      - name: Send to Telegram
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
-          token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
-          message: ${{ steps.telegram_message.outputs.value }}
+      # - name: Send to Telegram
+      #   uses: appleboy/telegram-action@master
+      #   with:
+      #     to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+      #     token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+      #     message: ${{ steps.telegram_message.outputs.value }}
 
     #   - name: Send Message To GChat
     #     uses: actions/github-script@v7 
