@@ -43,6 +43,51 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: install AWS cli
+        working-directory: ./
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -qq awscliv2.zip
+          sudo ./aws/install
+          aws --version
+
+      - name: Install psql, redis tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt update
+          sudo apt -y install postgresql-client-15
+          psql --version
+          curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+          sudo apt update
+          sudo apt install redis-tools=6:7.0.0-1rl1~focal1
+          redis-cli -v
+
+      - name: Restore DB on Lab e2e
+        run: |
+          lastdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/lab-e2e-backup/manual/postgres/ --recursive | sort | tail -n 1);
+          aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${lastdump##* } ./last_backup.gz --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200;
+          echo "..download complete";
+          echo "Starting Restore..";
+          dropdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -f -e --if-exists;
+          createdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -O $PGUSER -e;
+          pg_restore -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -v ./last_backup.gz;
+          psql -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -c "VACUUM ANALYZE;";
+        working-directory: ./
+        env:
+          PGHOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
+          PGDATABASE: ${{ secrets.LAB_E2E_DATABASE_NAME }}
+          PGPASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
+          PGUSER: ${{ secrets.LAB_E2E_DATABASE_USER }}
+          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+          AWS_REGION: "eeur"
+
+
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v4
         id: node_inst
@@ -63,7 +108,7 @@ jobs:
       - name: 🚶 Run One Test
         if: ${{ contains(github.ref_name, 'playtest') && endsWith( github.ref_name, '.ts' ) }}
         run: |
-          echo ${{ github.ref_name }} | cut -d "-" -f2- | npx playwright test
+          echo ${{ github.ref_name }} | cut -d "-" -f2- | xargs npx playwright test
         working-directory: ./
         env:
           ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
