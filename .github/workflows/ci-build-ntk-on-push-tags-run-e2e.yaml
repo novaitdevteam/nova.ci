@@ -61,7 +61,7 @@ jobs:
 
 
       - name: 🚶 Run One Test
-        if: ${{ contains(github.ref_name, 'int-test') && endsWith( github.ref_name, '.ts' ) }}
+        if: ${{ contains(github.ref_name, 'playtest') && endsWith( github.ref_name, '.ts' ) }}
         run: |
           echo ${{ github.ref_name }} | cut -d "-" -f2- | npx playwright test
         working-directory: ./
