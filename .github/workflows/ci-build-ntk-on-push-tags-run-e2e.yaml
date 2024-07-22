@@ -129,8 +129,8 @@ jobs:
           aws --endpoint-url  ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://playwright/${{ env.HTML_REPORT_URL_PATH }} --recursive
         env:
           AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.LAB_AWS_S3_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.LAB_AWS_S3_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eeur"
 
   notify-telegram:
@@ -151,7 +151,7 @@ jobs:
             Playwright tests have been completed ✅
             
             ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://pub-049f3edc1adf4a598d120d2e4a254436.r2.dev/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
        
             Repository: ${{ github.repository }}
           if_false: |
@@ -160,7 +160,7 @@ jobs:
             ❌Playwright tests have been failed
 
             ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://pub-049f3edc1adf4a598d120d2e4a254436.r2.dev/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
  
             Repository: ${{ github.repository }}  
     
