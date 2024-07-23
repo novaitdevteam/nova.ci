@@ -97,7 +97,7 @@ jobs:
           backup=$(ls ./redis);
           for key in $backup; do redis-cli -h $REDIS_HOST -n 15 -x SET "nr:$(echo $key | cut -d '_' -f 1)" < ./redis/${key}; done &&
           echo "Restore complete";
-          token=$(curl -s $BOTFLOW_URL/redbot/auth/token --data 'client_id=node-red-admin&grant_type=password&scope=*&username=${{ secrets.LAB_BOTFLOW_ADMIN_LOGIN }}&password=${{ secrets.LAB_BOTFLOW_ADMIN_PASSWORD }}' -k | grep -i access_token | awk -F '"' '{print $4}');
+          token=$(curl -s $BOTFLOW_URL/redbot/auth/token --data 'client_id=node-red-admin&grant_type=password&scope=*&username=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}&password=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}' -k | grep -i access_token | awk -F '"' '{print $4}');
           curl -vs -X POST $BOTFLOW_URL/redbot/flows -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
           curl -vs -X POST $BOTFLOW_URL/redbot/auth/revoke -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
           echo "Botflow reloaded";
