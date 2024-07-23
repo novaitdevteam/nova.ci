@@ -87,6 +87,31 @@ jobs:
           AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
           AWS_REGION: "eeur"
 
+      - name: Sync QA Flow
+        run: |
+          mkdir ./redis
+          lastredisdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/test-lab-qa-max/manual/redis/ --recursive | grep manual | sort | tr -s ' ' | tail -n 4 | cut -d ' ' -f 4);
+          for path in $lastredisdump; do aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${path} ./redis/ --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200; done &&
+          echo "..download complete";
+          redis-cli -h $REDIS_HOST -n 15 FLUSHDB;
+          backup=$(ls ./redis);
+          for key in $backup; do redis-cli -h $REDIS_HOST -n 15 -x SET "nr:$(echo $key | cut -d '_' -f 1)" < ./redis/${key}; done &&
+          echo "Restore complete";
+          token=$(curl -s $BOTFLOW_URL/redbot/auth/token --data 'client_id=node-red-admin&grant_type=password&scope=*&username=${{ secrets.LAB_BOTFLOW_ADMIN_LOGIN }}&password=${{ secrets.LAB_BOTFLOW_ADMIN_PASSWORD }}' -k | grep -i access_token | awk -F '"' '{print $4}');
+          curl -vs -X POST $BOTFLOW_URL/redbot/flows -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
+          curl -vs -X POST $BOTFLOW_URL/redbot/auth/revoke -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
+          echo "Botflow reloaded";
+        working-directory: ./
+        env:
+          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+          AWS_REGION: "eeur"
+          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
+          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
+          REDIS_HOST: ${{ secrets.LAB_E2E_REDIS_HOST }}
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v4
