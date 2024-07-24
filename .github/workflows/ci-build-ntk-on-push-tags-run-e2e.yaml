@@ -137,6 +137,7 @@ jobs:
         working-directory: ./
         env:
           ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
+          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
           BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
           UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
@@ -151,6 +152,7 @@ jobs:
         working-directory: ./
         env:
           ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
+          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
           BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
           UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
