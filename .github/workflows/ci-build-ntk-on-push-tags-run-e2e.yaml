@@ -87,6 +87,18 @@ jobs:
           AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
           AWS_REGION: "eeur"
 
+      - name: Restart Engine in pod
+        run: |
+          curl $ENGINE_URL:1234/restart
+          until [ "$(curl -s -w '%{http_code}' -o /dev/null "$ENGINE_URL:3000/auth/validate_token")" -eq 401 ];
+          do
+            sleep 5;
+          done;
+          echo "Engine API ready";
+        working-directory: ./
+        env:
+          ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
+
       - name: Sync QA Flow
         run: |
           mkdir ./redis
@@ -108,7 +120,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
           AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
           AWS_REGION: "eeur"
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
+          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }} #Must be Base URL + adminPath, for example /redbot
           BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
           REDIS_HOST: ${{ secrets.LAB_E2E_REDIS_HOST }}
@@ -137,7 +149,7 @@ jobs:
         working-directory: ./
         env:
           ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
+          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }} #Must be Base URL + adminPath, for example /redbot
           BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
           UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
@@ -152,7 +164,7 @@ jobs:
         working-directory: ./
         env:
           ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
+          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }} #Must be Base URL + adminPath, for example /redbot
           BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
           UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
