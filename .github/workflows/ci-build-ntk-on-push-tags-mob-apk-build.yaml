@@ -114,7 +114,9 @@ jobs:
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           mv ./src-capacitor/android/app/build/outputs/bundle/release/app-release.aab ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --min-sdk-version 22 --v1-signing-enabled true --v2-signing-enabled true ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
           $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
           zip novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.zip ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
 
       - name: Create an Internal Release
