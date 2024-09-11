@@ -15,6 +15,7 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
+      TIMESTAMP: ${{ steps.prep.outputs.TIMESTAMP }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +26,7 @@ jobs:
           echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "TIMESTAMP=`echo $(date +'%Y%m%dT%H%M')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           if [[ ${{ github.ref_type }} == 'branch' ]]; then
             echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           else
@@ -108,10 +110,12 @@ jobs:
           npm install
           yarn run icongenie:android
           chmod +x ./src-capacitor/android/gradlew
-          quasar build -m capacitor -T android      
+          quasar build -m capacitor -T android -- bundleRelease
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          mv ./src-capacitor/android/app/build/outputs/bundle/release/app-release.aab ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          zip novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.zip ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
 
       - name: Create an Internal Release
         id: create_release
@@ -132,8 +136,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          asset_name: novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          asset_path: ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.zip
+          asset_name: novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.zip
           asset_content_type: application/zip
 
       - name: Publish Pre-Release to External Pub Repo
@@ -195,7 +199,7 @@ jobs:
             👷 ${{ github.actor }} created deploy tag.
             
             Image building has been completed ✅
-            Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite-${{ needs.build-apk.outputs.SHORT_REF_NAME }}-${{ needs.build-apk.outputs.SHORT_SHA }}.apk
+            Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks.mobile_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.TIMESTAMP }}.zip
             🔗 Public Download Link: https://github.com/novaitdevteam/novatalks.mobile/releases/download/GIT_NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite.apk
 
             Repository: ${{ github.repository }}  
