@@ -84,11 +84,23 @@ jobs:
           while read -r line; do param=( $line ); if [[ "${param[0]}" == "novatalksVersion" ]]; then ver=${param[2]}; fi; done < ./src-capacitor/android/variables.gradle
           if [ -z "$ver" ];
           then
-              sed -i "2i \    \ novatalksVersion = 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}'" ./src-capacitor/android/variables.gradle            
+              sed -i "2i \    \ novatalksVersion = 'novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}'" ./src-capacitor/android/variables.gradle            
           else
-              sed -i s/$ver/\'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}\'/g ./src-capacitor/android/variables.gradle
+              sed -i s/$ver/\'novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}\'/g ./src-capacitor/android/variables.gradle
           fi;
-          cat ./src-capacitor/android/variables.gradle         
+          cat ./src-capacitor/android/variables.gradle
+
+      - name: Change versionCode
+        run: |
+          vercode=""; 
+          while read -r line; do param=( $line ); if [[ "${param[0]}" == "versionCode" ]]; then vercode=${param[1]}; fi; done < ./src-capacitor/android/app/build.gradle
+          if [ -z "$vercode" ];
+          then
+              sed -i "11i \    \ versionCode 1" ./src-capacitor/android/app/build.gradle       
+          else
+              sed -i s/'versionCode '$vercode/'versionCode '$(expr $vercode + 1)/g ./src-capacitor/android/app/build.gradle
+          fi;
+          cat ./src-capacitor/android/app/build.gradle
         
 
       - name: Setup Components & Build
@@ -111,12 +123,12 @@ jobs:
           yarn run icongenie:android
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android -- bundleRelease
-          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          mv ./src-capacitor/android/app/build/outputs/bundle/release/app-release.aab ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
-          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --min-sdk-version 22 --v1-signing-enabled true --v2-signing-enabled true ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
-          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          zip novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.zip ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.aab
+          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.apk
+          mv ./src-capacitor/android/app/build/outputs/bundle/release/app-release.aab ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.aab
+          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.apk
+          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.ANDROID_APK_P12_KEYSTORE_PASSWORD }} --min-sdk-version 22 --v1-signing-enabled true --v2-signing-enabled true ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.aab
+          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.apk
+          zip novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.zip ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.apk ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.aab
 
       - name: Create an Internal Release
         id: create_release
@@ -164,12 +176,12 @@ jobs:
                       tag_name: 'GIT_NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}',
                     });
                     releaseID = release.data.id
-                    releaseFilePath = './novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk'
+                    releaseFilePath = './novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.apk'
                     let uploadAPK = await github.rest.repos.uploadReleaseAsset({
                         owner: context.repo.owner,
                         repo,
                         release_id: releaseID,
-                        name: 'novatalks-ui-lite.apk',
+                        name: 'novatalks.mobile.apk',
                         data: fs.readFileSync(releaseFilePath),
                       });         
                     return result;
@@ -201,7 +213,7 @@ jobs:
             
             Image building has been completed ✅
             Download Link: https://github.com/novaitdevteam/novatalks.ui-lite/releases/download/NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks.mobile_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.TIMESTAMP }}.zip
-            🔗 Public Download Link: https://github.com/novaitdevteam/novatalks.mobile/releases/download/GIT_NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks-ui-lite.apk
+            🔗 Public Download Link: https://github.com/novaitdevteam/novatalks.mobile/releases/download/GIT_NTK.UI-LITE_${{ needs.build-apk.outputs.RELEASE }}_${{ needs.build-apk.outputs.SHORT_REF_NAME }}_${{ needs.build-apk.outputs.SHORT_SHA }}/novatalks.mobile.apk
 
             Repository: ${{ github.repository }}  
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
