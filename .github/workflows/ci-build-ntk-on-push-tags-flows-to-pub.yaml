@@ -1,0 +1,120 @@
+name: CI Call API NTK on Push TAG
+on:
+  workflow_call:
+
+jobs:
+  pushToPub:
+    name: Call github API
+    runs-on: self-hosted
+    environment: ${{ inputs.environment }}
+    # permissions:
+    #   contents: read
+    #   packages: write
+    permissions: write-all
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Delete Tag
+        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        with:
+          #delete_release: false # default: false
+          tag_name: ${{ github.ref_name }} # tag name to delete
+          #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/github-script@v7 
+        with:
+          github-token: ${{ secrets.CI_GITHUB_PAT }}
+          debug: 'true'
+          script: |
+            // Input Parameters
+            const ref =  'heads/main';
+            const owner = context.repo.owner;
+            const author = {
+              name: 'Autodeploy Call',
+              email: 'support@novait.com.ua',
+            };
+            const pubRepo = 'novatalks.flows';
+            const privateRepo = context.repo.repo;
+            const syncPath = 'template_flows';
+
+            // Octokit Functions
+            async function getCommit(repo) {
+              try {
+                  let commits = await github.rest.repos.listCommits({
+                    owner,
+                    repo,
+                  });
+                  await Promise.all([commits]);
+                  return commits;
+              } catch (err) {
+              console.log('Error: ' + err)
+              }
+            };
+            async function getContent(repo, path, ref) {
+              try {
+                let content = await github.rest.repos.getContent({
+                  owner,
+                  repo,
+                  path,
+                  ref
+                });
+                await Promise.all([content]);
+                return content;
+              } catch (err) {
+              console.log('Error: ' + err)
+              }
+            };
+
+            // Main Function
+            async function syncFiles() {
+              const syncItems = [];
+              try {
+                let lastPubCommit = await getCommit(pubRepo).then(data => {return data.data[0].sha;});
+                let lastPrivateCommit = await getCommit(privateRepo).then(data => {return data.data[0].sha;});
+                let filesPrivateCommit = await getContent(privateRepo, syncPath, lastPrivateCommit);
+                for (const element of filesPrivateCommit.data) {
+                  const path = syncPath + '/' + element.name ;
+                  const fileData = await getContent(privateRepo, path, lastPrivateCommit);
+                  const files = fileData.data;
+                  syncItems.push({
+                      mode: '100644',
+                      path,
+                      content: Buffer.from(files.content, files.encoding).toString()
+                  });
+                };
+                let { data: { sha: treeSHA }, } = await github.rest.git.createTree ({
+                  owner,
+                  repo: pubRepo,
+                  tree: syncItems,
+                  base_tree: lastPubCommit,
+                });
+                let { data: { sha: newCommitSHA  }, } = await github.rest.git.createCommit({
+                  owner,
+                  repo: pubRepo,
+                  author,
+                  tree: treeSHA,
+                  message: 'Created from ' + privateRepo + ' commit ' + lastPrivateCommit + ' by CI',
+                  parents: [lastPubCommit],
+                }); 
+                let result = await github.rest.git.updateRef({
+                  owner,
+                  repo: pubRepo,
+                  ref,
+                  sha: newCommitSHA,
+                });
+                return result;
+              } catch (e) {
+                console.log(e)
+              }
+            };
+
+            // Run Syncing files from local repo to pub
+            syncFiles().then( data => { console.log( data.headers.server + ' responded '+ data.status)})
+            
+
+
+
+
