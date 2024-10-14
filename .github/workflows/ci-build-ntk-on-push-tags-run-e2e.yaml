@@ -156,6 +156,11 @@ jobs:
           UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
           API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
+          DB_HOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
+          DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
+          DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
+          DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
+          DB_PORT: "5432"       
 
       - name: 🏃 Run All Tests
         if: ${{ endsWith( github.ref_name, 'playtest' ) }}
@@ -171,6 +176,11 @@ jobs:
           UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
           API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
+          DB_HOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
+          DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
+          DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
+          DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
+          DB_PORT: "5432"      
 
       - name: Save Artifact
         uses: actions/upload-artifact@v4
