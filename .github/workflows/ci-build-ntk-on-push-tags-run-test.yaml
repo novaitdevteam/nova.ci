@@ -90,16 +90,28 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
 
-      - name: 🏃 Run Test Modules
+      # - name: 🏃 Run Test Modules
+      #   if: ${{ endsWith( github.ref_name, 'int-test' ) }}
+      #   run: npm run test #--loglevel info
+      #   #run: npm run test account.controller.integration.spec.ts #--loglevel info
+      #   #run: npm run test inbox.controller.integration.spec.ts
+      #   env:
+      #     NODE_ENV: development
+      #     NODE_OPTIONS: "--max-old-space-size=8192"
+      #     LOG_LEVEL: "error"
+      #     UV_THREADPOOL_SIZE: 32
+
+      - name: 🏃 Run Test Modules by Files
         if: ${{ endsWith( github.ref_name, 'int-test' ) }}
-        run: npm run test #--loglevel info
-        #run: npm run test account.controller.integration.spec.ts #--loglevel info
-        #run: npm run test inbox.controller.integration.spec.ts
+        run: |
+          a=1; 
+          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -ge 5 ]; then break; fi; npm run test ${i##*/}; ((a++)); done
         env:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
           UV_THREADPOOL_SIZE: 32
+
 
       - name: End Step On Failure
         if: failure()
