@@ -87,17 +87,7 @@ jobs:
           AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
           AWS_REGION: "eeur"
 
-      - name: Restart Engine in pod
-        run: |
-          curl $ENGINE_URL:1234/restart
-          until [ "$(curl -s -w '%{http_code}' -o /dev/null "$ENGINE_URL:3000/auth/validate_token")" -eq 401 ];
-          do
-            sleep 5;
-          done;
-          echo "Engine API ready";
-        working-directory: ./
-        env:
-          ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
+
 
       - name: Sync QA Flow
         run: |
@@ -106,6 +96,7 @@ jobs:
           for path in $lastredisdump; do aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${path} ./redis/ --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200; done &&
           echo "..download complete";
           redis-cli -h $REDIS_HOST -n 15 FLUSHDB;
+          redis-cli -h $REDIS_HOST FLUSHALL;
           backup=$(ls ./redis);
           for key in $backup; do redis-cli -h $REDIS_HOST -n 15 -x SET "nr:$(echo $key | cut -d '_' -f 1)" < ./redis/${key}; done &&
           echo "Restore complete";
@@ -124,6 +115,19 @@ jobs:
           BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
           REDIS_HOST: ${{ secrets.LAB_E2E_REDIS_HOST }}
+
+      - name: Restart Engine in pod
+        run: |
+          curl $ENGINE_URL:1234/restart
+          until [ "$(curl -s -w '%{http_code}' -o /dev/null "$ENGINE_URL:3000/auth/validate_token")" -eq 401 ];
+          do
+            sleep 5;
+          done;
+          echo "Engine API ready";
+        working-directory: ./
+        env:
+          ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
+
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v4
