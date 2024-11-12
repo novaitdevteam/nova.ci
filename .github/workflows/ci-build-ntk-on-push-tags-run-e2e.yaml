@@ -141,7 +141,9 @@ jobs:
         working-directory: ./
 
       - name: Install Playwright Browsers
-        run: npx playwright install chromium
+        run: |
+          npx playwright install-deps chromium
+          npx playwright install chromium
         working-directory: ./
         env:
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
