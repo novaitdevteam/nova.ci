@@ -40,7 +40,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     outputs:
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}    
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
+      REPORT: ${{ steps.report.outputs.artifact-url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -104,14 +105,24 @@ jobs:
       - name: 🏃 Run Test Modules by Files
         if: ${{ endsWith( github.ref_name, 'int-test' ) }}
         run: |
-          a=1; 
-          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -ge 5 ]; then break; fi; npm run test ${i##*/}; ((a++)); done
+          a=$(find ./src -name '*.spec.ts' | wc -l); 
+          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 20 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt; ((a--)); done
         env:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
           UV_THREADPOOL_SIZE: 32
+          FORCE_COLOR: "false"
+          NO_COLOR: "true"
 
+      - name: Save Artifact
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        id: report
+        with:
+          name: unit-test-report
+          path: ./results.txt
+          retention-days: 30
 
       - name: End Step On Failure
         if: failure()
@@ -135,8 +146,9 @@ jobs:
             
             Test assembly has been completed ✅
             
-            Repository: ${{ github.repository }}  
-            See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
+            Repository: ${{ github.repository }}
+            ▶️ GitHub Playwright Artifact: ${{ needs.e2e-test.outputs.REPORT }}
+
           if_false: |
             👷 ${{ github.actor }} start test
             
