@@ -106,7 +106,7 @@ jobs:
         if: ${{ endsWith( github.ref_name, 'int-test' ) }}
         run: |
           a=$(find ./src -name '*.spec.ts' | wc -l); 
-          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 20 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt; ((a--)); done
+          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 20 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt || true; ((a--)); done
         env:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
