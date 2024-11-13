@@ -108,7 +108,7 @@ jobs:
         shell: bash {0}
         run: |
           a=$(find ./src -name '*.spec.ts' | wc -l); 
-          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test: '$i' with exit code '$? ; ((a--)) ; done
+          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test '$i' completed with exit code '$? ; ((a--)) ; done
         env:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
@@ -149,7 +149,7 @@ jobs:
             Test assembly has been completed ✅
             
             Repository: ${{ github.repository }}
-            ▶️ GitHub Playwright Artifact: ${{ needs.e2e-test.outputs.REPORT }}
+            ▶️ GitHub Artifact: ${{ needs.e2e-test.outputs.REPORT }}
 
           if_false: |
             👷 ${{ github.actor }} start test
