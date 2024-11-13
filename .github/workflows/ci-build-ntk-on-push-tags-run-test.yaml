@@ -77,7 +77,7 @@ jobs:
           #NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           npm pkg delete scripts.prepare
-          npm install --loglevel info
+          npm ci
           
       - name: ▶️ Migrate DB
         run: npm run db:migrate #--loglevel info
