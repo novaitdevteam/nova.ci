@@ -18,7 +18,7 @@ jobs:
     environment: ${{ inputs.environment }}
     services:
       postgres:
-        image: postgres:12
+        image: postgres:15.5
         env:
           POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
           POSTGRES_DB: ${{ env.DATABASE_NAME }}
@@ -57,7 +57,7 @@ jobs:
         uses: actions/setup-node@v3
         id: node_inst
         with:
-          node-version: 18.12
+          node-version: 18.19
 
 
       - name: ▶️ Get Env From Example
@@ -106,7 +106,7 @@ jobs:
         if: ${{ endsWith( github.ref_name, 'int-test' ) }}
         run: |
           a=$(find ./src -name '*.spec.ts' | wc -l); 
-          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 20 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt || true; ((a--)); done
+          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 20 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test: '$i' with exit code '$? ; ((a--)) ; done
         env:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
