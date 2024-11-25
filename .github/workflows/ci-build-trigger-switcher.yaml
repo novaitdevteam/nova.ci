@@ -62,6 +62,12 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
     secrets: inherit
 
+  call-external-on-push-tags-mob-spa-build:
+    name: Call Mobile SPA Build On Push Tags
+    if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-spa') }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
+    secrets: inherit
+  
 
   call-external-on-push-tags-widget-build:
     name: Call GH Pages Deploy On Push Tags
