@@ -196,7 +196,7 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 30
+          retention-days: 3
         
   publish-report-r2:
     name: Publish HTML Report
