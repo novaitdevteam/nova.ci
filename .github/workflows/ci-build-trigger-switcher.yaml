@@ -21,8 +21,6 @@ jobs:
     if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine" ]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
-    with:
-      debug-log: true
 
   debug-step:
     runs-on: ubuntu-latest
