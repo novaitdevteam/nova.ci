@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       test_tags:
-        description: "Tags (ex. "@smoke", "@smoke + @regression"). If no tag - all tests will run"
+        description: "Tags (ex. '@smoke', '@smoke + @regression'). If no tag - all tests will run"
         required: false
 
 defaults:
@@ -23,214 +23,214 @@ jobs:
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Prepare Vars
-        id: prep
-        run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          if [[ ${{ github.ref_type }} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          else
-            echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          fi
+    - name: Prepare Vars
+      id: prep
+      run: |
+        echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+        echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+        echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+        if [[ ${{ github.ref_type }} == 'branch' ]]; then
+          echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+        else
+          echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+        fi
 
-      - name: Install AWS CLI
-        working-directory: ./
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install
-          aws --version
+    - name: Install AWS CLI
+      working-directory: ./
+      run: |
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip -qq awscliv2.zip
+        sudo ./aws/install
+        aws --version
 
-      - name: Install psql, redis tools
-        run: |
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt update
-          sudo apt -y install postgresql-client-15
-          psql --version
-          curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
-          sudo apt update
-          sudo apt install redis-tools=6:7.0.0-1rl1~focal1
-          redis-cli -v
+    - name: Install psql, redis tools
+      run: |
+        sudo install -d /usr/share/postgresql-common/pgdg
+        sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+        sudo apt update
+        sudo apt -y install postgresql-client-15
+        psql --version
+        curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+        sudo apt update
+        sudo apt install redis-tools=6:7.0.0-1rl1~focal1
+        redis-cli -v
 
-      - name: Restore DB on Lab e2e
-        run: |
-          lastdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/lab-e2e-backup/manual/postgres/ --recursive | sort | tail -n 1);
-          aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${lastdump##* } ./last_backup.gz --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200;
-          echo "..download complete";
-          echo "Starting Restore..";
-          dropdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -f -e --if-exists;
-          createdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -O $PGUSER -e;
-          pg_restore -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -v ./last_backup.gz;
-          psql -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -c "VACUUM ANALYZE;";
-        working-directory: ./
-        env:
-          PGHOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
-          PGDATABASE: ${{ secrets.LAB_E2E_DATABASE_NAME }}
-          PGPASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
-          PGUSER: ${{ secrets.LAB_E2E_DATABASE_USER }}
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
-          AWS_REGION: "eeur"
+    - name: Restore DB on Lab e2e
+      run: |
+        lastdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/lab-e2e-backup/manual/postgres/ --recursive | sort | tail -n 1);
+        aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${lastdump##* } ./last_backup.gz --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200;
+        echo "..download complete";
+        echo "Starting Restore..";
+        dropdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -f -e --if-exists;
+        createdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -O $PGUSER -e;
+        pg_restore -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -v ./last_backup.gz;
+        psql -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -c "VACUUM ANALYZE;";
+      working-directory: ./
+      env:
+        PGHOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
+        PGDATABASE: ${{ secrets.LAB_E2E_DATABASE_NAME }}
+        PGPASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
+        PGUSER: ${{ secrets.LAB_E2E_DATABASE_USER }}
+        AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+        AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+        AWS_REGION: "eeur"
 
-      - name: Sync QA Flow
-        run: |
-          mkdir ./redis
-          lastredisdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/test-lab-qa-max/manual/redis/ --recursive | grep manual | sort | tr -s ' ' | tail -n 4 | cut -d ' ' -f 4);
-          for path in $lastredisdump; do aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${path} ./redis/ --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200; done &&
-          echo "..download complete";
-          # redis-cli -h $REDIS_HOST -n 15 FLUSHDB;
-          # redis-cli -h $REDIS_HOST -n 1 FLUSHDB;
-          redis-cli -h $REDIS_HOST FLUSHALL;
-          backup=$(ls ./redis);
-          for key in $backup; do redis-cli -h $REDIS_HOST -n 15 -x SET "nr:$(echo $key | cut -d '_' -f 1)" < ./redis/${key}; done &&
-          echo "Restore complete";
-          token=$(curl -s $BOTFLOW_URL/auth/token --data 'client_id=node-red-admin&grant_type=password&scope=*&username=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}&password=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}' -k | grep -i access_token | awk -F '"' '{print $4}');
-          curl -vs -X POST $BOTFLOW_URL/flows -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
-          curl -vs -X POST $BOTFLOW_URL/auth/revoke -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
-          echo "Botflow reloaded";
-        working-directory: ./
-        env:
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
-          AWS_REGION: "eeur"
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
-          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
-          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
-          REDIS_HOST: ${{ secrets.LAB_E2E_REDIS_HOST }}
+    - name: Sync QA Flow
+      run: |
+        mkdir ./redis
+        lastredisdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/test-lab-qa-max/manual/redis/ --recursive | grep manual | sort | tr -s ' ' | tail -n 4 | cut -d ' ' -f 4);
+        for path in $lastredisdump; do aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${path} ./redis/ --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200; done &&
+        echo "..download complete";
+        # redis-cli -h $REDIS_HOST -n 15 FLUSHDB;
+        # redis-cli -h $REDIS_HOST -n 1 FLUSHDB;
+        redis-cli -h $REDIS_HOST FLUSHALL;
+        backup=$(ls ./redis);
+        for key in $backup; do redis-cli -h $REDIS_HOST -n 15 -x SET "nr:$(echo $key | cut -d '_' -f 1)" < ./redis/${key}; done &&
+        echo "Restore complete";
+        token=$(curl -s $BOTFLOW_URL/auth/token --data 'client_id=node-red-admin&grant_type=password&scope=*&username=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}&password=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}' -k | grep -i access_token | awk -F '"' '{print $4}');
+        curl -vs -X POST $BOTFLOW_URL/flows -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
+        curl -vs -X POST $BOTFLOW_URL/auth/revoke -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
+        echo "Botflow reloaded";
+      working-directory: ./
+      env:
+        AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+        AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+        AWS_REGION: "eeur"
+        BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
+        BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
+        BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
+        REDIS_HOST: ${{ secrets.LAB_E2E_REDIS_HOST }}
 
-      - name: Restart Engine in pod
-        run: |
-          curl $ENGINE_URL:1234/restart
-          until [ "$(curl -s -w '%{http_code}' -o /dev/null "$ENGINE_URL:3000/auth/validate_token")" -eq 401 ];
-          do
-            sleep 5;
-          done;
-          echo "Engine API ready";
-        working-directory: ./
-        env:
-          ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
+    - name: Restart Engine in pod
+      run: |
+        curl $ENGINE_URL:1234/restart
+        until [ "$(curl -s -w '%{http_code}' -o /dev/null "$ENGINE_URL:3000/auth/validate_token")" -eq 401 ];
+        do
+          sleep 5;
+        done;
+        echo "Engine API ready";
+      working-directory: ./
+      env:
+        ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
 
-      - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v4
-        id: node_inst
-        with:
-          node-version: 20
+    - name: 💿 Setup NODEJS
+      uses: actions/setup-node@v4
+      id: node_inst
+      with:
+        node-version: 20
 
-      - name: ▶️ Install Node.js dependencies
-        run: ls -la ./ && npm ci
-        working-directory: ./
+    - name: ▶️ Install Node.js dependencies
+      run: ls -la ./ && npm ci
+      working-directory: ./
 
-      - name: Install Playwright Browsers
-        run: |
-          npx playwright install-deps chromium
-          npx playwright install chromium
-        working-directory: ./
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ./browsers
+    - name: Install Playwright Browsers
+      run: |
+        npx playwright install-deps chromium
+        npx playwright install chromium
+      working-directory: ./
+      env:
+        PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
-      - name: Run Playwright Tests
-        run: |
-          TEST_TAGS="${{ github.event.inputs.test_tags }}"
-          if [ -z "$TEST_TAGS" ]; then
-            echo "Теги не заданы. Запускаем все тесты..."
-            npx playwright test
-          else
-            GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
-            echo "Запускаем тесты с тегами: $GREP_PATTERN"
-            npx playwright test --grep "$GREP_PATTERN"
-          fi
-        working-directory: ./
-        env:
-          ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
-          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
-          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
-          UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
-          UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
-          API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
-          PLAYWRIGHT_BROWSERS_PATH: ./browsers
-          DB_HOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
-          DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
-          DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
-          DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
-          DB_PORT: "5432"
+    - name: Run Playwright Tests
+      run: |
+        TEST_TAGS="${{ github.event.inputs.test_tags }}"
+        if [ -z "$TEST_TAGS" ]; then
+          echo "Теги не заданы. Запускаем все тесты..."
+          npx playwright test
+        else
+          GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
+          echo "Запускаем тесты с тегами: $GREP_PATTERN"
+          npx playwright test --grep "$GREP_PATTERN"
+        fi
+      working-directory: ./
+      env:
+        ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
+        BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
+        BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
+        BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
+        UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
+        UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
+        API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
+        PLAYWRIGHT_BROWSERS_PATH: ./browsers
+        DB_HOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
+        DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
+        DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
+        DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
+        DB_PORT: "5432"
 
-      - name: Save Artifact
-        uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        id: report
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 3
+    - name: Save Artifact
+      uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      id: report
+      with:
+        name: playwright-report
+        path: playwright-report/
+        retention-days: 3
 
   publish-report-r2:
     name: Publish HTML Report
     if: always()
-    needs: [build-tests]
+    needs: [ build-tests ]
     runs-on: self-hosted
     continue-on-error: true
     env:
       HTML_REPORT_URL_PATH: reports/manual/${{ github.run_id }}/${{ github.run_attempt }}
     steps:
-      - name: Download zipped HTML report
-        uses: actions/download-artifact@v4
-        with:
-          name: playwright-report
-          path: ${{ env.HTML_REPORT_URL_PATH }}
+    - name: Download zipped HTML report
+      uses: actions/download-artifact@v4
+      with:
+        name: playwright-report
+        path: ${{ env.HTML_REPORT_URL_PATH }}
 
-      - name: Install AWS CLI
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install
-          aws --version
+    - name: Install AWS CLI
+      run: |
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip -qq awscliv2.zip
+        sudo ./aws/install
+        aws --version
 
-      - name: Upload to R2
-        run: |
-          aws configure list
-          aws --endpoint-url ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://${{ env.AWS_BUCKET }}/${{ env.HTML_REPORT_URL_PATH }} --recursive
-        env:
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
-          AWS_REGION: "eeur"
+    - name: Upload to R2
+      run: |
+        aws configure list
+        aws --endpoint-url ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://${{ env.AWS_BUCKET }}/${{ env.HTML_REPORT_URL_PATH }} --recursive
+      env:
+        AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+        AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+        AWS_REGION: "eeur"
 
   notify-telegram:
     name: Notifier
     runs-on: self-hosted
     if: always()
-    needs: [build-tests, publish-report-r2]
+    needs: [ build-tests, publish-report-r2 ]
     steps:
-      - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
-        id: telegram_message
-        with:
-          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
-          if_true: |
-            👷 Tests triggered manually have been completed ✅
-            
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
-            
-            Repository: ${{ github.repository }}
-          if_false: |
-            👷 Tests triggered manually have been failed
-            
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
-            
-            Repository: ${{ github.repository }}
+    - name: Set Telegram Message
+      uses: haya14busa/action-cond@v1
+      id: telegram_message
+      with:
+        cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+        if_true: |
+          👷 Tests triggered manually have been completed ✅
+
+          ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
+          ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+
+          Repository: ${{ github.repository }}
+        if_false: |
+          👷 Tests triggered manually have been failed
+
+          ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
+          ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+
+          Repository: ${{ github.repository }}
