@@ -1,11 +1,12 @@
 name: CI E2E Tests NTK (Manual Only)
 
 on:
-  workflow_dispatch:
-    inputs:
-      test_tags:
-        description: "Tags (ex. '@smoke', '@smoke + @regression'). If no tag - all tests will run"
-        required: false
+  workflow_call:
+    # workflow_dispatch:
+    #   inputs:
+    #     test_tags:
+    #       description: "Tags (ex. '@smoke', '@smoke + @regression'). If no tag - all tests will run"
+    #       required: false
 
 defaults:
   run:
@@ -143,14 +144,25 @@ jobs:
     - name: Run Playwright Tests
       run: |
         TEST_TAGS="${{ github.event.inputs.test_tags }}"
-        if [ -z "$TEST_TAGS" ]; then
+        if: ${{ endsWith( github.ref_name, 'all' ) }}
           echo "Теги не заданы. Запускаем все тесты..."
           npx playwright test
-        else
+        if: ${{ endsWith( github.ref_name, 'smoke' ) }}
           GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
           echo "Запускаем тесты с тегами: $GREP_PATTERN"
           npx playwright test --grep "$GREP_PATTERN"
-        fi
+        if: ${{ endsWith( github.ref_name, 'smoke + regression' ) }}
+          GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
+          echo "Запускаем тесты с тегами: $GREP_PATTERN"
+          npx playwright test --grep "$GREP_PATTERN"
+        # if [ -z "$TEST_TAGS" ]; then
+        #   echo "Теги не заданы. Запускаем все тесты..."
+        #   npx playwright test
+        # else
+        #   GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
+        #   echo "Запускаем тесты с тегами: $GREP_PATTERN"
+        #   npx playwright test --grep "$GREP_PATTERN"
+        # fi
       working-directory: ./
       env:
         ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
