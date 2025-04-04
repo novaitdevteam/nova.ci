@@ -143,26 +143,20 @@ jobs:
 
     - name: Run Playwright Tests
       run: |
-        TEST_TAGS="${{ github.event.inputs.test_tags }}"
-        if: ${{ endsWith( github.ref_name, 'all' ) }}
+        if [[ "${{ github.ref_name }}" == *all ]]; then
           echo "Теги не заданы. Запускаем все тесты..."
           npx playwright test
-        if: ${{ endsWith( github.ref_name, 'smoke' ) }}
-          GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
-          echo "Запускаем тесты с тегами: $GREP_PATTERN"
-          npx playwright test --grep "$GREP_PATTERN"
-        if: ${{ endsWith( github.ref_name, 'smoke + regression' ) }}
-          GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
-          echo "Запускаем тесты с тегами: $GREP_PATTERN"
-          npx playwright test --grep "$GREP_PATTERN"
-        # if [ -z "$TEST_TAGS" ]; then
-        #   echo "Теги не заданы. Запускаем все тесты..."
-        #   npx playwright test
-        # else
-        #   GREP_PATTERN=$(echo "$TEST_TAGS" | sed 's/ + /|/g')
-        #   echo "Запускаем тесты с тегами: $GREP_PATTERN"
-        #   npx playwright test --grep "$GREP_PATTERN"
-        # fi
+        elif [[ "${{ github.ref_name }}" == *"smoke + regression" ]]; then
+          echo "Запускаем тесты с тегами: @smoke|@regression"
+          npx playwright test --grep "@smoke|@regression"
+        elif [[ "${{ github.ref_name }}" == *smoke ]]; then
+          echo "Запускаем тесты с тегом: @smoke"
+          npx playwright test --grep "@smoke"
+        else
+          echo "Невідомий тег: запускаємо всі тести за замовчуванням"
+          npx playwright test
+        fi
+
       working-directory: ./
       env:
         ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}

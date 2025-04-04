@@ -97,6 +97,6 @@ jobs:
 
   call-external-on-push-branches-e2e-tests-manual:
     name: Call Playwright Tests manual
-    if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'smoke') || contains(github.ref_name, 'smoke + regression') }}
+    if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'push' && github.ref_type == 'tag' && (contains(github.ref_name, 'smoke') || contains(github.ref_name, 'smoke + regression')) }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-e2e-tests-manual.yaml@main
     secrets: inherit
