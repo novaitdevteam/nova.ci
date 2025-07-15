@@ -57,7 +57,8 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}  
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
+      IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,18 +119,21 @@ jobs:
           if [[ "${{ github.ref_name }}" == "build-engine" ]]; then
             echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_engine" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_engine" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref_name }}" == "build-reporting" ]]; then
             echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref_name }}" == "build-restore-historical" ]]; then
             echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_OUTPUT
           else
             echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
           fi
-        outputs:
-          IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
+
 
       - name: Build and push
         uses: docker/build-push-action@v5
