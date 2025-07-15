@@ -1,4 +1,4 @@
-name: CI Build NTK on Push TAG
+name: CI Build NTK on Push
 on:
   workflow_call:
 
@@ -112,12 +112,25 @@ jobs:
           endpoint: builder
           buildkitd-flags: --debug
  
+      - name: Set Dockerfile path
+        id: set_dockerfile
+        run: |
+          if [[ "${{ github.ref_name }}" == "build-engine" ]]; then
+            echo "DOCKERFILE_PATH=./engine.Dockerfile" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "build-reporting" ]]; then
+            echo "DOCKERFILE_PATH=./reporting.Dockerfile" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "build-restore-historical" ]]; then
+            echo "DOCKERFILE_PATH=./restore-historical.Dockerfile" >> $GITHUB_ENV
+          else
+            echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v5
         id: main_build_proc
         with:
           context: .
-          file: ./docker/server.Dockerfile
+          file: ${{ env.DOCKERFILE_PATH }}
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
@@ -207,4 +220,4 @@ jobs:
             }
             
             webhook();
-  
+
