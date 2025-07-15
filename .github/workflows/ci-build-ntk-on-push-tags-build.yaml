@@ -116,11 +116,11 @@ jobs:
         id: set_dockerfile
         run: |
           if [[ "${{ github.ref_name }}" == "build-engine" ]]; then
-            echo "DOCKERFILE_PATH=./engine.Dockerfile" >> $GITHUB_ENV
+            echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "build-reporting" ]]; then
-            echo "DOCKERFILE_PATH=./reporting.Dockerfile" >> $GITHUB_ENV
+            echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "build-restore-historical" ]]; then
-            echo "DOCKERFILE_PATH=./restore-historical.Dockerfile" >> $GITHUB_ENV
+            echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> $GITHUB_ENV
           else
             echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
           fi
