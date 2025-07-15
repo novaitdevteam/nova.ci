@@ -112,17 +112,21 @@ jobs:
           endpoint: builder
           buildkitd-flags: --debug
  
-      - name: Set Dockerfile path
+      - name: Set Dockerfile path and image suffix
         id: set_dockerfile
         run: |
           if [[ "${{ github.ref_name }}" == "build-engine" ]]; then
             echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_engine" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "build-reporting" ]]; then
             echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "build-restore-historical" ]]; then
             echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_ENV
           else
             echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
           fi
 
       - name: Build and push
@@ -135,22 +139,22 @@ jobs:
           push: true
           target: main
           tags: | 
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
       - name: Add latest tag on master DOCKER
         if: ${{ contains( github.event.base_ref, 'master' ) }}
         run: |
           docker buildx imagetools create \
             --tag ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:latest \
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }} 
+            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }} 
 
       - name: Add latest tag on master GHCR
         if: ${{ contains( github.event.base_ref, 'master' ) }}
         run: |
           docker buildx imagetools create \
             --tag ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:latest \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
       - name: End Step On Failure
         if: failure()
@@ -175,12 +179,12 @@ jobs:
             Image building has been completed ✅
             
             ▶️ GitHub Public Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
+            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
             ▶️ Docker Private Registry: ${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
+            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
-            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
+            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
 
