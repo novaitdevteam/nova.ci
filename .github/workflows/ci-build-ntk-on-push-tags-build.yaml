@@ -128,6 +128,8 @@ jobs:
             echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
           fi
+        outputs:
+          IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -179,12 +181,12 @@ jobs:
             Image building has been completed ✅
             
             ▶️ GitHub Public Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
 
             ▶️ Docker Private Registry: ${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
 
-            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
 
