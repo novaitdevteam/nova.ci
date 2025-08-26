@@ -1,0 +1,13 @@
+name: CI Build NTK On Protected Branches
+on:
+  workflow_call:
+
+jobs:
+  build-image:
+    name: Block direct push to master/development
+    runs-on: self-hosted
+    steps:
+      - name: Fail if direct push to protected branch
+        run: |
+          echo "❌ Direct push to $GITHUB_REF_NAME is forbidden. Use Pull Request."
+          exit 1
