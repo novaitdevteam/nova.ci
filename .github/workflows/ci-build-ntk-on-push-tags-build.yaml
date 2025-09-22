@@ -3,41 +3,53 @@ on:
   workflow_call:
 
 jobs:
-
-  linter: 
+  linter:
     name: Linter
     runs-on: self-hosted
     environment: ${{ inputs.environment }}
     outputs:
-      LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }} 
+      LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 💿 Setup NODEJS
+      - name: 💿 Setup Node.js
         uses: actions/setup-node@v4
-        id: node_inst
         with:
           node-version: 22
 
-      - name: Setup yarn
+      # ======== novatalks.core: npm ci + npm run lint ========
+      - name: ▶️ Install deps (npm ci) — novatalks.core
+        if: ${{ github.event.repository.name == 'novatalks.core' }}
+        run: npm ci
+
+      - name: 🇪🇸 Lint (npm run lint) — novatalks.core
+        id: linter
+        if: ${{ github.event.repository.name == 'novatalks.core' }}
+        run: npm run lint
+
+      # ======== any repo: work now ========
+      - name: Setup yarn — other repos
+        if: ${{ github.event.repository.name != 'novatalks.core' }}
         run: npm install -g yarn
 
-      - name: ▶️ Install Node.js dependencies
+      - name: ▶️ Install Node.js dependencies — other repos
+        if: ${{ github.event.repository.name != 'novatalks.core' }}
         run: |
           yarn add eslint-plugin-security
           yarn add @typescript-eslint/eslint-plugin
 
-      - name: 🇪🇸 Lint SRC
-        id: linter
+      - name: 🇪🇸 Lint SRC — other repos
+        id: linter_other
+        if: ${{ github.event.repository.name != 'novatalks.core' }}
         run: npx eslint --ext .js,.vue,.ts . --quiet
 
+      # ======== end ========
       - name: End Linter Step
         if: success() || failure()
         id: linter_res
         run: |
-          if [[ ${{ steps.linter.outcome  }} == 'success' ]];
-          then
+          if [[ "${{ steps.linter.outcome || steps.linter_other.outcome }}" == "success" ]]; then
             echo "LINTER_CHECK=✅" | tee -a $GITHUB_OUTPUT
           else
             echo "LINTER_CHECK=❌" | tee -a $GITHUB_OUTPUT
