@@ -18,7 +18,7 @@ jobs:
     environment: ${{ inputs.environment }}
     services:
       postgres:
-        image: postgres:15.5
+        image: postgres:16.9
         env:
           POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
           POSTGRES_DB: ${{ env.DATABASE_NAME }}
@@ -57,7 +57,7 @@ jobs:
         uses: actions/setup-node@v3
         id: node_inst
         with:
-          node-version: 18.19
+          node-version: 22
 
 
       - name: ▶️ Get Env From Example

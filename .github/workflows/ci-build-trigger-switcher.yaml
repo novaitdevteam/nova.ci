@@ -34,11 +34,15 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
-  call-external-on-push-tags-run-test:
-    name: Call Test Runner On Push Tags
-    if: ${{ github.event.repository.name == 'novatalks.engine' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'int-test') }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@main
-    secrets: inherit
+call-external-on-push-tags-run-test:
+  name: Call Test Runner On Push Tags
+  if: ${{ (github.event.repository.name == 'novatalks.engine' || github.event.repository.name == 'novatalks.core')
+          && github.event_name == 'push'
+          && github.ref_type == 'tag'
+          && contains(github.ref_name, 'int-test') }}
+  uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@main
+  secrets: inherit
+
 
   call-external-on-push-tags-gh-deploy:
     name: Call GH Pages Deploy On Push Tags
