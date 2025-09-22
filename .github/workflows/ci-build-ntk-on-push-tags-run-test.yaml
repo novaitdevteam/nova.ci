@@ -108,8 +108,9 @@ jobs:
         continue-on-error: true
         shell: bash {0}
         run: |
-          a=$(find ./src -name '*.spec.ts' | wc -l); 
-          for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test '$i' completed with exit code '$? ; ((a--)) ; done
+          npm run test
+          # a=$(find ./src -name '*.spec.ts' | wc -l); 
+          # for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test '$i' completed with exit code '$? ; ((a--)) ; done
         env:
           NODE_ENV: development
           NODE_OPTIONS: "--max-old-space-size=8192"
