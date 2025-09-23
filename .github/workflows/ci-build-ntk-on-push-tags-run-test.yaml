@@ -125,7 +125,6 @@ jobs:
           UV_THREADPOOL_SIZE: 32
           FORCE_COLOR: "false"
           NO_COLOR: "true"
-          DEBUG: "*"
 
 
 
