@@ -18,7 +18,7 @@ jobs:
     environment: ${{ inputs.environment }}
     services:
       postgres:
-        image: postgres:16.9
+        image: postgres:16
         env:
           POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
           POSTGRES_DB: ${{ env.DATABASE_NAME }}
@@ -31,7 +31,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis
+        image: redis:8
         ports:
           - 6379:6379
         options: >-
@@ -84,7 +84,7 @@ jobs:
       #   run: npm run db:migrate #--loglevel info
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
-        
+
       - name: Enable pgcrypto extension
         run: |
           psql -h $DATABASE_HOST -U $DATABASE_USERNAME -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
