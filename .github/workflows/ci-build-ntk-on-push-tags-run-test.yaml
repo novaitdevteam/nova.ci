@@ -82,6 +82,11 @@ jobs:
       # deprecated
       # - name: ▶️ Migrate DB
       #   run: npm run db:migrate #--loglevel info
+      - name: Enable pgcrypto extension
+        run: |
+          psql -h $DATABASE_HOST -U $DATABASE_USERNAME -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+        env:
+          PGPASSWORD: $DATABASE_PASSWORD
 
       - name: 🚶 Run One Test
         if: ${{ contains(github.ref_name, 'int-test') && endsWith( github.ref_name, '.ts' ) }}
@@ -122,11 +127,7 @@ jobs:
           NO_COLOR: "true"
           DEBUG: "*"
 
-      - name: Enable pgcrypto extension
-        run: |
-          psql -h $DATABASE_HOST -U $DATABASE_USERNAME -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-        env:
-          PGPASSWORD: $DATABASE_PASSWORD
+
 
       - name: Save Artifact
         uses: actions/upload-artifact@v4
