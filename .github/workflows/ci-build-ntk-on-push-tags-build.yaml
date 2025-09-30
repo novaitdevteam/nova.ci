@@ -152,8 +152,10 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          printf '%s' "${{ secrets.LICENSE_KEY_GEO_IP }}" > geoip_license.secret
-          chmod 600 geoip_license.secret
+          secret_file="$(pwd)/geoip_license.secret"
+          printf '%s' "${{ secrets.LICENSE_KEY_GEO_IP }}" > "${secret_file}"
+          chmod 600 "${secret_file}"
+          echo "GEOIP_LICENSE_SECRET_PATH=${secret_file}" >> "${GITHUB_ENV}"
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -164,16 +166,16 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
-          secrets: ${{ github.ref_name == 'build-engine' && 'id=geoip_license,src=geoip_license.secret' || '' }}
+          secrets: ${{ github.ref_name == 'build-engine' && format('id=geoip_license,src={0}', env.GEOIP_LICENSE_SECRET_PATH) || '' }}
           tags: | 
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
       - name: Cleanup Build Secret File
-        if: ${{ github.ref_name == 'build-engine' }}
+        if: ${{ always() && github.ref_name == 'build-engine' }}
         shell: bash
         run: |
-          rm -f geoip_license.secret
+          rm -f "${GEOIP_LICENSE_SECRET_PATH:-geoip_license.secret}"
 
       - name: Add latest tag on master DOCKER
         if: ${{ contains( github.event.base_ref, 'master' ) }}
