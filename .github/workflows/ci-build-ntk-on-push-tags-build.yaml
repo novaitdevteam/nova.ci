@@ -148,19 +148,37 @@ jobs:
 
 
       - name: Build and push
-        uses: docker/build-push-action@v5
         id: main_build_proc
+        shell: bash
         env:
           LICENSE_KEY_GEO_IP: ${{ github.ref_name == 'build-engine' && secrets.LICENSE_KEY_GEO_IP || '' }}
-        with:
-          context: .
-          file: ${{ env.DOCKERFILE_PATH }}
-          builder: ${{ steps.buildx.outputs.name }}
-          push: true
-          target: main
-          tags: | 
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+          CR_DH_USERNAME: ${{ secrets.CR_DH_USERNAME }}
+        run: |
+          set -eo pipefail
+
+          IMAGE_TAG="${RELEASE}_${SHORT_REF_NAME}_${SHORT_SHA}${IMAGE_SUFFIX}"
+          DOCKERHUB_TAG="${CR_DH_USERNAME}/${REP_NAME}:${IMAGE_TAG}"
+          GHCR_TAG="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REP_NAME}:${IMAGE_TAG}"
+
+          if [[ "${GITHUB_REF_NAME}" == "build-engine" && -n "${LICENSE_KEY_GEO_IP}" ]]; then
+            DOCKER_BUILDKIT=1 docker build \
+              --file "${DOCKERFILE_PATH}" \
+              --target main \
+              --tag "${DOCKERHUB_TAG}" \
+              --tag "${GHCR_TAG}" \
+              --secret id=geoip_license,src=<(printf '%s' "${LICENSE_KEY_GEO_IP}") \
+              .
+          else
+            DOCKER_BUILDKIT=1 docker build \
+              --file "${DOCKERFILE_PATH}" \
+              --target main \
+              --tag "${DOCKERHUB_TAG}" \
+              --tag "${GHCR_TAG}" \
+              .
+          fi
+
+          docker push "${DOCKERHUB_TAG}"
+          docker push "${GHCR_TAG}"
 
       - name: Add latest tag on master DOCKER
         if: ${{ contains( github.event.base_ref, 'master' ) }}
