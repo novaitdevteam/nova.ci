@@ -152,7 +152,7 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          if [[ ("${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == "build-engine") || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == "build-engine" && "${GITHUB_EVENT_BASE_REF}" == "refs/heads/master" ]]; then
             echo "ENABLE_LIVE_GEOIP_UPDATE=true" | tee -a "$GITHUB_ENV"
             echo "args=ENABLE_LIVE_GEOIP_UPDATE=true" | tee -a "$GITHUB_OUTPUT"
           else
