@@ -158,24 +158,30 @@ jobs:
 
           IMAGE_TAG="${RELEASE}_${SHORT_REF_NAME}_${SHORT_SHA}${IMAGE_SUFFIX}"
           DOCKERHUB_TAG="${CR_DH_USERNAME}/${REP_NAME}:${IMAGE_TAG}"
-          GHCR_TAG="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REP_NAME}:${IMAGE_TAG}"
+          GHCR_OWNER="${GITHUB_REPOSITORY_OWNER:-${GITHUB_REPOSITORY%%/*}}"
+          GHCR_TAG="ghcr.io/${GHCR_OWNER}/${REP_NAME}:${IMAGE_TAG}"
+
+          build_secrets_args=()
+          cleanup_secret_file() { :; }
 
           if [[ "${GITHUB_REF_NAME}" == "build-engine" && -n "${LICENSE_KEY_GEO_IP}" ]]; then
-            DOCKER_BUILDKIT=1 docker build \
-              --file "${DOCKERFILE_PATH}" \
-              --target main \
-              --tag "${DOCKERHUB_TAG}" \
-              --tag "${GHCR_TAG}" \
-              --secret id=geoip_license,src=<(printf '%s' "${LICENSE_KEY_GEO_IP}") \
-              .
-          else
-            DOCKER_BUILDKIT=1 docker build \
-              --file "${DOCKERFILE_PATH}" \
-              --target main \
-              --tag "${DOCKERHUB_TAG}" \
-              --tag "${GHCR_TAG}" \
-              .
+            secret_file="$(mktemp)"
+            cleanup_secret_file() { rm -f "${secret_file}"; }
+            printf '%s' "${LICENSE_KEY_GEO_IP}" > "${secret_file}"
+            build_secrets_args+=(--secret "id=geoip_license,src=${secret_file}")
           fi
+
+          trap 'cleanup_secret_file' EXIT
+
+          DOCKER_BUILDKIT=1 docker build \
+            --file "${DOCKERFILE_PATH}" \
+            --target main \
+            --tag "${DOCKERHUB_TAG}" \
+            --tag "${GHCR_TAG}" \
+            "${build_secrets_args[@]}" \
+            .
+
+          cleanup_secret_file
 
           docker push "${DOCKERHUB_TAG}"
           docker push "${GHCR_TAG}"
