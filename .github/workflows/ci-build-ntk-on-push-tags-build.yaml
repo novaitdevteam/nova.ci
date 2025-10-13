@@ -75,17 +75,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Update package-lock.json
-        run: |
-          if [ -f "package.json" ]; then
-            npm install --package-lock-only
-          fi
-
       - name: Prepare Vars
         id: prep
         run: |
