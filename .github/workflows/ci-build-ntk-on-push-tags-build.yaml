@@ -170,7 +170,7 @@ jobs:
           push: true
           target: main
           build-args: ${{ steps.live_geoip_flag.outputs.args }}
-          secrets: ${{ github.event.repository.name == 'novatalks.engine' && github.ref_name == 'build-engine' && format('geoip_license={0}', secrets.LICENSE_KEY_GEO_IP) || '' }}
+          secrets: ${{ github.event.repository.name == 'novatalks.core' && github.ref_name == 'build-engine' && format('geoip_license={0}', secrets.LICENSE_KEY_GEO_IP) || '' }}
           tags: | 
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
