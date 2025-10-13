@@ -147,17 +147,17 @@ jobs:
           fi
 
 
-      - name: Set live GeoIP update flag
-        id: live_geoip_flag
-        shell: bash
-        run: |
-          set -eo pipefail
-          if [[ "${GITHUB_REPOSITORY}" == *"novatalks.core"* && "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == "build-engine" && "${GITHUB_EVENT_BASE_REF}" == "refs/heads/master" ]]; then
-            echo "ENABLE_LIVE_GEOIP_UPDATE=true" | tee -a "$GITHUB_ENV"
-            echo "args=ENABLE_LIVE_GEOIP_UPDATE=true" | tee -a "$GITHUB_OUTPUT"
-          else
-            echo "args=" | tee -a "$GITHUB_OUTPUT"
-          fi
+      # - name: Set live GeoIP update flag
+      #   id: live_geoip_flag
+      #   shell: bash
+      #   run: |
+      #     set -eo pipefail
+      #     if [[ "${GITHUB_REPOSITORY}" == *"novatalks.core"* && "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == "build-engine" && "${GITHUB_EVENT_BASE_REF}" == "refs/heads/master" ]]; then
+      #       echo "ENABLE_LIVE_GEOIP_UPDATE=true" | tee -a "$GITHUB_ENV"
+      #       echo "args=ENABLE_LIVE_GEOIP_UPDATE=true" | tee -a "$GITHUB_OUTPUT"
+      #     else
+      #       echo "args=" | tee -a "$GITHUB_OUTPUT"
+      #     fi
 
 
       - name: Build and push
@@ -169,8 +169,8 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
-          build-args: ${{ steps.live_geoip_flag.outputs.args }}
-          secrets: ${{ github.event.repository.name == 'novatalks.core' && github.ref_name == 'build-engine' && format('geoip_license={0}', secrets.LICENSE_KEY_GEO_IP) || '' }}
+          # build-args: ${{ steps.live_geoip_flag.outputs.args }}
+          # secrets: ${{ github.event.repository.name == 'novatalks.core' && github.ref_name == 'build-engine' && format('geoip_license={0}', secrets.LICENSE_KEY_GEO_IP) || '' }}
           tags: | 
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
