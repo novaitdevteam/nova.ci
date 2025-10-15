@@ -159,6 +159,11 @@ jobs:
       #       echo "args=" | tee -a "$GITHUB_OUTPUT"
       #     fi
 
+      - name: Export GeoIP token
+        if: ${{ github.event.repository.name == 'novatalks.geoip-api' }}
+        shell: bash
+        run: |
+          echo "GEOIP_SOURCE_TOKEN=${{ secrets.GEOIP_SOURCE_TOKEN }}" >> "$GITHUB_ENV"
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -169,6 +174,7 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
+          build-args: GEOIP_SOURCE_TOKEN=${{ env.GEOIP_SOURCE_TOKEN }}
           # build-args: ${{ steps.live_geoip_flag.outputs.args }}
           # secrets: ${{ github.event.repository.name == 'novatalks.core' && github.ref_name == 'build-engine' && format('geoip_license={0}', secrets.LICENSE_KEY_GEO_IP) || '' }}
           tags: | 

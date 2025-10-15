@@ -24,7 +24,7 @@ jobs:
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags
-    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'build') }}
+    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
 
