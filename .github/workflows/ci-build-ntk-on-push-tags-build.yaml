@@ -46,13 +46,13 @@ jobs:
 
       # ======== end ========
       - name: End Linter Step
-        if: success() || failure()
+        if: always()
         id: linter_res
         run: |
-          if [[ "${{ steps.linter.outcome || steps.linter_other.outcome }}" == "success" ]]; then
-            echo "LINTER_CHECK=✅" | tee -a $GITHUB_OUTPUT
+          if [[ "${{ steps.linter.outcome == 'success' || steps.linter_other.outcome == 'success' }}" == "true" ]]; then
+            echo "LINTER_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "LINTER_CHECK=❌" | tee -a $GITHUB_OUTPUT
+            echo "LINTER_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
           fi
 
   build-image:
