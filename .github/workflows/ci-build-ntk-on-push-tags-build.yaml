@@ -16,7 +16,7 @@ jobs:
       - name: 💿 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # ======== novatalks.core: npm ci + npm run lint ========
       - name: ▶️ Install deps (npm ci) — novatalks.core
@@ -66,7 +66,7 @@ jobs:
     needs: [linter]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
-      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
@@ -87,7 +87,6 @@ jobs:
             echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
 
-
       - name: Delete Tag
         uses: dev-drprasad/delete-tag-and-release@v0.2.1
         with:
@@ -95,7 +94,7 @@ jobs:
           tag_name: ${{ github.ref_name }} # tag name to delete
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}         
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -105,12 +104,11 @@ jobs:
           #username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Login to DockerHub Container Registry 
+      - name: Login to DockerHub Container Registry
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.CR_DH_USERNAME }}
           password: ${{ secrets.CR_DH_TOKEN }}
-
 
       - name: Set up Docker Context for Buildx
         id: buildx-context
@@ -123,7 +121,7 @@ jobs:
         with:
           endpoint: builder
           buildkitd-flags: --debug
- 
+
       - name: Set Dockerfile path and image suffix
         id: set_dockerfile
         run: |
@@ -145,7 +143,6 @@ jobs:
             echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
           fi
 
-
       - name: Build and push
         uses: docker/build-push-action@v5
         id: main_build_proc
@@ -155,7 +152,7 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
-          tags: | 
+          tags: |
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
@@ -166,7 +163,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:latest \
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }} 
+            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
 
       - name: Add latest tag on master GHCR
         if: ${{ contains( github.event.base_ref, 'master' ) }}
@@ -180,7 +177,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT        
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
   notify-telegram:
     name: Notifier
@@ -188,7 +185,6 @@ jobs:
     if: always()
     needs: [build-image, linter]
     steps:
-
       - name: Set Telegram Message
         uses: haya14busa/action-cond@v1
         id: telegram_message
@@ -196,9 +192,9 @@ jobs:
           cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             Image building has been completed ✅
-            
+
             ▶️ GitHub Public Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
             🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
 
@@ -209,18 +205,18 @@ jobs:
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
 
-            Repository: ${{ github.repository }}  
+            Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
           if_false: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             ❌Build Failed
-            
+
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
 
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
-            Repository: ${{ github.repository }}  
-    
+            Repository: ${{ github.repository }}
+
       - name: Send to Telegram
         uses: appleboy/telegram-action@master
         with:
@@ -229,10 +225,10 @@ jobs:
           message: ${{ steps.telegram_message.outputs.value }}
 
       - name: Send Message To GChat
-        uses: actions/github-script@v7 
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          debug: 'true'
+          debug: "true"
           script: |
             async function webhook() {
               const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
@@ -243,6 +239,5 @@ jobs:
               });
               return await res.json();
             }
-            
-            webhook();
 
+            webhook();
