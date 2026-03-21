@@ -1,4 +1,4 @@
-name: CI Build NTK Moblie Apps on Push TAG
+name: CI Build NTK Chat Widget on Push TAG
 on:
   workflow_call:
 
@@ -7,17 +7,16 @@ jobs:
     name: Build NovaTalks Widget
     runs-on: self-hosted
     environment: ${{ inputs.environment }}
-    # permissions:
-    #   contents: read
-    #   packages: write
+    permissions:
+      contents: write
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
-      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Prepare Vars
         id: prep
@@ -32,26 +31,27 @@ jobs:
           fi
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}         
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v6
         id: node_inst
         with:
-          node-version: '18'
+          node-version: "22"
+          package-manager-cache: false
 
       - name: Setup Components & Build
         env:
@@ -61,36 +61,24 @@ jobs:
           echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
           sudo apt-get update && sudo apt-get install yarn -y
           yarn install
-          yarn build     
+          yarn build
           zip -r ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./dist
 
       - name: Create a Release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
-          release_name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+          name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
           body: Automated Deployment
           draft: false
           prerelease: false
-        
-      - name: Upload a Release Asset
-        id: upload_release_asset
-        uses: actions/upload-release-asset@v1.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
-          asset_name: widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
-          asset_content_type: appliction/zip
+          files: ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
 
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT  
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
   notify-telegram:
     name: Notifier
@@ -98,41 +86,40 @@ jobs:
     if: always()
     needs: [build-widget]
     steps:
-
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
+        uses: haya14busa/action-cond@v1.2.1
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.build-widget.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             Image building has been completed ✅
-            
+
             Download Link: https://github.com/novaitdevteam/novatalks.chatwidget/releases/download/NTK.CHATWIDGET_${{ needs.build-widget.outputs.RELEASE }}_${{ needs.build-widget.outputs.SHORT_REF_NAME }}_${{ needs.build-widget.outputs.SHORT_SHA }}/widget-release-${{ needs.build-widget.outputs.SHORT_REF_NAME }}-${{ needs.build-widget.outputs.SHORT_SHA }}.zip
 
-            Repository: ${{ github.repository }}  
+            Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
           if_false: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             ❌Build Failed
-            
+
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-widget.outputs.END_STEP_JOB_ID}}
-            Repository: ${{ github.repository }}  
-    
+            Repository: ${{ github.repository }}
+
       - name: Send to Telegram
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@v1.0.1
         with:
           to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
           message: ${{ steps.telegram_message.outputs.value }}
 
       - name: Send Message To GChat
-        uses: actions/github-script@v7 
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          debug: 'true'
+          debug: "true"
           script: |
             async function webhook() {
               const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
@@ -143,5 +130,5 @@ jobs:
               });
               return await res.json();
             }
-            
+
             webhook();

@@ -13,10 +13,10 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
@@ -24,10 +24,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/github-script@v7 
+      - uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.CI_GITHUB_PAT }}
-          debug: 'true'
+          debug: "true"
           script: |
             // Input Parameters
             const ref =  'heads/main';
@@ -98,7 +98,7 @@ jobs:
                   tree: treeSHA,
                   message: 'Created from ' + privateRepo + ' commit ' + lastPrivateCommit + ' by CI',
                   parents: [lastPubCommit],
-                }); 
+                });
                 let result = await github.rest.git.updateRef({
                   owner,
                   repo: pubRepo,
@@ -113,8 +113,3 @@ jobs:
 
             // Run Syncing files from local repo to pub
             syncFiles().then( data => { console.log( data.headers.server + ' responded '+ data.status)})
-            
-
-
-
-

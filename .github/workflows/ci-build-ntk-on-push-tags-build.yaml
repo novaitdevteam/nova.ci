@@ -11,45 +11,140 @@ jobs:
       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: 💿 Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Resolve lint plan
+        id: lint_plan
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          set_output() {
+            local key="$1"
+            shift || true
+            {
+              echo "${key}<<EOF"
+              printf '%s\n' "$@"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          strategy="other"
+          set_output bootstrap_command ""
+          set_output install_command ""
+          set_output lint_command ""
+          set_output node_cache ""
+          set_output cache_dependency_path ""
+
+          case "$REPO_NAME" in
+            novatalks.core)
+              strategy="novatalks.core"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              case "$REF_NAME" in
+                build-engine)
+                  set_output lint_command "npx eslint apps/engine libs/common libs/database --ext .ts"
+                  ;;
+                build-reporting)
+                  set_output lint_command "npx eslint apps/reporting libs/common libs/database --ext .ts"
+                  ;;
+                *)
+                  set_output lint_command "npm run lint"
+                  ;;
+              esac
+              ;;
+            novatalks.ui)
+              strategy="novatalks.ui"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npx eslint --ext .js,.vue --ignore-path .eslintignore src"
+              ;;
+            novatalks.dialer)
+              strategy="novatalks.dialer"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npx eslint \"{src,apps,libs,test}/**/*.ts\""
+              ;;
+            nova.chatsconnector.whatsapp-client-api)
+              strategy="nova.chatsconnector.whatsapp-client-api"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npm run lint"
+              ;;
+            nova.chatsconnector.telegram-client-api)
+              strategy="nova.chatsconnector.telegram-client-api"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npm run lint"
+              ;;
+            nova.botflow)
+              strategy="nova.botflow"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npm run lint"
+              ;;
+            novatalks.uspacy.connector)
+              strategy="novatalks.uspacy.connector"
+              set_output install_command "npm install"
+              set_output lint_command "npm run eslint"
+              ;;
+            *)
+              strategy="other"
+              set_output bootstrap_command "npm install -g yarn"
+              set_output install_command "yarn add eslint-plugin-security
+          yarn add @typescript-eslint/eslint-plugin"
+              set_output lint_command "npx eslint --ext .js,.vue,.ts . --quiet"
+              ;;
+          esac
+
+          set_output strategy "$strategy"
+          echo "Selected lint strategy: $strategy"
+
+      - name: 💿 Setup Node.js with npm cache
+        if: ${{ steps.lint_plan.outputs.node_cache == 'npm' }}
+        uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ steps.lint_plan.outputs.cache_dependency_path }}
 
-      # ======== novatalks.core: npm ci + npm run lint ========
-      - name: ▶️ Install deps (npm ci) — novatalks.core
-        if: ${{ github.event.repository.name == 'novatalks.core' }}
-        run: npm ci
+      - name: 💿 Setup Node.js
+        if: ${{ steps.lint_plan.outputs.node_cache != 'npm' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
 
-      - name: 🇪🇸 Lint (npm run lint) — novatalks.core
-        id: linter
-        if: ${{ github.event.repository.name == 'novatalks.core' }}
-        run: npm run lint
-
-      # ======== any repo: work now ========
-      - name: Setup yarn — other repos
-        if: ${{ github.event.repository.name != 'novatalks.core' }}
-        run: npm install -g yarn
-
-      - name: ▶️ Install Node.js dependencies — other repos
-        if: ${{ github.event.repository.name != 'novatalks.core' }}
+      - name: Prepare lint toolchain
+        if: ${{ steps.lint_plan.outputs.bootstrap_command != '' }}
         run: |
-          yarn add eslint-plugin-security
-          yarn add @typescript-eslint/eslint-plugin
+          ${{ steps.lint_plan.outputs.bootstrap_command }}
 
-      - name: 🇪🇸 Lint SRC — other repos
-        id: linter_other
-        if: ${{ github.event.repository.name != 'novatalks.core' }}
-        run: npx eslint --ext .js,.vue,.ts . --quiet
+      - name: Install deps for lint
+        if: ${{ steps.lint_plan.outputs.install_command != '' }}
+        run: |
+          ${{ steps.lint_plan.outputs.install_command }}
+
+      - name: Run lint
+        id: linter
+        if: ${{ steps.lint_plan.outputs.lint_command != '' }}
+        run: |
+          ${{ steps.lint_plan.outputs.lint_command }}
 
       # ======== end ========
       - name: End Linter Step
         if: always()
         id: linter_res
         run: |
-          if [[ "${{ steps.linter.outcome == 'success' || steps.linter_other.outcome == 'success' }}" == "true" ]]; then
+          if [[ "${{ job.status }}" == "success" ]]; then
             echo "LINTER_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
           else
             echo "LINTER_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
@@ -73,7 +168,7 @@ jobs:
       IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prepare Vars
         id: prep
@@ -88,7 +183,7 @@ jobs:
           fi
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
@@ -97,7 +192,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -105,21 +200,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to DockerHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.CR_DH_USERNAME }}
           password: ${{ secrets.CR_DH_TOKEN }}
 
-      - name: Set up Docker Context for Buildx
-        id: buildx-context
-        run: |
-          docker context create builder
-
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
-          endpoint: builder
           buildkitd-flags: --debug
 
       - name: Set Dockerfile path and image suffix
@@ -144,14 +233,19 @@ jobs:
           fi
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         id: main_build_proc
         with:
           context: .
           file: ${{ env.DOCKERFILE_PATH }}
           builder: ${{ steps.buildx.outputs.name }}
+          pull: true
           push: true
           target: main
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:buildcache${{ env.IMAGE_SUFFIX }}
+          cache-to: |
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:buildcache${{ env.IMAGE_SUFFIX }},mode=max
           tags: |
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
@@ -186,7 +280,7 @@ jobs:
     needs: [build-image, linter]
     steps:
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
+        uses: haya14busa/action-cond@v1.2.1
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
@@ -218,14 +312,14 @@ jobs:
             Repository: ${{ github.repository }}
 
       - name: Send to Telegram
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@v1.0.1
         with:
           to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
           message: ${{ steps.telegram_message.outputs.value }}
 
       - name: Send Message To GChat
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           debug: "true"

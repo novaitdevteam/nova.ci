@@ -7,20 +7,19 @@ jobs:
     name: Build APK
     runs-on: self-hosted
     environment: ${{ inputs.environment }}
-    # permissions:
-    #   contents: read
-    #   packages: write
+    permissions:
+      contents: write
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
-      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
     steps:
       - name: Remote Checkout Master
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         if: ${{ contains(github.ref_name, 'build') && endsWith( github.ref_name, 'apk' ) }}
         with:
-          repository: 'novaitdevteam/novatalks.ui-lite'
+          repository: "novaitdevteam/novatalks.ui-lite"
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
           path: ./novatalks.ui-lite
           ssh-key: ${{ secrets.NTK_UI_LITE_DEPLOY_KEY }}
@@ -32,12 +31,12 @@ jobs:
           else
             echo "REMOTE_BRANCH=`echo ${{ github.ref_name }} | cut -d "-" -f3-4`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
-    
+
       - name: Remote Checkout On Certain branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         if: ${{ contains(github.ref_name, 'build-apk-') }}
         with:
-          repository: 'novaitdevteam/novatalks.ui-lite'
+          repository: "novaitdevteam/novatalks.ui-lite"
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
           path: ./novatalks.ui-lite
           ssh-key: ${{ secrets.NTK_UI_LITE_DEPLOY_KEY }}
@@ -46,7 +45,7 @@ jobs:
       - name: Get Remote SHA
         working-directory: ./novatalks.ui-lite
         run: echo "REMOTE_SHA=`/usr/bin/git log -1 --format='%H' | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-      
+
       - name: Prepare Vars
         id: prep
         run: |
@@ -65,35 +64,35 @@ jobs:
           echo "SHORT_REF_NAME=`echo ${{ env.REMOTE_BRANCH }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}         
-      
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v6
         id: node_inst
         with:
-          node-version: '18'
+          node-version: "18"
+          package-manager-cache: false
 
       - name: 💿 Setup JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v5
         with:
-          distribution: 'microsoft'
-          java-version: '17'
-    
+          distribution: "microsoft"
+          java-version: "17"
+
       - name: 💿 Setup Gradle
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: 8.0.2
+          cache-disabled: true
 
       - name: 💿 Setup Android SDK
-        uses: android-actions/setup-android@v3
-
+        uses: android-actions/setup-android@v3.2.2
 
       - name: Generating Release Key
         working-directory: ./novatalks.ui-lite
@@ -107,8 +106,8 @@ jobs:
 
       - name: Setup Components & Build
         env:
-          ANDROID_HOME: '/home/runner/.android/sdk'
-          ANDROID_SDK_ROOT: '/home/runner/.android/sdk'
+          ANDROID_HOME: "/home/runner/.android/sdk"
+          ANDROID_SDK_ROOT: "/home/runner/.android/sdk"
         working-directory: ./novatalks.ui-lite
         run: |
           curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
@@ -125,7 +124,7 @@ jobs:
           yarn install
           yarn run icongenie:android
           chmod +x ./src-capacitor/android/gradlew
-          quasar build -m capacitor -T android      
+          quasar build -m capacitor -T android
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
@@ -133,28 +132,16 @@ jobs:
 
       - name: Create a Release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
-          release_name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+          name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
           body: Automated Deployment
           draft: false
           prerelease: false
-        
-      - name: Upload a Release Asset
-        id: upload_release_asset
-        uses: actions/upload-release-asset@v1.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /home/runner/work/novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          asset_name: novatalks-ui-lite.apk
-          asset_content_type: application/zip
+          files: ./novatalks.ui-lite/novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
 
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT  
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT

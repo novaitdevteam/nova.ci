@@ -44,21 +44,21 @@ jobs:
       REPORT: ${{ steps.report.outputs.artifact-url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           tag_name: ${{ github.ref_name }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v6
         id: node_inst
         with:
           node-version: 22
-
+          package-manager-cache: false
 
       - name: ▶️ Get Env From Example
         id: prep_1
@@ -111,7 +111,7 @@ jobs:
       #     LOG_LEVEL: "error"
       #     UV_THREADPOOL_SIZE: 32
 
-      # a=$(find ./src -name '*.spec.ts' | wc -l); 
+      # a=$(find ./src -name '*.spec.ts' | wc -l);
       # for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test '$i' completed with exit code '$? ; ((a--)) ; done
       - name: 🏃 Run Test Modules by Files
         if: ${{ endsWith( github.ref_name, 'int-test' ) }}
@@ -130,10 +130,8 @@ jobs:
           NO_COLOR: "true"
           DATABASE_LOGGING: "false"
 
-
-
       - name: Save Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         id: report
         with:
@@ -152,40 +150,39 @@ jobs:
     if: always()
     needs: e2e-test
     steps:
-
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
+        uses: haya14busa/action-cond@v1.2.1
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.*.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} start test
-            
+
             Test assembly has been completed ✅
-            
+
             Repository: ${{ github.repository }}
             ▶️ GitHub Artifact: ${{ needs.e2e-test.outputs.REPORT }}
 
           if_false: |
             👷 ${{ github.actor }} start test
-            
+
             ❌Tests Failed
-              
+
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.e2e-test.outputs.END_STEP_JOB_ID}}
-            Repository: ${{ github.repository }}  
-    
+            Repository: ${{ github.repository }}
+
       - name: Send to Telegram
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@v1.0.1
         with:
           to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
           message: ${{ steps.telegram_message.outputs.value }}
 
       - name: Send Message To GChat
-        uses: actions/github-script@v7 
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          debug: 'true'
+          debug: "true"
           script: |
             async function webhook() {
               const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
@@ -196,5 +193,5 @@ jobs:
               });
               return await res.json();
             }
-            
+
             webhook();

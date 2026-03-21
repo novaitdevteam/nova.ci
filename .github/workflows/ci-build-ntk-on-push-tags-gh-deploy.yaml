@@ -2,30 +2,29 @@ name: CI Build NTK on Push TAG
 on:
   workflow_call:
 
-
 jobs:
   deploy-pages:
     name: Deploy Pages
     runs-on: self-hosted
     environment: ${{ inputs.environment }}
     outputs:
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}  
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
-          tag_name: ${{ github.ref_name }} 
+          tag_name: ${{ github.ref_name }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Clean Materials
         run: mkdir -p ./mkdocs-material/material
- 
+
       - name: Deploy docs
-        uses: mhausenblas/mkdocs-deploy-gh-pages@master
+        uses: mhausenblas/mkdocs-deploy-gh-pages@1.26
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG_FILE: ./mkdocs.yml
@@ -36,36 +35,34 @@ jobs:
         id: end_step
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
-
   notify-telegram:
     name: Notifier
     runs-on: self-hosted
     if: always()
     needs: deploy-pages
     steps:
-
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
+        uses: haya14busa/action-cond@v1.2.1
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.*.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             GitHub Pages assembly has been completed ✅
- 
-            Repository: ${{ github.repository }}  
+
+            Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
           if_false: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             ❌Build Failed
-            
+
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.deploy-pages.outputs.END_STEP_JOB_ID}}
-            Repository: ${{ github.repository }}  
-    
+            Repository: ${{ github.repository }}
+
       - name: Send to Telegram
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@v1.0.1
         with:
           to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}

@@ -3,45 +3,44 @@ on:
   workflow_call:
 
 jobs:
+  #   linter:
+  #     name: Linter
+  #     runs-on: self-hosted
+  #     environment: ${{ inputs.environment }}
+  #     outputs:
+  #       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
+  #     steps:
+  #       - name: Checkout
+  #         uses: actions/checkout@v4
 
-#   linter: 
-#     name: Linter
-#     runs-on: self-hosted
-#     environment: ${{ inputs.environment }}
-#     outputs:
-#       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }} 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v4
+  #       - name: 💿 Setup NODEJS
+  #         uses: actions/setup-node@v4
+  #         id: node_inst
+  #         with:
+  #           node-version: 18
 
-#       - name: 💿 Setup NODEJS
-#         uses: actions/setup-node@v4
-#         id: node_inst
-#         with:
-#           node-version: 18
+  #       - name: Setup yarn
+  #         run: npm install -g yarn
 
-#       - name: Setup yarn
-#         run: npm install -g yarn
+  #       - name: ▶️ Install Node.js dependencies
+  #         run: |
+  #           yarn add eslint-plugin-security
+  #           yarn add @typescript-eslint/eslint-plugin
 
-#       - name: ▶️ Install Node.js dependencies
-#         run: |
-#           yarn add eslint-plugin-security
-#           yarn add @typescript-eslint/eslint-plugin
+  #       - name: 🇪🇸 Lint SRC
+  #         id: linter
+  #         run: npx eslint --ext .js,.vue,.ts . --quiet
 
-#       - name: 🇪🇸 Lint SRC
-#         id: linter
-#         run: npx eslint --ext .js,.vue,.ts . --quiet
-
-#       - name: End Linter Step
-#         if: success() || failure()
-#         id: linter_res
-#         run: |
-#           if [[ ${{ steps.linter.outcome  }} == 'success' ]];
-#           then
-#             echo "LINTER_CHECK=✅" | tee -a $GITHUB_OUTPUT
-#           else
-#             echo "LINTER_CHECK=❌" | tee -a $GITHUB_OUTPUT
-#           fi
+  #       - name: End Linter Step
+  #         if: success() || failure()
+  #         id: linter_res
+  #         run: |
+  #           if [[ ${{ steps.linter.outcome  }} == 'success' ]];
+  #           then
+  #             echo "LINTER_CHECK=✅" | tee -a $GITHUB_OUTPUT
+  #           else
+  #             echo "LINTER_CHECK=❌" | tee -a $GITHUB_OUTPUT
+  #           fi
 
   build-image:
     name: Build Image
@@ -54,13 +53,13 @@ jobs:
     # needs: [linter]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
-      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}  
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prepare Vars
         id: prep
@@ -74,30 +73,28 @@ jobs:
             echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
 
-
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}         
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           #username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-    #   - name: Login to DockerHub Container Registry 
-    #     uses: docker/login-action@v3
-    #     with:
-    #       username: ${{ secrets.CR_DH_USERNAME }}
-    #       password: ${{ secrets.CR_DH_TOKEN }}
-
+      #   - name: Login to DockerHub Container Registry
+      #     uses: docker/login-action@v3
+      #     with:
+      #       username: ${{ secrets.CR_DH_USERNAME }}
+      #       password: ${{ secrets.CR_DH_TOKEN }}
 
       - name: Set up Docker Context for Buildx
         id: buildx-context
@@ -106,15 +103,15 @@ jobs:
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           install: true
           endpoint: builder
           buildkitd-flags: --debug
- 
+
       - name: Build and push PWA
         if: ${{ endsWith( github.ref_name, 'build-pwa' ) }}
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         id: main_build_proc_pwa
         with:
           context: .
@@ -122,12 +119,12 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
-          tags: | 
+          tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}_pwa
 
       - name: Build and push SPA
         if: ${{ endsWith( github.ref_name, 'build-spa' ) }}
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         id: main_build_proc_spa
         with:
           context: .
@@ -135,12 +132,12 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
-          tags: | 
+          tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}_spa
-      
+
       - name: Build and push CRM
         if: ${{ endsWith( github.ref_name, 'build-crm' ) }}
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         id: main_build_proc_crm
         with:
           context: .
@@ -148,13 +145,13 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           push: true
           target: main
-          tags: | 
+          tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}_crm
 
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT        
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
   notify-telegram:
     name: Notifier
@@ -163,44 +160,43 @@ jobs:
     needs: [build-image]
     # needs: [build-image, linter]
     steps:
-
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
+        uses: haya14busa/action-cond@v1.2.1
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             Image building has been completed ✅
-            
+
             ▶️ GitHub Public Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
             🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
             🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
-            Repository: ${{ github.repository }}  
+            Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
           if_false: |
             👷 ${{ github.actor }} created deploy tag.
-            
+
             ❌Build Failed
-            
+
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
-            Repository: ${{ github.repository }}  
-    
+            Repository: ${{ github.repository }}
+
       - name: Send to Telegram
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@v1.0.1
         with:
           to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
           message: ${{ steps.telegram_message.outputs.value }}
 
       - name: Send Message To GChat
-        uses: actions/github-script@v7 
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          debug: 'true'
+          debug: "true"
           script: |
             async function webhook() {
               const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
@@ -211,5 +207,5 @@ jobs:
               });
               return await res.json();
             }
-            
+
             webhook();

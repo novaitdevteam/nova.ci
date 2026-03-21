@@ -13,14 +13,14 @@ jobs:
     environment: ${{ inputs.environment }}
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
-      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }} 
+      SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-    
+        uses: actions/checkout@v6
+
       - name: Prepare Vars
         id: prep
         run: |
@@ -33,9 +33,8 @@ jobs:
             echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
 
-
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
@@ -87,8 +86,6 @@ jobs:
           AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
           AWS_REGION: "eeur"
 
-
-
       - name: Sync QA Flow
         run: |
           mkdir ./redis
@@ -129,12 +126,12 @@ jobs:
         env:
           ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
 
-
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         id: node_inst
         with:
           node-version: 20
+          package-manager-cache: false
 
       - name: ▶️ Install Node.js dependencies
         run: ls -la ./ && npm ci
@@ -147,7 +144,6 @@ jobs:
         working-directory: ./
         env:
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
-
 
       - name: 🚶 Run One Test
         if: ${{ contains(github.ref_name, 'playtest') && endsWith( github.ref_name, '.ts' ) }}
@@ -167,7 +163,7 @@ jobs:
           DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
           DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
           DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
-          DB_PORT: "5432"       
+          DB_PORT: "5432"
 
       - name: 🏃 Run All Tests
         if: ${{ endsWith( github.ref_name, 'playtest' ) }}
@@ -187,17 +183,17 @@ jobs:
           DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
           DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
           DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
-          DB_PORT: "5432"      
+          DB_PORT: "5432"
 
       - name: Save Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         id: report
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 3
-        
+
   publish-report-r2:
     name: Publish HTML Report
     # using always() is not ideal here, because it would also run if the workflow was cancelled
@@ -210,7 +206,7 @@ jobs:
       HTML_REPORT_URL_PATH: reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}
     steps:
       - name: Download zipped HTML report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: playwright-report
           path: ${{ env.HTML_REPORT_URL_PATH }}
@@ -241,31 +237,30 @@ jobs:
     if: always()
     needs: [build-tests, publish-report-r2]
     steps:
-
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1
+        uses: haya14busa/action-cond@v1.2.1
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.*.result, ','), 'success') }}
           if_true: |
             👷 ${{ github.actor }} created e2e tag.
-            
+
             Playwright tests have been completed ✅
-            
+
             ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
             ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
-       
+
             Repository: ${{ github.repository }}
           if_false: |
             👷 ${{ github.actor }} created e2e tag.
-            
+
             ❌Playwright tests have been failed
 
             ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
             ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}/index.html
- 
-            Repository: ${{ github.repository }}  
-    
+
+            Repository: ${{ github.repository }}
+
       # - name: Send to Telegram
       #   uses: appleboy/telegram-action@master
       #   with:
@@ -274,7 +269,7 @@ jobs:
       #     message: ${{ steps.telegram_message.outputs.value }}
 
     #   - name: Send Message To GChat
-    #     uses: actions/github-script@v7 
+    #     uses: actions/github-script@v7
     #     with:
     #       github-token: ${{ secrets.GITHUB_TOKEN }}
     #       debug: 'true'
@@ -288,6 +283,5 @@ jobs:
     #           });
     #           return await res.json();
     #         }
-            
+
     #         webhook();
-    
