@@ -50,8 +50,7 @@ jobs:
         uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
           tag_name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6

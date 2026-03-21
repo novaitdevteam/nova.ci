@@ -35,9 +35,8 @@ jobs:
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
