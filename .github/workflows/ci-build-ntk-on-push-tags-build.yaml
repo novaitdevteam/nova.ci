@@ -231,9 +231,59 @@ jobs:
             echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build and push
+      - name: Resolve Docker cache policy
+        id: cache_policy
+        env:
+          REPO_NAME: ${{ env.REP_NAME }}
+          IMAGE_SUFFIX: ${{ env.IMAGE_SUFFIX }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_REF: ${{ github.event.base_ref }}
+        run: |
+          set -euo pipefail
+
+          set_output() {
+            local key="$1"
+            shift || true
+            {
+              echo "${key}<<EOF"
+              printf '%s\n' "$@"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          cache_ref="type=registry,ref=ghcr.io/${{ github.repository_owner }}/${REPO_NAME}:buildcache${IMAGE_SUFFIX}"
+          source_branch="$REF_NAME"
+
+          if [[ "$REF_TYPE" != "branch" && -n "$BASE_REF" ]]; then
+            source_branch="${BASE_REF#refs/heads/}"
+          fi
+
+          cache_to="${cache_ref},mode=max"
+          if [[ "$IMAGE_SUFFIX" == "_engine" ]]; then
+            case "$source_branch" in
+              master|development|main)
+                ;;
+              *)
+                cache_to=""
+                ;;
+            esac
+          fi
+
+          set_output source_branch "$source_branch"
+          set_output cache_from "$cache_ref"
+          set_output cache_to "$cache_to"
+
+          echo "Selected cache source branch: $source_branch"
+          if [[ -n "$cache_to" ]]; then
+            echo "Cache export enabled."
+          else
+            echo "Cache export disabled for this build."
+          fi
+
+      - name: Build and push with cache export
+        if: ${{ steps.cache_policy.outputs.cache_to != '' }}
         uses: docker/build-push-action@v7
-        id: main_build_proc
         with:
           context: .
           file: ${{ env.DOCKERFILE_PATH }}
@@ -241,10 +291,23 @@ jobs:
           pull: true
           push: true
           target: main
-          cache-from: |
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:buildcache${{ env.IMAGE_SUFFIX }}
-          cache-to: |
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:buildcache${{ env.IMAGE_SUFFIX }},mode=max
+          cache-from: ${{ steps.cache_policy.outputs.cache_from }}
+          cache-to: ${{ steps.cache_policy.outputs.cache_to }}
+          tags: |
+            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+
+      - name: Build and push without cache export
+        if: ${{ steps.cache_policy.outputs.cache_to == '' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
+          builder: ${{ steps.buildx.outputs.name }}
+          pull: true
+          push: true
+          target: main
+          cache-from: ${{ steps.cache_policy.outputs.cache_from }}
           tags: |
             ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
