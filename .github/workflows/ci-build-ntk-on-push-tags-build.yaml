@@ -260,15 +260,13 @@ jobs:
           fi
 
           cache_to="${cache_ref},mode=max"
-          if [[ "$IMAGE_SUFFIX" == "_engine" ]]; then
-            case "$source_branch" in
-              master|development|main)
-                ;;
-              *)
-                cache_to=""
-                ;;
-            esac
-          fi
+          case "$source_branch" in
+            master|development|main)
+              ;;
+            *)
+              cache_to=""
+              ;;
+          esac
 
           set_output source_branch "$source_branch"
           set_output cache_from "$cache_ref"
