@@ -28,6 +28,21 @@ Current workflows in [`.github/workflows`](/Users/deniszm/novatalks/nova.ci/.git
 - [`ci-build-ntk-on-push-tags-mob-pwa-build.yaml`](/Users/deniszm/novatalks/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml): mobile PWA/SPA/CRM build flow
 - [`ci-build-ntk-on-push-tags-flows-to-pub.yaml`](/Users/deniszm/novatalks/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml): publish botflow assets
 
+## Internal actions
+
+Current internal reusable actions in [`.github/actions`](/Users/deniszm/novatalks/nova.ci/.github/actions):
+
+- [`action-cond/action.yml`](/Users/deniszm/novatalks/nova.ci/.github/actions/action-cond/action.yml): composite replacement for deprecated `haya14busa/action-cond`
+
+`action-cond` exists to keep notifier workflows stable after GitHub Actions runner migration away from Node.js 20. It preserves the previous interface:
+
+- input `cond`
+- input `if_true`
+- input `if_false`
+- output `value`
+
+This keeps notifier steps behavior-compatible while removing the dependency on an external JavaScript action.
+
 ## `novatalks.core` tag build behavior
 
 In [`ci-build-ntk-on-push-tags-build.yaml`](/Users/deniszm/novatalks/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml), the `linter` job for `novatalks.core` installs dependencies once with `npm ci`, then runs targeted linting by tag:
