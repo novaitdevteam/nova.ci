@@ -189,7 +189,7 @@ jobs:
     needs: [build-apk]
     steps:
       - name: Set Telegram Message
-        uses: haya14busa/action-cond@v1.2.1
+        uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
           cond: ${{ contains(join(needs.build-apk.result, ','), 'success') }}

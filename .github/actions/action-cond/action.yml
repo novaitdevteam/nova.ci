@@ -1,0 +1,43 @@
+name: Conditional value
+description: Internal replacement for deprecated JavaScript conditional action
+inputs:
+  cond:
+    description: Condition. Expected values: true or false.
+    required: true
+  if_true:
+    description: Output value if cond is true.
+    default: ""
+  if_false:
+    description: Output value if cond is false.
+    default: ""
+outputs:
+  value:
+    description: Selected output value.
+    value: ${{ steps.resolve.outputs.value }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve value
+      id: resolve
+      shell: bash
+      env:
+        COND: ${{ inputs.cond }}
+        IF_TRUE: ${{ inputs.if_true }}
+        IF_FALSE: ${{ inputs.if_false }}
+      run: |
+        cond_normalized="$(printf '%s' "$COND" | tr '[:upper:]' '[:lower:]')"
+
+        case "$cond_normalized" in
+          true|1|yes)
+            value="$IF_TRUE"
+            ;;
+          *)
+            value="$IF_FALSE"
+            ;;
+        esac
+
+        {
+          echo "value<<EOF"
+          printf '%s\n' "$value"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
