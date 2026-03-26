@@ -1,18 +1,18 @@
-name: Conditional value
-description: Internal replacement for deprecated JavaScript conditional action
+name: "Conditional value"
+description: "Internal replacement for deprecated JavaScript conditional action"
 inputs:
   cond:
-    description: Condition. Expected values: true or false.
+    description: "Condition. Expected values: true or false."
     required: true
   if_true:
-    description: Output value if cond is true.
+    description: "Output value if cond is true."
     default: ""
   if_false:
-    description: Output value if cond is false.
+    description: "Output value if cond is false."
     default: ""
 outputs:
   value:
-    description: Selected output value.
+    description: "Selected output value."
     value: ${{ steps.resolve.outputs.value }}
 runs:
   using: composite
