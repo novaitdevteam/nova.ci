@@ -64,6 +64,8 @@ The same workflow now also applies conservative build caching:
 - container builds use a GHCR registry cache per image variant through `buildcache${IMAGE_SUFFIX}`
 - `docker/build-push-action` runs with `pull: true`, so the current base image manifest is refreshed before build
 
+For `novatalks.core`, the lint step also runs with `NODE_OPTIONS=--max-old-space-size=4096` to reduce CI failures from Node.js heap exhaustion during TypeScript ESLint runs.
+
 ## Trigger summary
 
 Switcher rules currently cover these patterns:

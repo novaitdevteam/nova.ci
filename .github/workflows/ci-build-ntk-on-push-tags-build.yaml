@@ -35,6 +35,7 @@ jobs:
           set_output bootstrap_command ""
           set_output install_command ""
           set_output lint_command ""
+          set_output node_options ""
           set_output node_cache ""
           set_output cache_dependency_path ""
 
@@ -42,6 +43,7 @@ jobs:
             novatalks.core)
               strategy="novatalks.core"
               set_output install_command "npm ci"
+              set_output node_options "--max-old-space-size=4096"
               set_output node_cache "npm"
               set_output cache_dependency_path "package-lock.json"
               case "$REF_NAME" in
@@ -136,6 +138,8 @@ jobs:
       - name: Run lint
         id: linter
         if: ${{ steps.lint_plan.outputs.lint_command != '' }}
+        env:
+          NODE_OPTIONS: ${{ steps.lint_plan.outputs.node_options }}
         run: |
           ${{ steps.lint_plan.outputs.lint_command }}
 
