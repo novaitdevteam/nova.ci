@@ -42,7 +42,7 @@ jobs:
           case "$REPO_NAME" in
             novatalks.core)
               strategy="novatalks.core"
-              set_output install_command "npm ci"
+              set_output install_command "npm i"
               set_output node_options "--max-old-space-size=4096"
               set_output node_cache "npm"
               set_output cache_dependency_path "package-lock.json"
