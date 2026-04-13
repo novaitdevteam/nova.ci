@@ -113,8 +113,8 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/build-tools/:$PATH
           yarn global add @quasar/cli
           yarn global add @quasar/icongenie
-          npm install
-          yarn run icongenie:android
+          npm install --ignore-engines
+          yarn run --ignore-engines icongenie:android
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android -- bundleRelease
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks.mobile_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.TIMESTAMP }}.apk
