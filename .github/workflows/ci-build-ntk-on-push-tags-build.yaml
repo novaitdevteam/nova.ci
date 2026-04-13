@@ -290,40 +290,38 @@ jobs:
             echo "Cache export disabled for this build."
           fi
 
-      - name: Build and push with cache export
-        if: ${{ steps.cache_policy.outputs.cache_to != '' }}
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ env.DOCKERFILE_PATH }}
-          builder: ${{ steps.buildx.outputs.name }}
-          pull: true
-          push: true
-          target: main
-          provenance: false
-          sbom: false
-          cache-from: ${{ steps.cache_policy.outputs.cache_from }}
-          cache-to: ${{ steps.cache_policy.outputs.cache_to }}
-          tags: |
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+      - name: Build and push
+        env:
+          BUILDX_NO_DEFAULT_ATTESTATIONS: 1
+          CACHE_TO: ${{ steps.cache_policy.outputs.cache_to }}
+          CACHE_FROM: ${{ steps.cache_policy.outputs.cache_from }}
+          TAG_DH: ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+          TAG_GHCR: ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+        run: |
+          set -euo pipefail
 
-      - name: Build and push without cache export
-        if: ${{ steps.cache_policy.outputs.cache_to == '' }}
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ env.DOCKERFILE_PATH }}
-          builder: ${{ steps.buildx.outputs.name }}
-          pull: true
-          push: true
-          target: main
-          provenance: false
-          sbom: false
-          cache-from: ${{ steps.cache_policy.outputs.cache_from }}
-          tags: |
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+          build_args=(
+            --builder "${{ steps.buildx.outputs.name }}"
+            --file "${{ env.DOCKERFILE_PATH }}"
+            --target main
+            --pull
+            --push
+            --cache-from "$CACHE_FROM"
+            --tag "$TAG_DH"
+            --tag "$TAG_GHCR"
+            .
+          )
+
+          if [[ -n "$CACHE_TO" ]]; then
+            build_args+=(--cache-to "$CACHE_TO")
+          fi
+
+          for attempt in 1 2 3; do
+            echo "Build attempt $attempt..."
+            docker buildx build "${build_args[@]}" && break
+            echo "Attempt $attempt failed."
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
 
       - name: Add latest tag on master DOCKER
         if: ${{ contains( github.event.base_ref, 'master' ) }}
