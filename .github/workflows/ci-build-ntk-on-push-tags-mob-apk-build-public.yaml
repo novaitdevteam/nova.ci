@@ -109,15 +109,12 @@ jobs:
           ANDROID_SDK_ROOT: "/home/runner/.android/sdk"
         working-directory: ./novatalks.ui-lite
         run: |
-          curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-          echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-          sudo apt-get update && sudo apt-get install yarn -y
+          npm install -g yarn
           export PATH="$(yarn global bin):$PATH"
           export PATH=$ANDROID_SDK_ROOT/platform-tools/:$PATH
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/:$PATH
           export PATH=$ANDROID_SDK_ROOT/emulator/:$PATH
           export PATH=$ANDROID_SDK_ROOT/build-tools/:$PATH
-          yarn global add quasar
           yarn global add @quasar/cli
           yarn global add @quasar/icongenie
           yarn install
