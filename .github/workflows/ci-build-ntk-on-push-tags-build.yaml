@@ -214,7 +214,7 @@ jobs:
         with:
           buildkitd-flags: --debug
           driver-opts: network=host
-          config-inline: |
+          buildkitd-config-inline: |
             [worker.oci]
               max-parallelism = 2
             [grpc]
