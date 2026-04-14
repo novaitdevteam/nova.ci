@@ -238,8 +238,8 @@ jobs:
             echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref_name }}" == "build-message-source-id" ]]; then
             echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_message-source-id" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_message-source-id" >> $GITHUB_OUTPUT
+            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_OUTPUT
           else
             echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
