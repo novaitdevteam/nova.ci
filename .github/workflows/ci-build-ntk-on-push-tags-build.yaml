@@ -299,8 +299,8 @@ jobs:
           BUILDX_NO_DEFAULT_ATTESTATIONS: 1
           CACHE_TO: ${{ steps.cache_policy.outputs.cache_to }}
           CACHE_FROM: ${{ steps.cache_policy.outputs.cache_from }}
-          TAG_DH: ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
-          TAG_GHCR: ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+          TAG_DH: ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
+          TAG_GHCR: ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
         run: |
           set -euo pipefail
 
@@ -334,7 +334,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:latest \
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
 
       - name: Add latest tag on master GHCR
         if: ${{ contains( github.event.base_ref, 'master' ) }}
@@ -343,7 +343,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:latest \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}${{ env.IMAGE_SUFFIX }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
 
       - name: End Step On Failure
         if: failure()
@@ -367,12 +367,12 @@ jobs:
             Image building has been completed ✅
 
             ▶️ GitHub Public Registry: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
+            🔗 docker pull ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
             ▶️ Docker Private Registry: ${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}
-            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
+            🔗 docker pull docker.io/${{ secrets.CR_DH_USERNAME }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
-            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}_${{ needs.build-image.outputs.SHORT_SHA }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}
+            🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
 
