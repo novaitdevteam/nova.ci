@@ -1,11 +1,15 @@
 name: CI Build NTK On Protected Branches
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 jobs:
   build-image:
     name: Block direct push to master/development
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     steps:
       - name: Fail if direct push to protected branch
         run: |

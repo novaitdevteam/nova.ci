@@ -1,6 +1,10 @@
 name: CI E2E Tests NTK on Push TAG
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 defaults:
   run:
@@ -9,7 +13,7 @@ defaults:
 jobs:
   build-tests:
     name: Run Playwright Tests
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     environment: ${{ inputs.environment }}
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
@@ -198,7 +202,7 @@ jobs:
     # using always() is not ideal here, because it would also run if the workflow was cancelled
     if: always()
     needs: [build-tests]
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     continue-on-error: true
     env:
       # Unique URL path for each workflow run attempt
@@ -232,7 +236,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     if: always()
     needs: [build-tests, publish-report-r2]
     steps:

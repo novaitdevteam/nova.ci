@@ -1,6 +1,10 @@
 name: CI Build NTK on Push TAG
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 env:
   #DATABASE CONFIG
@@ -14,7 +18,7 @@ env:
 jobs:
   e2e-test:
     name: Test Runner
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     environment: ${{ inputs.environment }}
     services:
       postgres:
@@ -145,7 +149,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     if: always()
     needs: e2e-test
     steps:

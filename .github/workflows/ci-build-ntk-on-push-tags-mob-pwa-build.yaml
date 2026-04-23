@@ -1,11 +1,15 @@
 name: CI Build Mob PWA on Push TAG
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 jobs:
   #   linter:
   #     name: Linter
-  #     runs-on: self-hosted
+  #     runs-on: ${{ inputs.runner_labels }}
   #     environment: ${{ inputs.environment }}
   #     outputs:
   #       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
@@ -44,7 +48,7 @@ jobs:
 
   build-image:
     name: Build Image
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     environment: ${{ inputs.environment }}
     # permissions:
     #   contents: read
@@ -154,7 +158,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     if: always()
     needs: [build-image]
     # needs: [build-image, linter]

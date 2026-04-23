@@ -1,11 +1,15 @@
 name: CI Build NTK on Certain Branch
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 jobs:
   build-image:
     name: Build Image
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     steps:
       - name: Prepare Vars
         id: prep

@@ -1,11 +1,15 @@
 name: CI Build NTK Chat Widget on Push TAG
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 jobs:
   build-widget:
     name: Build NovaTalks Widget
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     environment: ${{ inputs.environment }}
     permissions:
       contents: write
@@ -81,7 +85,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     if: always()
     needs: [build-widget]
     steps:

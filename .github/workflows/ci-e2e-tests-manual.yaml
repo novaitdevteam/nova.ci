@@ -2,6 +2,10 @@ name: CI E2E Tests NTK (Manual Only)
 
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
     # workflow_dispatch:
     #   inputs:
     #     test_tags:
@@ -15,7 +19,7 @@ defaults:
 jobs:
   build-tests:
     name: Run Playwright Tests
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     environment: ${{ inputs.environment }}
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
@@ -187,7 +191,7 @@ jobs:
     name: Publish HTML Report
     if: always()
     needs: [build-tests]
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     continue-on-error: true
     env:
       HTML_REPORT_URL_PATH: reports/manual/${{ github.run_id }}/${{ github.run_attempt }}
@@ -218,7 +222,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     if: always()
     needs: [build-tests, publish-report-r2]
     steps:

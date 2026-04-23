@@ -1,11 +1,15 @@
 name: CI Build NTK on Push TAG
 on:
   workflow_call:
+    inputs:
+      runner_labels:
+        required: true
+        type: string
 
 jobs:
   deploy-pages:
     name: Deploy Pages
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     environment: ${{ inputs.environment }}
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
@@ -36,7 +40,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runner_labels }}
     if: always()
     needs: deploy-pages
     steps:
