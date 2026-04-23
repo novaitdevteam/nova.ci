@@ -3,13 +3,13 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 jobs:
   build-image:
     name: Block direct push to master/development
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     steps:
       - name: Fail if direct push to protected branch
         run: |

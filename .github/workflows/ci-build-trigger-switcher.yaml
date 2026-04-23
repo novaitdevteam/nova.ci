@@ -3,13 +3,13 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 jobs:
   preparation:
     name: CI Build Trigger Switcher Start
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     steps:
       - name: Catch Github Events
         env:
@@ -26,7 +26,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-direct-to-protected-branches.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags
@@ -34,7 +34,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-pull-request-merged:
     name: Call Builder On Merge PR
@@ -42,7 +42,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-run-test:
     name: Call Test Runner On Push Tags
@@ -54,7 +54,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-gh-deploy:
     name: Call GH Pages Deploy On Push Tags
@@ -62,7 +62,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-apk-build:
     name: Call Mobile APK Build On Push Tags
@@ -70,7 +70,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-apk-build-public:
     name: Call Mobile APK Build On Push Tags
@@ -78,7 +78,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-pwa-build:
     name: Call Mobile PWA Build On Push Tags
@@ -86,7 +86,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-spa-build:
     name: Call Mobile SPA Build On Push Tags
@@ -94,7 +94,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-crm-build:
     name: Call Crm Build On Push Tags
@@ -102,7 +102,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-widget-build:
     name: Call GH Pages Deploy On Push Tags
@@ -110,7 +110,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-branches:
     name: Call Builder If Push Certain Branches
@@ -118,7 +118,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-branches.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   # call-external-on-push-branches-e2e-tests:
   #   name: Call Playwright Tests
@@ -126,7 +126,7 @@ jobs:
   #   uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-e2e.yaml@main
   #   secrets: inherit
   #   with:
-  #     runner_labels: ${{ inputs.runner_labels }}
+  #     runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-branches-flows-to-pub:
     name: Call Notifier To Google Chat
@@ -134,7 +134,7 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-branches-e2e-tests-manual:
     name: Call Playwright Tests manual
@@ -142,4 +142,4 @@ jobs:
     uses: novaitdevteam/nova.ci/.github/workflows/ci-e2e-tests-manual.yaml@main
     secrets: inherit
     with:
-      runner_labels: ${{ inputs.runner_labels }}
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}

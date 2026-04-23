@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 env:
@@ -18,7 +18,7 @@ env:
 jobs:
   e2e-test:
     name: Test Runner
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     services:
       postgres:
@@ -149,7 +149,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
     needs: e2e-test
     steps:

@@ -3,13 +3,13 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 jobs:
   deploy-pages:
     name: Deploy Pages
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
@@ -40,7 +40,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
     needs: deploy-pages
     steps:

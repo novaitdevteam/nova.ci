@@ -3,13 +3,13 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 jobs:
   build-apk:
     name: Build APK
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     permissions:
       contents: write

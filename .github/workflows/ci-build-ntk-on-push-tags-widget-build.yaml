@@ -3,13 +3,13 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 jobs:
   build-widget:
     name: Build NovaTalks Widget
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     permissions:
       contents: write
@@ -85,7 +85,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
     needs: [build-widget]
     steps:

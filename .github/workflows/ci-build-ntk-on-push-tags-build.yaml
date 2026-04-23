@@ -3,13 +3,13 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 jobs:
   linter:
     name: Linter
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     outputs:
       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
@@ -160,7 +160,7 @@ jobs:
 
   build-image:
     name: Build Image
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     # permissions:
     #   contents: read
@@ -356,7 +356,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
     needs: [build-image, linter]
     steps:

@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       runner_labels:
-        required: true
+        required: false
         type: string
 
 defaults:
@@ -13,7 +13,7 @@ defaults:
 jobs:
   build-tests:
     name: Run Playwright Tests
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
@@ -202,7 +202,7 @@ jobs:
     # using always() is not ideal here, because it would also run if the workflow was cancelled
     if: always()
     needs: [build-tests]
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     continue-on-error: true
     env:
       # Unique URL path for each workflow run attempt
@@ -236,7 +236,7 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
     needs: [build-tests, publish-report-r2]
     steps:
