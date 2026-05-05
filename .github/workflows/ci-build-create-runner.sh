@@ -112,7 +112,7 @@ echo "Current $REQUIRED_SIZE runners: $COUNT_SIZE"
 if [ "$COUNT_SIZE" -lt 2 ]; then
     echo "Create new runner ($REQUIRED_SIZE)"
     echo "runner_size=$REQUIRED_TYPE" >> $GITHUB_OUTPUT
-    echo "runner_name=dev-00-gh-runner-$(date +%Y%m%d-%H%M%S-%3N).novait.local" >> $GITHUB_OUTPUT
+    echo "runner_name=dev-00-gh-runner-$(date +%Y%m%d-%H%M%S-%3N)" >> $GITHUB_OUTPUT
     echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
     echo "runner_need=true" >> $GITHUB_OUTPUT
 else
