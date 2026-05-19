@@ -36,6 +36,26 @@ REQUIRED_PRIORITY=$(size_priority "$REQUIRED_SIZE")
 
 REQUIRED_TYPE=$(size_type "$REQUIRED_SIZE")
 
+DELAY=$((RANDOM % 60))
+
+echo "Sleep $DELAY sec to avoid runner race..."
+sleep $DELAY
+
+HETZNER_RESPONSE=$(curl -s \
+    "https://api.hetzner.cloud/v1/servers" \
+    --header "Authorization: Bearer $HCLOUD_TOKEN")
+
+CREATING_RUNNERS=$(echo "$HETZNER_RESPONSE" | jq -r \
+    --arg required_type "$REQUIRED_TYPE" '
+    [
+        .servers[]
+        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.status == "starting" or .status == "initializing")
+        | select(.server_type.name == $required_type)
+    ] | length
+')
+
+echo "Runners in creating process: $CREATING_RUNNERS"
 
 RESPONSE=$(curl -s \
     -H "Authorization: Bearer $GH_TOKEN" \
@@ -52,7 +72,7 @@ RUNNERS=$(echo "$RESPONSE" | jq -r '
 COUNT=$(echo "$RUNNERS" | jq 'length')
 
 
-echo "Total runners: $COUNT"
+echo "Total running runners: $COUNT"
 
 
 PARSED=$(echo "$RUNNERS" | jq '
@@ -107,9 +127,11 @@ COUNT_SIZE=$(echo "$PARSED" | jq -r --arg size "$REQUIRED_SIZE" '
     map(select(.size == $size)) | length
 ')
 
-echo "Current $REQUIRED_SIZE runners: $COUNT_SIZE"
+TOTAL_SIZE=$((COUNT_SIZE + CREATING_RUNNERS))
 
-if [ "$COUNT_SIZE" -lt 2 ]; then
+echo "Current $REQUIRED_SIZE runners: $TOTAL_SIZE"
+
+if [ "$TOTAL_SIZE" -lt 2 ]; then
     echo "Create new runner ($REQUIRED_SIZE)"
     echo "runner_size=$REQUIRED_TYPE" >> $GITHUB_OUTPUT
     echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> $GITHUB_OUTPUT
