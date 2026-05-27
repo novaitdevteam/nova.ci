@@ -44,6 +44,38 @@ jobs:
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
+  call-external-on-pull-request-novatalks-core:
+    name: Call Core Builder On Pull Request (${{ matrix.build_target }})
+    if:
+      ${{ github.event.repository.name == 'novatalks.core'
+      && github.event_name == 'pull_request'
+      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
+      && !github.event.pull_request.draft }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build_target:
+          - build-engine
+          - build-reporting
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
+    secrets: inherit
+    with:
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
+      build_target: ${{ matrix.build_target }}
+
+  call-external-on-pull-request-build:
+    name: Call Builder On Pull Request
+    if:
+      ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name)
+      && github.event_name == 'pull_request'
+      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
+      && !github.event.pull_request.draft }}
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
+    secrets: inherit
+    with:
+      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
+      build_target: build
+
   call-external-on-push-tags-run-test:
     name: Call Test Runner On Push Tags
     if:
