@@ -183,24 +183,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Docker
-        run: |
-          if command -v docker >/dev/null 2>&1; then
-            sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
-            if docker info >/dev/null 2>&1; then
-              echo "Docker already available: $(docker --version)"
-              exit 0
-            fi
-            echo "Docker CLI exists, but Docker daemon is not available. Installing Docker."
-          fi
-
-          sudo apt-get update -qq
-          sudo apt-get install -y curl
-          curl -fsSL https://get.docker.com | sudo sh
-          sudo usermod -aG docker "$USER" || true
-          sudo systemctl enable --now docker 2>/dev/null || sudo service docker start 2>/dev/null || true
-          sudo chmod 666 /var/run/docker.sock || true
-          docker info
-          echo "Docker available: $(docker --version)"
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
           
       - name: Prepare Vars
         id: prep
@@ -435,24 +418,7 @@ jobs:
             Repository: ${{ github.repository }}
 
       - name: Install Docker
-        run: |
-          if command -v docker >/dev/null 2>&1; then
-            sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
-            if docker info >/dev/null 2>&1; then
-              echo "Docker already available: $(docker --version)"
-              exit 0
-            fi
-            echo "Docker CLI exists, but Docker daemon is not available. Installing Docker."
-          fi
-
-          sudo apt-get update -qq
-          sudo apt-get install -y curl
-          curl -fsSL https://get.docker.com | sudo sh
-          sudo usermod -aG docker "$USER" || true
-          sudo systemctl enable --now docker 2>/dev/null || sudo service docker start 2>/dev/null || true
-          sudo chmod 666 /var/run/docker.sock || true
-          docker info
-          echo "Docker available: $(docker --version)"
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Send to Telegram
         uses: appleboy/telegram-action@v1.0.1

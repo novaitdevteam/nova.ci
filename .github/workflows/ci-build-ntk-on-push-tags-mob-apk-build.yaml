@@ -23,6 +23,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install APK Build Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zip unzip
+
       - name: Prepare Vars
         id: prep
         run: |
@@ -209,6 +214,9 @@ jobs:
 
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-apk.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Send to Telegram
         uses: appleboy/telegram-action@v1.0.1

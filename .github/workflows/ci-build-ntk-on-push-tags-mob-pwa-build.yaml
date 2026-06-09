@@ -66,17 +66,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Docker
-        run: |
-          if command -v docker &>/dev/null; then
-            echo "Docker already installed: $(docker --version)"
-            exit 0
-          fi
-          sudo apt-get update -qq
-          sudo apt-get install -y curl
-          curl -fsSL https://get.docker.com | sudo sh
-          sudo usermod -aG docker "$USER" || true
-          sudo chmod 666 /var/run/docker.sock
-          echo "Docker installed: $(docker --version)"
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
           
       - name: Prepare Vars
         id: prep
@@ -115,7 +105,7 @@ jobs:
       - name: Set up Docker Context for Buildx
         id: buildx-context
         run: |
-          docker context create builder
+          docker context inspect builder >/dev/null 2>&1 || docker context create builder
 
       - name: Set up Docker Buildx
         id: buildx
@@ -200,6 +190,9 @@ jobs:
 
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Send to Telegram
         uses: appleboy/telegram-action@v1.0.1

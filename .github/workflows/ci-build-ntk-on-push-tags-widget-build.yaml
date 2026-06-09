@@ -62,7 +62,7 @@ jobs:
         run: |
           curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
           echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-          sudo apt-get update && sudo apt-get install yarn -y
+          sudo apt-get update && sudo apt-get install yarn zip -y
           yarn install
           yarn build
           zip -r ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./dist
@@ -110,6 +110,9 @@ jobs:
 
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-widget.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Send to Telegram
         uses: appleboy/telegram-action@v1.0.1

@@ -207,6 +207,7 @@ Current reusable workflows in [`.github/workflows`](.github/workflows):
 Current internal reusable actions in [`.github/actions`](.github/actions):
 
 - [`action-cond/action.yml`](.github/actions/action-cond/action.yml): composite replacement for deprecated `haya14busa/action-cond`
+- [`install-docker/action.yml`](.github/actions/install-docker/action.yml): ensures Docker CLI and daemon are available before Docker-based actions or Buildx steps run on self-hosted runners
 
 `action-cond` preserves the previous interface:
 

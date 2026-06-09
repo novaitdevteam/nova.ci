@@ -1,0 +1,27 @@
+name: "Install Docker"
+description: "Ensure Docker CLI and daemon are available on a self-hosted runner"
+runs:
+  using: composite
+  steps:
+    - name: Ensure Docker is available
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if command -v docker >/dev/null 2>&1; then
+          sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+          if docker info >/dev/null 2>&1; then
+            echo "Docker already available: $(docker --version)"
+            exit 0
+          fi
+          echo "Docker CLI exists, but Docker daemon is not available. Installing Docker."
+        fi
+
+        sudo apt-get update -qq
+        sudo apt-get install -y ca-certificates curl
+        curl -fsSL https://get.docker.com | sudo sh
+        sudo usermod -aG docker "$USER" || true
+        sudo systemctl enable --now docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+        sudo chmod 666 /var/run/docker.sock || true
+        docker info
+        echo "Docker available: $(docker --version)"
