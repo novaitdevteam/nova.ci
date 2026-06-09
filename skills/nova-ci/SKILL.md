@@ -17,6 +17,8 @@ Primary files:
 - `.github/workflows/ci-build-trigger-switcher.yaml`: central dispatcher
 - `.github/workflows/ci-build-ntk-on-push-tags-build.yaml`: main lint/build/publish workflow
 - `.github/workflows/ci-build-create-runner.sh`: runner selection helper downloaded by product repo callers
+- `.github/actions/action-cond/action.yml`: success/failure message selector used by notifier jobs
+- `.github/actions/install-docker/action.yml`: Docker prerequisite helper for Docker build jobs
 
 ## Workflow Model
 
@@ -81,6 +83,26 @@ Use `_pwa`, `_spa`, and `_crm` for the corresponding mobile web build tags.
 
 Mobile APK workflows should keep Node.js at `22.22.0` or newer because current Quasar/Icongenie tooling requires at least that Node version.
 
+## Runner Tooling Semantics
+
+Docker build jobs should call `.github/actions/install-docker/action.yml` before Docker login, Buildx setup, or image builds. Keep Docker setup out of notifier jobs.
+
+Mobile PWA/SPA/CRM builds use a named Docker context `builder`; create it idempotently with `docker context inspect builder >/dev/null 2>&1 || docker context create builder`.
+
+Mobile APK workflows should not assume the self-hosted runner image has all Android tooling preinstalled. Preserve these setup behaviors:
+
+- install `zip` and `unzip` before Gradle setup
+- resolve Android SDK from `ANDROID_SDK_ROOT` or `ANDROID_HOME`, with common self-hosted runner fallbacks
+- install `platform-tools`, `platforms;android-35`, and `build-tools;35.0.0` with `sdkmanager`
+- write `src-capacitor/android/local.properties` with the resolved `sdk.dir`
+- locate and use `apksigner` under the resolved SDK
+
+## Notification Semantics
+
+Notifier jobs use `.github/actions/action-cond/action.yml` to select message text.
+
+Telegram and Google Chat notifications should use `actions/github-script@v8` with Node.js `fetch`. Do not reintroduce Docker-based Telegram actions such as `appleboy/telegram-action`; notifier jobs should not require Docker.
+
 ## Documentation Sync
 
 When changing CI behavior, update all relevant agent/human documentation in the same change:
@@ -98,6 +120,7 @@ Run YAML parsing and whitespace checks:
 
 ```bash
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/workflows/*.yaml
+ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/actions/*/action.yml
 git diff --check
 ```
 
@@ -106,7 +129,7 @@ Run `actionlint` if installed.
 Review diffs for the files that define behavior:
 
 ```bash
-git diff -- .github/workflows README.md AGENTS.md CLAUDE.md skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions README.md AGENTS.md CLAUDE.md skills/nova-ci/SKILL.md
 ```
 
 If product repository callers were touched, verify the user explicitly requested that and check those repositories separately.

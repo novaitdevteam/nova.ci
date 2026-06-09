@@ -21,6 +21,10 @@ Use this file as the high-level project guide for Codex-compatible agents. Claud
 - PR builds do not create Git tags. The switcher passes synthetic `build_target` values into the reusable build workflow.
 - `novatalks.core` PRs run `build-engine` and `build-reporting`.
 - Other standard PR build repositories run with `build_target: build`.
+- Main container builds and mobile PWA/SPA/CRM builds use Docker/Buildx; Docker setup is handled by [`install-docker/action.yml`](.github/actions/install-docker/action.yml).
+- Mobile PWA/SPA/CRM image suffixes are placed before the short SHA, matching the main build workflow.
+- Mobile APK workflows use Node.js `22.22.0`, install `zip`/`unzip`, resolve Android SDK paths dynamically, install required SDK packages with `sdkmanager`, and write `src-capacitor/android/local.properties`.
+- Notifier jobs send Telegram and Google Chat messages through `actions/github-script@v8` and Node.js `fetch`. Do not reintroduce Docker-based Telegram actions for notifier jobs.
 
 ## Editing Rules
 
@@ -29,6 +33,9 @@ Use this file as the high-level project guide for Codex-compatible agents. Claud
 - Do not edit product repository caller workflows unless the user explicitly asks.
 - If changing repository lists or PR rules, update README, AGENTS.md, CLAUDE.md, and `skills/nova-ci/SKILL.md` together.
 - Avoid introducing real tag deletion for PR builds. Tag deletion must stay limited to real tag-triggered builds.
+- Keep Docker setup limited to jobs that actually need Docker, such as image build jobs.
+- Keep Telegram/GChat notifications Docker-free.
+- Keep mobile APK runner setup explicit; self-hosted runner images may not have `zip`, `unzip`, Android Build Tools, or `apksigner` preinstalled.
 - Keep file paths in documentation relative to the repository root.
 
 ## Validation
@@ -37,6 +44,7 @@ Use these checks after workflow or documentation changes:
 
 ```bash
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/workflows/*.yaml
+ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/actions/*/action.yml
 git diff --check
 ```
 
@@ -49,5 +57,5 @@ actionlint
 For behavior changes, inspect:
 
 ```bash
-git diff -- .github/workflows README.md AGENTS.md CLAUDE.md skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions README.md AGENTS.md CLAUDE.md skills/nova-ci/SKILL.md
 ```

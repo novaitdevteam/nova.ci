@@ -174,15 +174,27 @@ jobs:
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.e2e-test.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
 
-      - name: Install Docker
-        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
-
       - name: Send to Telegram
-        uses: appleboy/telegram-action@v1.0.1
+        uses: actions/github-script@v8
+        env:
+          TELEGRAM_TO: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          TELEGRAM_TOKEN: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          TELEGRAM_MESSAGE: ${{ steps.telegram_message.outputs.value }}
         with:
-          to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
-          token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
-          message: ${{ steps.telegram_message.outputs.value }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const params = new URLSearchParams({
+              chat_id: process.env.TELEGRAM_TO,
+              text: process.env.TELEGRAM_MESSAGE,
+            });
+            const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: {"Content-Type": "application/x-www-form-urlencoded"},
+              body: params,
+            });
+            if (!response.ok) {
+              throw new Error(`Telegram sendMessage failed: ${response.status} ${await response.text()}`);
+            }
 
       - name: Send Message To GChat
         uses: actions/github-script@v8

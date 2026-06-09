@@ -145,7 +145,7 @@ The value is sanitized so characters invalid for Docker tags, such as `/`, are r
 
 The workflow deletes the source tag only for real tag-triggered builds where `build_target` is empty. PR builds never delete tags.
 
-The mobile PWA/SPA/CRM workflow uses the same suffix placement as the main workflow:
+The mobile PWA/SPA/CRM workflow uses the same suffix placement:
 
 - `build-pwa` -> image suffix `_pwa`
 - `build-spa` -> image suffix `_spa`
@@ -157,8 +157,6 @@ Those images are tagged as:
 <release>_<short-ref-name><image-suffix>_<short-sha>
 ```
 
-Mobile APK workflows use Node.js `22.22.0` so current Quasar/Icongenie tooling satisfies its Node engine requirement.
-
 ### Build Cache
 
 The build workflow uses a GHCR registry cache per image variant:
@@ -168,6 +166,42 @@ ghcr.io/<owner>/<repo>:buildcache<image-suffix>
 ```
 
 Cache import is always configured. Cache export is enabled only when the source branch is `master`, `development`, or `main`.
+
+### Docker and Buildx
+
+Docker build jobs call [`install-docker/action.yml`](.github/actions/install-docker/action.yml) before Docker login, Buildx setup, or Docker image builds. The action is idempotent: it exits early when Docker CLI and daemon are already available, otherwise it installs Docker and starts the daemon.
+
+[`ci-build-ntk-on-push-tags-mob-pwa-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml) uses a named Docker context `builder` for Buildx and creates it idempotently:
+
+```bash
+docker context inspect builder >/dev/null 2>&1 || docker context create builder
+```
+
+This avoids failing reused self-hosted runners where the context already exists.
+
+### Mobile APK Builds
+
+Mobile APK workflows use Node.js `22.22.0` so current Quasar/Icongenie tooling satisfies its Node engine requirement:
+
+- [`ci-build-ntk-on-push-tags-mob-apk-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml): internal `novatalks.ui-lite` APK/AAB build
+- [`ci-build-ntk-on-push-tags-mob-apk-build-public.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml): public `novatalks.mobile` APK build from `novatalks.ui-lite`
+
+Both APK workflows install `zip` and `unzip` before Gradle setup. `unzip` is required by `gradle/actions/setup-gradle`, and `zip` is used when packaging release artifacts.
+
+The APK build scripts resolve the Android SDK from `ANDROID_SDK_ROOT` or `ANDROID_HOME`, falling back to common self-hosted runner locations. They then:
+
+- export the resolved SDK path back to `ANDROID_HOME` and `ANDROID_SDK_ROOT`
+- install required SDK packages with `sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"`
+- write `src-capacitor/android/local.properties` with `sdk.dir=<resolved-sdk-path>`
+- locate `apksigner` under the resolved SDK and use it for APK/AAB signing
+
+### Notifications
+
+Notifier jobs use [`action-cond/action.yml`](.github/actions/action-cond/action.yml) to select success or failure message text.
+
+Telegram notifications are sent with `actions/github-script@v8` and Node.js `fetch` directly to the Telegram Bot API. Workflows that notify Google Chat also use `actions/github-script@v8` and Node.js `fetch` against the configured webhook.
+
+Notifier jobs do not use Docker-based Telegram actions and do not require Docker.
 
 ## Runner Selection
 
@@ -194,6 +228,7 @@ For PR events there is no tag, so the current default runner size is `small`.
 Before merging workflow changes:
 
 - run a YAML parser against changed `.github/workflows/*.yaml` files
+- run a YAML parser against changed `.github/actions/*/action.yml` files
 - run `git diff --check`
 - run `actionlint` when it is available locally
 - verify README, [`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), and [`skills/nova-ci/SKILL.md`](skills/nova-ci/SKILL.md) still describe the same routing behavior
@@ -230,7 +265,7 @@ Current internal reusable actions in [`.github/actions`](.github/actions):
 - input `if_false`
 - output `value`
 
-Notifier workflows use it to select success or failure messages before sending Telegram and Google Chat notifications.
+Notifier workflows use `action-cond` to select success or failure messages before sending Telegram and Google Chat notifications.
 
 ## Agent Context
 
