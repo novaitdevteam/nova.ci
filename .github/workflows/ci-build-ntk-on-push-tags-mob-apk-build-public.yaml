@@ -112,27 +112,46 @@ jobs:
           keytool -list -v -keystore ./release-key.keystore -alias ntk-ui-lite-release-key -storepass android -keypass android
 
       - name: Setup Components & Build
-        env:
-          ANDROID_HOME: "/home/runner/.android/sdk"
-          ANDROID_SDK_ROOT: "/home/runner/.android/sdk"
         working-directory: ./novatalks.ui-lite
         run: |
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ ! -d "$android_sdk" ]]; then
+            for candidate in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" /usr/local/lib/android/sdk /opt/android-sdk "$HOME/.android/sdk"; do
+              if [[ -n "$candidate" && -d "$candidate" ]]; then
+                android_sdk="$candidate"
+                break
+              fi
+            done
+          fi
+          if [[ ! -d "$android_sdk" ]]; then
+            echo "Android SDK directory not found. ANDROID_HOME=${ANDROID_HOME:-}, ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}" >&2
+            exit 1
+          fi
+          export ANDROID_HOME="$android_sdk"
+          export ANDROID_SDK_ROOT="$android_sdk"
+          apksigner="$(find "$android_sdk" -name apksigner -type f | head -n 1)"
+          if [[ -z "$apksigner" ]]; then
+            echo "apksigner not found under Android SDK directory: $android_sdk" >&2
+            exit 1
+          fi
+          echo "Using Android SDK: $android_sdk"
+
           npm install -g yarn
           export PATH="$(yarn global bin):$PATH"
-          export PATH=$ANDROID_SDK_ROOT/platform-tools/:$PATH
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/:$PATH
-          export PATH=$ANDROID_SDK_ROOT/emulator/:$PATH
-          export PATH=$ANDROID_SDK_ROOT/build-tools/:$PATH
+          export PATH=$android_sdk/platform-tools/:$PATH
+          export PATH=$android_sdk/cmdline-tools/latest/bin/:$PATH
+          export PATH=$android_sdk/emulator/:$PATH
+          export PATH=$android_sdk/build-tools/:$PATH
           yarn global add @quasar/cli
           yarn global add @quasar/icongenie
           yarn install --ignore-engines
           yarn run --ignore-engines icongenie:android
-          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > ./src-capacitor/android/local.properties
+          printf 'sdk.dir=%s\n' "$android_sdk" > ./src-capacitor/android/local.properties
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android
           mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          $(find $ANDROID_SDK_ROOT -name apksigner) sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          $(find $ANDROID_SDK_ROOT -name apksigner) verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
+          "$apksigner" verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
           cp ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk /home/runner/work/
 
       - name: Create a Release
