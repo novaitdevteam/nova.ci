@@ -145,6 +145,18 @@ The value is sanitized so characters invalid for Docker tags, such as `/`, are r
 
 The workflow deletes the source tag only for real tag-triggered builds where `build_target` is empty. PR builds never delete tags.
 
+The mobile PWA/SPA/CRM workflow uses the same suffix placement as the main workflow:
+
+- `build-pwa` -> image suffix `_pwa`
+- `build-spa` -> image suffix `_spa`
+- `build-crm` -> image suffix `_crm`
+
+Those images are tagged as:
+
+```text
+<release>_<short-ref-name><image-suffix>_<short-sha>
+```
+
 ### Build Cache
 
 The build workflow uses a GHCR registry cache per image variant:

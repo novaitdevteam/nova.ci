@@ -71,6 +71,14 @@ PR builds must not delete tags. Keep tag deletion guarded by `github.ref_type ==
 
 Image tag ref labels should use `github.head_ref` for PRs and be sanitized for Docker compatibility.
 
+Mobile PWA/SPA/CRM image tags should keep variant suffixes before the short SHA, matching the main build workflow:
+
+```text
+<release>_<short-ref-name><image-suffix>_<short-sha>
+```
+
+Use `_pwa`, `_spa`, and `_crm` for the corresponding mobile web build tags.
+
 ## Documentation Sync
 
 When changing CI behavior, update all relevant agent/human documentation in the same change:
