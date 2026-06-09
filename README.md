@@ -157,6 +157,8 @@ Those images are tagged as:
 <release>_<short-ref-name><image-suffix>_<short-sha>
 ```
 
+Mobile APK workflows use Node.js `22.22.0` so current Quasar/Icongenie tooling satisfies its Node engine requirement.
+
 ### Build Cache
 
 The build workflow uses a GHCR registry cache per image variant:

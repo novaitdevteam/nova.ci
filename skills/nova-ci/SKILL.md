@@ -79,6 +79,8 @@ Mobile PWA/SPA/CRM image tags should keep variant suffixes before the short SHA,
 
 Use `_pwa`, `_spa`, and `_crm` for the corresponding mobile web build tags.
 
+Mobile APK workflows should keep Node.js at `22.22.0` or newer because current Quasar/Icongenie tooling requires at least that Node version.
+
 ## Documentation Sync
 
 When changing CI behavior, update all relevant agent/human documentation in the same change:
