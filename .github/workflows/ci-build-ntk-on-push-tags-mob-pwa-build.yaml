@@ -111,7 +111,6 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v4
         with:
-          install: true
           endpoint: builder
           buildkitd-flags: --debug
 
