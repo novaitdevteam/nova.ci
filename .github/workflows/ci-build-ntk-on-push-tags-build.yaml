@@ -169,7 +169,7 @@ jobs:
     # permissions:
     #   contents: read
     #   packages: write
-    if: always()
+    if: ${{ always() && github.event_name != 'pull_request' }}
     needs: [linter]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
@@ -214,12 +214,27 @@ jobs:
 
       - name: Delete Tag
         if: ${{ github.ref_type == 'tag' && inputs.build_target == '' }}
-        uses: dev-drprasad/delete-tag-and-release@v1.1
+        uses: actions/github-script@v8
+        env:
+          TAG_NAME: ${{ github.ref_name }} # tag name to delete
         with:
-          delete_release: false
-          tag_name: ${{ github.ref_name }} # tag name to delete
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = process.env.TAG_NAME;
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+              core.info(`Deleted tag ${tag}`);
+            } catch (error) {
+              if (error.status === 404 || error.status === 422) {
+                core.warning(`Tag ${tag} not found, skipping deletion.`);
+              } else {
+                throw error;
+              }
+            }
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
@@ -382,7 +397,7 @@ jobs:
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    if: always()
+    if: ${{ always() && github.event_name != 'pull_request' }}
     needs: [build-image, linter]
     steps:
       - name: Set Telegram Message

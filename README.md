@@ -81,9 +81,11 @@ Standard PR build repositories are the same list except `novatalks.core`, becaus
 
 ## Pull Request Builds
 
-Pull request builds do not create Git tags. Instead, the switcher passes a synthetic `build_target` into [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml).
+Pull request events run lint only. The switcher still routes supported non-draft PR events into [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml), but the `build-image` and notifier jobs are skipped when `github.event_name == 'pull_request'`. Only the `linter` job runs for opened, synchronized, reopened, or ready-for-review PRs. No Docker image is built or published, and no notification is sent.
 
-For `novatalks.core`, every supported non-draft PR event runs two builds:
+Pull request builds do not create Git tags. The switcher passes a synthetic `build_target` into the build workflow so lint targeting still resolves correctly:
+
+For `novatalks.core`, every supported non-draft PR event lints two targets:
 
 - `build-engine`
 - `build-reporting`
@@ -94,7 +96,7 @@ For other standard PR build repositories, the switcher passes:
 build_target: build
 ```
 
-That makes PR builds follow the same build workflow used by `build*` tags, while still using the PR branch as the image ref label.
+That makes PR lint follow the same lint strategy used by `build*` tags.
 
 ## Build Workflow
 
@@ -104,6 +106,8 @@ That makes PR builds follow the same build workflow used by `build*` tags, while
 - `build_target`: optional synthetic build selector used mainly by PR dispatch
 
 When `build_target` is empty, the workflow resolves behavior from `github.ref_name`. When `build_target` is set, it is used for lint and Dockerfile selection.
+
+The `linter` job always runs. The `build-image` and notifier jobs are gated on `github.event_name != 'pull_request'`, so pull request events run lint only and never build or publish an image.
 
 ### Lint Behavior
 
@@ -231,7 +235,7 @@ Before merging workflow changes:
 - run a YAML parser against changed `.github/actions/*/action.yml` files
 - run `git diff --check`
 - run `actionlint` when it is available locally
-- verify README, [`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), and [`skills/nova-ci/SKILL.md`](skills/nova-ci/SKILL.md) still describe the same routing behavior
+- verify README, [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md), and the skill at [`.agents/skills/nova-ci/SKILL.md`](.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) still describe the same routing behavior
 
 ## Implemented Workflows
 
@@ -271,8 +275,9 @@ Notifier workflows use `action-cond` to select success or failure messages befor
 
 This repository includes agent-facing context for both Codex-compatible agents and Claude Code:
 
-- [`AGENTS.md`](AGENTS.md): shared working instructions for coding agents
-- [`CLAUDE.md`](CLAUDE.md): Claude Code project context
-- [`skills/nova-ci/SKILL.md`](skills/nova-ci/SKILL.md): portable Nova CI maintenance skill
+- [`CLAUDE.md`](CLAUDE.md): canonical agent guidance for Claude Code and Codex
+- [`AGENTS.md`](AGENTS.md): Codex-compatible entry point that delegates to `CLAUDE.md`
+- [`.agents/skills/nova-ci/SKILL.md`](.agents/skills/nova-ci/SKILL.md): portable Nova CI maintenance skill shared across LLMs
+- [`.claude/skills/nova-ci/SKILL.md`](.claude/skills/nova-ci/SKILL.md): Claude Code mirror of the skill
 
 Keep these files synchronized with this README whenever CI behavior changes.

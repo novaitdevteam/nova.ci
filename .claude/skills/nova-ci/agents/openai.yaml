@@ -1,0 +1,7 @@
+interface:
+  display_name: "Nova CI"
+  short_description: "Maintain NovaTalks shared CI workflows"
+  default_prompt: "Use $nova-ci to update or review NovaTalks shared CI workflow routing."
+
+policy:
+  allow_implicit_invocation: true

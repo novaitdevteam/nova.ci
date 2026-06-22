@@ -1,6 +1,9 @@
 ---
 name: nova-ci
 description: Use when changing, reviewing, or documenting the NovaTalks shared CI repository nova.ci, including GitHub Actions reusable workflows, ci-build-trigger-switcher routing, PR build_target behavior, runner selection, Docker image tags, and agent documentation.
+metadata:
+  author: novatalks
+  version: '1.0.0'
 ---
 
 # Nova CI Skill
@@ -36,9 +39,9 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Push to `master` or `development` in standard build repositories fails via the protected-branch workflow.
 - Push tags containing `build` in standard build repositories call the main build workflow.
 - Branch pushes whose head commit message contains `build` call the main build workflow.
-- Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow.
-- `novatalks.core` PRs run two targets: `build-engine` and `build-reporting`.
-- Other standard PR build repositories run with `build_target: build`.
+- Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow, but run lint only: the `build-image` and notifier jobs are gated on `github.event_name != 'pull_request'`.
+- `novatalks.core` PRs lint two targets: `build-engine` and `build-reporting`.
+- Other standard PR build repositories lint with `build_target: build`.
 - Integration tests for `novatalks.engine` and `novatalks.core` use tags containing `int-test`.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget, botflow assets, and Playwright tests.
 
@@ -68,6 +71,8 @@ Standard build repositories currently are:
 - `build-restore-historical`: `docker/restore-historical.Dockerfile`, suffix `_restore-historical`.
 - `build-message-source-id`: `docker/message-source-id.Dockerfile`, suffix `_migrate-message-source-id`.
 - `build` or any default target: `docker/server.Dockerfile`, no suffix.
+
+Pull request events are lint-only. Keep the `build-image` and notifier jobs gated on `github.event_name != 'pull_request'` so PRs never build or publish an image.
 
 PR builds must not delete tags. Keep tag deletion guarded by `github.ref_type == 'tag' && inputs.build_target == ''`.
 
@@ -110,7 +115,7 @@ When changing CI behavior, update all relevant agent/human documentation in the 
 - `README.md`
 - `AGENTS.md`
 - `CLAUDE.md`
-- `skills/nova-ci/SKILL.md`
+- `.agents/skills/nova-ci/SKILL.md` (and its mirror `.claude/skills/nova-ci/SKILL.md`)
 
 Keep README as the canonical broad reference. Keep this skill concise and procedural.
 
@@ -129,7 +134,7 @@ Run `actionlint` if installed.
 Review diffs for the files that define behavior:
 
 ```bash
-git diff -- .github/workflows .github/actions README.md AGENTS.md CLAUDE.md skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 ```
 
 If product repository callers were touched, verify the user explicitly requested that and check those repositories separately.
