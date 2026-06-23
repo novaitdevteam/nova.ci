@@ -9,6 +9,17 @@ on:
         required: false
         type: string
         default: ""
+      trivy_severity:
+        required: false
+        type: string
+        default: "CRITICAL,HIGH"
+      trivy_mode:
+        required: false
+        type: string
+        # warn-only: always succeed, report only.
+        # fail-on-critical: fail when CRITICAL found.
+        # fail-on-high: fail when CRITICAL or HIGH found.
+        default: "warn-only"
 
 jobs:
   linter:
@@ -394,12 +405,302 @@ jobs:
         id: end_step
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
+  trivy-scan:
+    name: Trivy Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Lint-only for PRs: never scan on pull_request. Only scan a successfully built image.
+    if: ${{ always() && github.event_name != 'pull_request' && needs.build-image.result == 'success' }}
+    needs: [build-image]
+    outputs:
+      SCANNED: ${{ steps.scan_policy.outputs.should_scan }}
+      MODE: ${{ steps.scan_policy.outputs.mode }}
+      CRITICAL: ${{ steps.report.outputs.critical }}
+      HIGH: ${{ steps.report.outputs.high }}
+      REPORT_URL: ${{ steps.report.outputs.report_url }}
+    env:
+      TRIVY_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+      TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+      REPORT_FILE: trivy-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+    steps:
+      - name: Resolve scan policy
+        id: scan_policy
+        env:
+          SOURCE_BRANCH: ${{ needs.build-image.outputs.SHORT_REF_NAME }}
+          REF_NAME: ${{ github.ref_name }}
+          SCAN_SEVERITY: ${{ inputs.trivy_severity }}
+          SCAN_MODE: ${{ inputs.trivy_mode }}
+        run: |
+          set -euo pipefail
+
+          severity="${SCAN_SEVERITY:-CRITICAL,HIGH}"
+          mode="${SCAN_MODE:-warn-only}"
+
+          # Auto-scan protected source branches; otherwise require a strict scan tag
+          # (the ref name must start with "scan", e.g. "scan" or "scan-NC2-1234").
+          should_scan="false"
+          reason=""
+          case "$SOURCE_BRANCH" in
+            main|master|development)
+              should_scan="true"
+              reason="protected source branch ($SOURCE_BRANCH)"
+              ;;
+          esac
+
+          if [[ "$should_scan" != "true" && "$REF_NAME" == scan* ]]; then
+            should_scan="true"
+            reason="explicit scan tag ($REF_NAME)"
+          fi
+
+          # Bucket the Trivy DB cache into 5-hour windows so a stale DB lives at most ~5h.
+          cache_bucket="$(( $(date +%s) / 18000 ))"
+
+          echo "should_scan=$should_scan" | tee -a "$GITHUB_OUTPUT"
+          echo "severity=$severity" | tee -a "$GITHUB_OUTPUT"
+          echo "mode=$mode" | tee -a "$GITHUB_OUTPUT"
+          echo "cache_bucket=$cache_bucket" | tee -a "$GITHUB_OUTPUT"
+
+          if [[ "$should_scan" == "true" ]]; then
+            echo "Trivy scan enabled: $reason"
+          else
+            echo "Trivy scan skipped: source branch '$SOURCE_BRANCH' is not main/master/development and the trigger ref '$REF_NAME' does not start with 'scan'."
+          fi
+
+      - name: Install Docker
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Login to GitHub Container Registry
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull built image
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        run: docker pull --platform linux/amd64 "$TRIVY_IMAGE"
+
+      # 5-hour cache window: a new key every 5h forces a fresh Trivy DB at least that often.
+      - name: Cache Trivy databases (5h window)
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          key: trivy-db-5h-${{ steps.scan_policy.outputs.cache_bucket }}
+          restore-keys: |
+            trivy-db-5h-
+
+      # OS-package vulnerabilities. First call also installs Trivy and downloads the
+      # vulnerability + Java DBs (the action manages both, so no manual two-step download).
+      - name: Trivy scan (OS packages)
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_PKG_TYPES: os
+        with:
+          scan-type: image
+          image-ref: ${{ env.TRIVY_IMAGE }}
+          format: table
+          output: trivy-os.txt
+          severity: ${{ steps.scan_policy.outputs.severity }}
+          scanners: vuln
+          cache: "false"
+          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
+          hide-progress: "true"
+
+      # Application/library vulnerabilities (Node.js node-pkg, etc).
+      - name: Trivy scan (libraries)
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_PKG_TYPES: library
+        with:
+          scan-type: image
+          image-ref: ${{ env.TRIVY_IMAGE }}
+          format: table
+          output: trivy-library.txt
+          severity: ${{ steps.scan_policy.outputs.severity }}
+          scanners: vuln
+          cache: "false"
+          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
+          hide-progress: "true"
+          skip-setup-trivy: "true"
+
+      # Machine-readable pass used only to count findings for the summary and fail policy.
+      - name: Trivy scan (JSON for counts)
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.TRIVY_IMAGE }}
+          format: json
+          output: trivy-counts.json
+          severity: ${{ steps.scan_policy.outputs.severity }}
+          scanners: vuln
+          cache: "false"
+          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
+          hide-progress: "true"
+          skip-setup-trivy: "true"
+
+      - name: Assemble report
+        id: report
+        if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "=============================="
+            echo " IMAGE: $TRIVY_IMAGE"
+            echo "=============================="
+            echo ""
+            echo "=== OS Vulnerabilities ==="
+            cat trivy-os.txt
+            echo ""
+            echo "=== Node.js Vulnerabilities ==="
+            sed -n '/^Node.js (node-pkg)/,$p' trivy-library.txt
+          } > "$REPORT_FILE"
+
+          crit=$(grep -o '"Severity":[[:space:]]*"CRITICAL"' trivy-counts.json | wc -l | tr -d ' ')
+          high=$(grep -o '"Severity":[[:space:]]*"HIGH"' trivy-counts.json | wc -l | tr -d ' ')
+          echo "critical=$crit" | tee -a "$GITHUB_OUTPUT"
+          echo "high=$high" | tee -a "$GITHUB_OUTPUT"
+          echo "report_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${REPORT_FILE}" | tee -a "$GITHUB_OUTPUT"
+
+          echo "Report written to $REPORT_FILE"
+
+      - name: Upload report artifact
+        if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+          if-no-files-found: warn
+
+      # Publish the .report as a downloadable release asset, like the chat widget build.
+      - name: Publish report release
+        if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          body: Automated Trivy scan report for ${{ env.TRIVY_IMAGE }}
+          draft: false
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
+      - name: Publish scan summary and apply policy
+        if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
+        env:
+          CRIT: ${{ steps.report.outputs.critical }}
+          HIGH: ${{ steps.report.outputs.high }}
+          MODE: ${{ steps.scan_policy.outputs.mode }}
+          SEVERITY: ${{ steps.scan_policy.outputs.severity }}
+          DOWNLOAD_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+        run: |
+          set -euo pipefail
+
+          crit="${CRIT:-0}"
+          high="${HIGH:-0}"
+
+          # Pick a colored GitHub-flavored alert banner by worst severity found.
+          if [[ "$crit" -gt 0 ]]; then
+            alert="CAUTION"
+            headline="🚨 $crit CRITICAL and $high HIGH vulnerabilities found — review the report."
+          elif [[ "$high" -gt 0 ]]; then
+            alert="WARNING"
+            headline="⚠️ $high HIGH vulnerabilities found — review the report."
+          else
+            alert="NOTE"
+            headline="✅ No CRITICAL or HIGH vulnerabilities found."
+          fi
+
+          {
+            echo "## 🔐 Trivy image scan"
+            echo ""
+            echo "> [!${alert}]"
+            echo "> ${headline}"
+            echo ""
+            echo "- Image: \`$TRIVY_IMAGE\`"
+            echo "- Severities scanned: \`$SEVERITY\`"
+            echo "- Policy mode: \`$MODE\`"
+            echo "- Report: [\`$REPORT_FILE\`]($DOWNLOAD_URL)"
+            echo ""
+            echo "| Severity | Count |"
+            echo "| --- | --- |"
+            echo "| CRITICAL | $crit |"
+            echo "| HIGH | $high |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Trivy results — CRITICAL: $crit, HIGH: $high (mode: $MODE)"
+
+          case "$MODE" in
+            fail-on-critical)
+              if [[ "$crit" -gt 0 ]]; then
+                echo "::error::Trivy found $crit CRITICAL vulnerabilities; failing per '$MODE' policy."
+                exit 1
+              fi
+              ;;
+            fail-on-high)
+              if [[ "$crit" -gt 0 || "$high" -gt 0 ]]; then
+                echo "::error::Trivy found $crit CRITICAL and $high HIGH vulnerabilities; failing per '$MODE' policy."
+                exit 1
+              fi
+              ;;
+          esac
+
+          if [[ "$crit" -gt 0 || "$high" -gt 0 ]]; then
+            echo "::warning::Trivy found $crit CRITICAL and $high HIGH vulnerabilities. See $REPORT_FILE."
+          fi
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter]
+    needs: [build-image, linter, trivy-scan]
     steps:
+      - name: Compose Trivy line
+        id: trivy_line
+        env:
+          RESULT: ${{ needs.trivy-scan.result }}
+          SCANNED: ${{ needs.trivy-scan.outputs.SCANNED }}
+          MODE: ${{ needs.trivy-scan.outputs.MODE }}
+          CRIT: ${{ needs.trivy-scan.outputs.CRITICAL }}
+          HIGH: ${{ needs.trivy-scan.outputs.HIGH }}
+          URL: ${{ needs.trivy-scan.outputs.REPORT_URL }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$SCANNED" == "true" ]]; then
+            crit="${CRIT:-0}"
+            high="${HIGH:-0}"
+            # Style by worst severity. Build stays green (warn-only); this only signals.
+            if [[ "$RESULT" == "failure" ]]; then
+              head="🔐 Trivy Scan: ❌ FAILED  (policy: ${MODE})"
+            elif [[ "$crit" -gt 0 ]]; then
+              head="🔐 Trivy Scan: 🔴 CRITICAL found!"
+            elif [[ "$high" -gt 0 ]]; then
+              head="🔐 Trivy Scan: 🟠 HIGH found"
+            else
+              head="🔐 Trivy Scan: 🟢 clean"
+            fi
+            line="${head}"
+            line="${line}"$'\n'"   CRITICAL: ${crit} | HIGH: ${high}"
+            line="${line}"$'\n'"   📄 Report: ${URL}"
+          else
+            line="🔐 Trivy Scan: ⏭️ skipped (no scan trigger)"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -419,6 +720,8 @@ jobs:
             🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
+
+            ${{ steps.trivy_line.outputs.value }}
 
             Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}

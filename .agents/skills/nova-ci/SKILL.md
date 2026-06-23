@@ -22,6 +22,8 @@ Primary files:
 - `.github/workflows/ci-build-create-runner.sh`: runner selection helper downloaded by product repo callers
 - `.github/actions/action-cond/action.yml`: success/failure message selector used by notifier jobs
 - `.github/actions/install-docker/action.yml`: Docker prerequisite helper for Docker build jobs
+- `scripts/validate.sh`: validation harness (YAML, whitespace, skill mirror, actionlint); also `make validate`
+- `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
 
 ## Workflow Model
 
@@ -37,9 +39,9 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 ## Dispatch Rules To Preserve
 
 - Push to `master` or `development` in standard build repositories fails via the protected-branch workflow.
-- Push tags containing `build` in standard build repositories call the main build workflow.
+- Push tags containing `build`, or starting with `scan`, in standard build repositories call the main build workflow.
 - Branch pushes whose head commit message contains `build` call the main build workflow.
-- Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow, but run lint only: the `build-image` and notifier jobs are gated on `github.event_name != 'pull_request'`.
+- Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow, but run lint only: the `build-image`, `trivy-scan`, and notifier jobs are gated on `github.event_name != 'pull_request'`.
 - `novatalks.core` PRs lint two targets: `build-engine` and `build-reporting`.
 - Other standard PR build repositories lint with `build_target: build`.
 - Integration tests for `novatalks.engine` and `novatalks.core` use tags containing `int-test`.
@@ -108,6 +110,26 @@ Notifier jobs use `.github/actions/action-cond/action.yml` to select message tex
 
 Telegram and Google Chat notifications should use `actions/github-script@v8` with Node.js `fetch`. Do not reintroduce Docker-based Telegram actions such as `appleboy/telegram-action`; notifier jobs should not require Docker.
 
+In `ci-build-ntk-on-push-tags-build.yaml` the notifier `needs: [build-image, linter, trivy-scan]` and a `Compose Trivy line` step builds a scan line color-coded by worst severity (`🔴 CRITICAL found!` / `🟠 HIGH found` / `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped`), with CRITICAL/HIGH counts and the report link, from `trivy-scan` outputs, injected into the same message sent to Telegram and Google Chat. The job summary uses a matching colored alert banner (CAUTION/WARNING/NOTE).
+
+## Trivy Image Scan Semantics
+
+`ci-build-ntk-on-push-tags-build.yaml` has a `trivy-scan` job that `needs: [build-image]` and scans the exact GHCR image the build produced:
+
+```text
+ghcr.io/<owner>/<repo>:<release>_<short-ref-name><image-suffix>_<short-sha>
+```
+
+Preserve these behaviors:
+
+- Keep the scan gated on `github.event_name != 'pull_request'` and `needs.build-image.result == 'success'`. PRs stay lint-only.
+- The `Resolve scan policy` step auto-enables the scan when `SHORT_REF_NAME` is `main`, `master`, or `development`, and enables it on demand when the trigger tag ref starts with `scan` (`[[ "$REF_NAME" == scan* ]]`). Otherwise the image is built but not scanned. Branch/repo/commit come from push metadata, not the tag name.
+- The switcher routes `push` tags containing `build` or starting with `scan` to the build workflow, so a `scan*` tag builds and scans a specific branch.
+- Scan with `aquasecurity/trivy-action@v0.36.0` (pinned). Run an OS pass (`TRIVY_PKG_TYPES=os`), a library pass (`TRIVY_PKG_TYPES=library`), and a JSON pass for counts; reuse the install with `skip-setup-trivy: true`. The action manages the vulnerability and Java DBs — do not reintroduce a manual `--download-db-only` / `--download-java-db-only` two-step.
+- Cache the Trivy DB with `actions/cache` over `${{ github.workspace }}/.cache/trivy` (action cache disabled via `cache: false`); the key embeds a 5-hour bucket (`trivy-db-5h-<floor(epoch/18000)>`).
+- Emit a single `.report` file (`trivy-<repo>-<ref><suffix>-<sha>.report`) with `=== OS Vulnerabilities ===` and `=== Node.js Vulnerabilities ===` sections. Upload it as a workflow artifact and attach it to a GitHub prerelease tagged `TRIVY.SCAN_<release>_<ref><suffix>_<sha>` (`softprops/action-gh-release@v2`, job needs `contents: write`). Put CRITICAL/HIGH counts and the report link in the job summary.
+- `trivy_mode` policy: `warn-only` (default) always succeeds and only warns; `fail-on-critical` fails the job when CRITICAL > 0; `fail-on-high` fails when CRITICAL or HIGH > 0. The image is already built/pushed before the scan, so a failing scan signals red but does not unpublish it.
+
 ## Documentation Sync
 
 When changing CI behavior, update all relevant agent/human documentation in the same change:
@@ -121,20 +143,19 @@ Keep README as the canonical broad reference. Keep this skill concise and proced
 
 ## Validation
 
-Run YAML parsing and whitespace checks:
+Run the validation harness; it bundles every check (YAML parse of workflows and
+actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, and
+`actionlint` when installed):
 
 ```bash
-ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/workflows/*.yaml
-ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/actions/*/action.yml
-git diff --check
+./scripts/validate.sh   # or: make validate
 ```
 
-Run `actionlint` if installed.
-
-Review diffs for the files that define behavior:
+The same harness runs in CI via `ci-self-validate.yaml` on pull requests and pushes
+to `main`. After it passes, review diffs for the files that define behavior:
 
 ```bash
-git diff -- .github/workflows .github/actions README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions scripts README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 ```
 
 If product repository callers were touched, verify the user explicitly requested that and check those repositories separately.

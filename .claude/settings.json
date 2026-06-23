@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/validate.sh)",
+      "Bash(make validate)",
+      "Bash(actionlint:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(rg:*)",
+      "Bash(ruby:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; case \"$f\" in *.github/workflows/*|*.github/actions/*) exec ./scripts/validate.sh ;; *) exit 0 ;; esac; }",
+            "statusMessage": "Validating CI workflows and actions…"
+          }
+        ]
+      }
+    ]
+  }
+}
