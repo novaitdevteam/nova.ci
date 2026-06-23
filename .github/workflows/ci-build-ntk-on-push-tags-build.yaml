@@ -565,8 +565,10 @@ jobs:
             sed -n '/^Node.js (node-pkg)/,$p' trivy-library.txt
           } > "$REPORT_FILE"
 
-          crit=$(grep -o '"Severity":[[:space:]]*"CRITICAL"' trivy-counts.json | wc -l | tr -d ' ')
-          high=$(grep -o '"Severity":[[:space:]]*"HIGH"' trivy-counts.json | wc -l | tr -d ' ')
+          # grep exits non-zero when there are no matches (clean image); under pipefail that
+          # would kill the step, so swallow grep's status before counting -> 0 findings = "0".
+          crit=$({ grep -o '"Severity":[[:space:]]*"CRITICAL"' trivy-counts.json || true; } | wc -l | tr -d ' ')
+          high=$({ grep -o '"Severity":[[:space:]]*"HIGH"' trivy-counts.json || true; } | wc -l | tr -d ' ')
           echo "critical=$crit" | tee -a "$GITHUB_OUTPUT"
           echo "high=$high" | tee -a "$GITHUB_OUTPUT"
           echo "report_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${REPORT_FILE}" | tee -a "$GITHUB_OUTPUT"
