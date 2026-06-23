@@ -307,7 +307,7 @@ The harness ([`scripts/validate.sh`](scripts/validate.sh)) runs:
 - a YAML parser against all `.github/actions/*/action.yml` files
 - `git diff --check` (whitespace)
 - a `.agents` ↔ `.claude` skill mirror sync check
-- `actionlint` when it is available locally (skipped with a note otherwise)
+- `actionlint` when it is available locally — **advisory** by default (the repo carries a pre-existing backlog of shellcheck-info / expression findings, so they are reported but do not fail the harness); set `STRICT_ACTIONLINT=1` to enforce once the backlog is cleared
 
 It is also wired into CI: [`ci-self-validate.yaml`](.github/workflows/ci-self-validate.yaml) runs the harness (with `actionlint` installed) on every pull request and on pushes to `main`, so workflow and action changes are validated automatically.
 

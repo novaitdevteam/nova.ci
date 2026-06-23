@@ -145,7 +145,8 @@ Keep README as the canonical broad reference. Keep this skill concise and proced
 
 Run the validation harness; it bundles every check (YAML parse of workflows and
 actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, and
-`actionlint` when installed):
+`actionlint` when installed — advisory by default given the repo's pre-existing
+backlog; `STRICT_ACTIONLINT=1` enforces):
 
 ```bash
 ./scripts/validate.sh   # or: make validate

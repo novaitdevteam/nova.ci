@@ -75,8 +75,10 @@ Run the validation harness after any workflow, action, or documentation change:
 ```
 
 It parses every workflow and action YAML, runs `git diff --check`, verifies the
-`.agents` ↔ `.claude` skill mirror, and runs `actionlint` when installed. The same
-harness runs in CI via `ci-self-validate.yaml` on pull requests and pushes to `main`.
+`.agents` ↔ `.claude` skill mirror, and runs `actionlint` when installed (advisory by
+default — the repo has a pre-existing shellcheck/expression backlog; set
+`STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI via `ci-self-validate.yaml`
+on pull requests and pushes to `main`.
 
 Then check the final diff for consistency:
 
