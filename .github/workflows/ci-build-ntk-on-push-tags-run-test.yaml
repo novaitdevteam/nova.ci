@@ -5,6 +5,20 @@ on:
       runner_labels:
         required: false
         type: string
+      test_mode:
+        required: false
+        type: string
+        default: "integration"   # one of: unit | integration | both
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        required: false
+        type: choice
+        default: "integration"
+        options:
+          - integration
+          - unit
+          - both
 
 env:
   #DATABASE CONFIG
@@ -16,13 +30,95 @@ env:
   DATABASE_NAME: db_name
 
 jobs:
-  e2e-test:
-    name: Test Runner
-    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
+  delete-tag:
+    name: Delete Trigger Tag
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
+    if: ${{ github.ref_type == 'tag' }}
+    steps:
+      - name: Delete Tag
+        uses: actions/github-script@v8
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = process.env.TAG_NAME;
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+              core.info(`Deleted tag ${tag}`);
+            } catch (error) {
+              if (error.status === 404 || error.status === 422) {
+                core.warning(`Tag ${tag} not found, skipping deletion.`);
+              } else {
+                throw error;
+              }
+            }
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
+    if: ${{ contains(fromJSON('["unit","both"]'), inputs.test_mode || 'integration') }}
+    outputs:
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
+      REPORT: ${{ steps.report.outputs.artifact-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: 💿 Setup NODEJS
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: ▶️ Get Env From Example
+        run: |
+          sed '/^#/d' .env.example > .env
+          cat .env >> $GITHUB_ENV
+
+      - name: ⏬ Install Dependencies
+        env:
+          NODE_ENV: development
+        run: |
+          npm pkg delete scripts.prepare
+          npm ci
+
+      - name: 🧪 Run Unit Tests
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          LOG_LEVEL: "error"
+        run: |
+          set -o pipefail
+          npm run test:unit 2>&1 | tee results.txt
+
+      - name: Save Artifact
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        id: report
+        with:
+          name: unit-test-report
+          path: ./results.txt
+          retention-days: 30
+
+      - name: End Step On Failure
+        if: failure()
+        id: end_step
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
+    if: ${{ contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
     services:
       postgres:
-        image: postgres:16
+        # novatalks.core mirrors the production PG major version with the official PG 17.9
+        # image; other repos (e.g. novatalks.engine) keep the stock postgres:16.
+        image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
         env:
           POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
           POSTGRES_DB: ${{ env.DATABASE_NAME }}
@@ -50,41 +146,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v1.1
-        with:
-          tag_name: ${{ github.ref_name }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
-        id: node_inst
         with:
           node-version: 22
-          package-manager-cache: false
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: ▶️ Get Env From Example
-        id: prep_1
         run: |
           sed '/^#/d' .env.example > .env
           cat .env >> $GITHUB_ENV
 
-      # - name: ▶️ Delete Lock Files
-      #   run: |
-      #     rm package-lock.json
-      #     rm yarn.lock
-
       - name: ⏬ Install Dependencies
         env:
           NODE_ENV: development
-          #NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           npm pkg delete scripts.prepare
           npm ci
 
-      # deprecated
-      # - name: ▶️ Migrate DB
-      #   run: npm run db:migrate #--loglevel info
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
@@ -94,51 +174,28 @@ jobs:
         env:
           PGPASSWORD: ${{ env.DATABASE_PASSWORD }}
 
-      - name: 🚶 Run One Test
-        if: ${{ contains(github.ref_name, 'int-test') && endsWith( github.ref_name, '.ts' ) }}
-        run: |
-          echo ${{ github.ref_name }} | cut -d "-" -f3 | xargs npm run test
+      # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by
+      # default because integration tests share DB state and run with --runInBand.
+      # To parallelize, give each shard its own postgres/redis service and split with --shard=i/N.
+      - name: 🏃 Run Integration Tests
         env:
           NODE_ENV: production
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
-
-      # - name: 🏃 Run Test Modules
-      #   if: ${{ endsWith( github.ref_name, 'int-test' ) }}
-      #   run: npm run test #--loglevel info
-      #   #run: npm run test account.controller.integration.spec.ts #--loglevel info
-      #   #run: npm run test inbox.controller.integration.spec.ts
-      #   env:
-      #     NODE_ENV: development
-      #     NODE_OPTIONS: "--max-old-space-size=8192"
-      #     LOG_LEVEL: "error"
-      #     UV_THREADPOOL_SIZE: 32
-
-      # a=$(find ./src -name '*.spec.ts' | wc -l);
-      # for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test '$i' completed with exit code '$? ; ((a--)) ; done
-      - name: 🏃 Run Test Modules by Files
-        if: ${{ endsWith( github.ref_name, 'int-test' ) }}
-        continue-on-error: true
-        shell: bash {0}
-        run: |
-          # cat .env >> $GITHUB_ENV
-          npx jest --runInBand --forceExit
-
-        env:
-          NODE_ENV: production
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          LOG_LEVEL: "error"
-          UV_THREADPOOL_SIZE: 32
+          UV_THREADPOOL_SIZE: "32"
           FORCE_COLOR: "false"
           NO_COLOR: "true"
           DATABASE_LOGGING: "false"
+        run: |
+          set -o pipefail
+          npm run test:integration 2>&1 | tee results.txt
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         id: report
         with:
-          name: unit-test-report
+          name: integration-test-report
           path: ./results.txt
           retention-days: 30
 
@@ -149,29 +206,30 @@ jobs:
 
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: always()
-    needs: e2e-test
+    needs: [unit-tests, integration-tests]
     steps:
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+          cond: ${{ !contains(join(needs.*.result, ','), 'failure') }}
           if_true: |
             👷 ${{ github.actor }} start test
 
-            Test assembly has been completed ✅
+            Test run (${{ inputs.test_mode || 'integration' }}) completed ✅
 
             Repository: ${{ github.repository }}
-            ▶️ GitHub Artifact: ${{ needs.e2e-test.outputs.REPORT }}
+            ▶️ Unit Report: ${{ needs.unit-tests.outputs.REPORT }}
+            ▶️ Integration Report: ${{ needs.integration-tests.outputs.REPORT }}
 
           if_false: |
             👷 ${{ github.actor }} start test
 
             ❌Tests Failed
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.e2e-test.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.integration-tests.outputs.END_STEP_JOB_ID || needs.unit-tests.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
 
       - name: Send to Telegram

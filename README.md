@@ -54,7 +54,9 @@ The central switcher currently routes these events:
 | `push` | standard build repositories | branch push commit message contains `build` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
 | `pull_request` | `novatalks.core` | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build-engine` and `build-reporting` matrix |
 | `pull_request` | standard PR build repositories | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build_target: build` |
-| `push` | `novatalks.engine`, `novatalks.core` | tag contains `int-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) |
+| `push` | `novatalks.engine`, `novatalks.core` | tag contains `int-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
+| `push` | `novatalks.engine`, `novatalks.core` | tag contains `unit-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: unit` |
+| `push` | `novatalks.engine`, `novatalks.core` | tag contains `full-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: both` |
 | `push` | `nova.docs` | tag contains `build` | [`ci-build-ntk-on-push-tags-gh-deploy.yaml`](.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml) |
 | `push` | `novatalks.ui-lite` | tag contains `build-apk` | [`ci-build-ntk-on-push-tags-mob-apk-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml) |
 | `push` | `novatalks.mobile` | tag contains `build-apk` | [`ci-build-ntk-on-push-tags-mob-apk-build-public.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml) |
@@ -81,7 +83,7 @@ Standard PR build repositories are the same list except `novatalks.core`, becaus
 
 ## Pull Request Builds
 
-Pull request events run lint only. The switcher still routes supported non-draft PR events into [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml), but the `build-image` and notifier jobs are skipped when `github.event_name == 'pull_request'`. Only the `linter` job runs for opened, synchronized, reopened, or ready-for-review PRs. No Docker image is built or published, and no notification is sent.
+Pull request events run lint and unit tests only. The switcher still routes supported non-draft PR events into [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml), but the `build-image`, `trivy-scan`, and notifier jobs are skipped when `github.event_name == 'pull_request'`. The `linter` and `unit-test` jobs both run for opened, synchronized, reopened, or ready-for-review PRs. No Docker image is built or published, and no notification is sent.
 
 Pull request builds do not create Git tags. The switcher passes a synthetic `build_target` into the build workflow so lint targeting still resolves correctly:
 
@@ -89,6 +91,8 @@ For `novatalks.core`, every supported non-draft PR event lints two targets:
 
 - `build-engine`
 - `build-reporting`
+
+Unit tests run once for `novatalks.core` PRs: they execute on the `build-engine` leg and are skipped on the `build-reporting` leg to avoid duplicate runs.
 
 For other standard PR build repositories, the switcher passes:
 
@@ -109,7 +113,9 @@ That makes PR lint follow the same lint strategy used by `build*` tags.
 
 When `build_target` is empty, the workflow resolves behavior from `github.ref_name`. When `build_target` is set, it is used for lint and Dockerfile selection.
 
-The `linter` job always runs. The `build-image`, `trivy-scan`, and notifier jobs are gated on `github.event_name != 'pull_request'`, so pull request events run lint only and never build, scan, or publish an image.
+The `linter` and `unit-test` jobs always run (on both PR and non-PR events). The `build-image`, `trivy-scan`, and notifier jobs are gated on `github.event_name != 'pull_request'`, so pull request events run lint and unit tests only and never build, scan, or publish an image.
+
+`build-image` has `needs: [linter, unit-test]`. Lint is advisory: the build still runs if lint fails. A unit test failure blocks the build. The `build-image` condition is `!cancelled() && github.event_name != 'pull_request' && needs.unit-test.result == 'success'`.
 
 ### Lint Behavior
 
@@ -273,11 +279,13 @@ Telegram notifications are sent with `actions/github-script@v8` and Node.js `fet
 
 Notifier jobs do not use Docker-based Telegram actions and do not require Docker.
 
+The notifier message includes a `Unit Tests Status:` line (✅ passed / ❌ failed) alongside the existing ESLinter status line, reflecting the `unit-test` job result.
+
 ## Runner Selection
 
 Connected repositories download and run [`ci-build-create-runner.sh`](.github/workflows/ci-build-create-runner.sh) from `main`.
 
-Runner sizing is derived from the triggering tag:
+Runner sizing is derived from the triggering tag. For most repositories:
 
 - tag contains `build` -> `small`
 - tag contains `test` -> `large`
@@ -292,6 +300,25 @@ The script:
 - emits `runner_need`, `runner_labels`, `runner_size`, and `runner_name`
 
 For PR events there is no tag, so the current default runner size is `small`.
+
+### Runner Sizing (novatalks.core)
+
+`novatalks.core` uses a differentiated sizing matrix because different tag types have very different resource requirements. The sizing is resolved in [`ci-build-create-runner.sh`](.github/workflows/ci-build-create-runner.sh) downloaded from `nova.ci@main`:
+
+| Tag substring | `test_mode` | Runner size | Hetzner type | Why |
+| --- | --- | --- | --- | --- |
+| `build` | — | `small` | cx33 | lint + build only |
+| `unit-test` | `unit` | `medium` | cx43 | unit tests are CPU-bound, no DB services |
+| `int-test` / `full-test` | `integration` / `both` | `large` | cx53 | integration needs postgres + redis + app |
+| anything else | — | `small` | cx33 | default |
+
+`unit-test` is matched before the generic `test` check, so unit-only runs get `medium` while `int-test` and `full-test` get `large`.
+
+Because one tag push provisions **one** runner size for the entire run, a `full-test` tag executes both unit and integration tests on the `large` runner (acceptable; only unit-only runs get `medium`).
+
+Each size class (`small`, `medium`, `large`) has its own **max-2-online** concurrency cap. `medium` and `large` are independent pools, so unit-test (`medium`) and integration-test (`large`) runs do not contend for the same runners.
+
+All other standard build repositories keep the original two-tier sizing: `build` → `small`, `test` → `large`.
 
 ## Validation
 
@@ -313,6 +340,74 @@ It is also wired into CI: [`ci-self-validate.yaml`](.github/workflows/ci-self-va
 
 After changing CI behavior, still verify by hand that README, [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md), and the skill at [`.agents/skills/nova-ci/SKILL.md`](.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing behavior.
 
+## Tests
+
+### Unit Tests (Build Gate)
+
+A `unit-test` job runs as a fast parallel gate in [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) alongside `linter`, on both PR and non-PR events.
+
+The job is repo-aware via a "Resolve test plan" step. Currently only `novatalks.core` runs unit tests (`npm run test:unit`). All other standard build repositories resolve to a no-op success, so they are unaffected and backward compatible. To enable unit tests for a new repository, add a case in that step.
+
+Unit tests use `npm run test:unit` (jest `--selectProjects unit`, parallel via jest workers). There is no `continue-on-error`.
+
+**PR pipeline:** lint + unit tests only. No image build, no scan, no notification. A unit test failure makes the PR check red.
+
+**Non-PR pipeline:** lint + unit tests, then image build (gated on unit test success), then Trivy scan, then notification. Lint failure is advisory; unit test failure blocks the build.
+
+### Test Workflow Modes
+
+[`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) accepts a `test_mode` input with three values:
+
+| `test_mode` | What runs | Trigger tag substring |
+| --- | --- | --- |
+| `unit` | unit tests only (no DB or Redis services) | `unit-test` |
+| `integration` | integration tests (postgres:16 + redis:8 services) | `int-test` |
+| `both` | unit tests then integration tests | `full-test` |
+
+Default is `integration` (backward compatible with existing `int-test` tags).
+
+**Tag conventions for `novatalks.engine` and `novatalks.core`:**
+
+```bash
+git tag int-test-NC2-1234 && git push origin int-test-NC2-1234   # integration only
+git tag unit-test-NC2-1234 && git push origin unit-test-NC2-1234 # unit only
+git tag full-test-NC2-1234 && git push origin full-test-NC2-1234 # both
+```
+
+The three substrings (`int-test`, `unit-test`, `full-test`) do not collide. The switcher computes the `test_mode` from the tag and passes it to the test workflow.
+
+The workflow also has a `workflow_dispatch` trigger with a `test_mode` choice input for manual runs inside `nova.ci` without pushing a tag.
+
+### Integration Tests
+
+Integration tests use `npm run test:integration` (which already includes `--runInBand --forceExit --silent --verbose`). The integration job uses redis:8 services shared across all steps. There is no `continue-on-error`; failures now fail the job (previously they were masked).
+
+The Postgres service image is repository-aware:
+
+- `novatalks.core`: uses the official `postgres:17.9-trixie` image (PG 17.9 on Debian trixie), matching the production major version.
+- All other repositories (e.g. `novatalks.engine`): use `postgres:16`.
+
+The `POSTGRES_*` env vars, `pg_isready` health check, and `CREATE EXTENSION pgcrypto` step are the same for all repositories.
+
+npm dependencies are cached via setup-node `cache: npm`.
+
+**Integration test sharding** (jest `--shard` + matrix) is intentionally not enabled by default. Integration tests share database state and run with `--runInBand`. To parallelize, each shard would need its own postgres and Redis service and a `--shard=i/N` flag. Unit tests already parallelize via jest workers; the integration bottleneck is DB I/O, not CPU.
+
+### Reading Failures
+
+- `unit-test` job red in a build or PR: the build is blocked and the PR check fails. Fix the failing unit test or code before merging or triggering a build.
+- `integration-tests` job red: a real integration failure (no longer hidden). Investigate via the `integration-test-report` artifact in the workflow run.
+- Lint failure alone does not block the build (advisory) but is reported in the notifier message.
+
+### CI Timing Note
+
+The integration test runner was updated from a file-by-file loop (which spawned a new Node.js process per file) to the native jest runner via `npm run test:integration`. This eliminates per-file Node restart overhead.
+
+Measured wall-clock durations from Actions run timings (fill in after observing runs on the target runner):
+
+- Before: ___ min
+- After: ___ min
+
 ## Implemented Workflows
 
 Current reusable workflows in [`.github/workflows`](.github/workflows):
@@ -321,7 +416,7 @@ Current reusable workflows in [`.github/workflows`](.github/workflows):
 - [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml): lint, build, publish, and notify for container images
 - [`ci-build-ntk-on-push-direct-to-protected-branches.yaml`](.github/workflows/ci-build-ntk-on-push-direct-to-protected-branches.yaml): fails direct pushes to protected branches
 - [`ci-build-ntk-on-push-branches.yaml`](.github/workflows/ci-build-ntk-on-push-branches.yaml): placeholder flow for selected branch builds
-- [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml): integration test runner for `int-test` tags
+- [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml): test runner for `int-test`, `unit-test`, and `full-test` tags; accepts `test_mode` (unit/integration/both, default integration)
 - [`ci-build-ntk-on-push-tags-run-e2e.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-e2e.yaml): reusable E2E test flow
 - [`ci-e2e-tests-manual.yaml`](.github/workflows/ci-e2e-tests-manual.yaml): reusable Playwright E2E flow invoked by the switcher for tagged test runs
 - [`ci-build-ntk-on-push-tags-gh-deploy.yaml`](.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml): GitHub Pages deploy

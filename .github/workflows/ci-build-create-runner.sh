@@ -2,12 +2,28 @@ REPO="${GITHUB_REPOSITORY##*/}"
 
 TAG="${GITHUB_REF#refs/tags/}"
 
-if [[ "$TAG" == *build* ]]; then
-    REQUIRED_SIZE="small"
-elif [[ "$TAG" == *test* ]]; then
-    REQUIRED_SIZE="large"
+# Runner sizing matrix.
+# novatalks.core differentiates test sizing: unit tests are light and DB-less (medium),
+# while integration/both need postgres + redis + the app (large). build stays small.
+# All other repositories keep the original build->small / test->large mapping unchanged.
+if [[ "$REPO" == "novatalks.core" ]]; then
+    if [[ "$TAG" == *build* ]]; then
+        REQUIRED_SIZE="small"
+    elif [[ "$TAG" == *unit-test* ]]; then
+        REQUIRED_SIZE="medium"
+    elif [[ "$TAG" == *test* ]]; then
+        REQUIRED_SIZE="large"
+    else
+        REQUIRED_SIZE="small"
+    fi
 else
-    REQUIRED_SIZE="small"
+    if [[ "$TAG" == *build* ]]; then
+        REQUIRED_SIZE="small"
+    elif [[ "$TAG" == *test* ]]; then
+        REQUIRED_SIZE="large"
+    else
+        REQUIRED_SIZE="small"
+    fi
 fi
 
 
