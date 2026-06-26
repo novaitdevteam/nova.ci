@@ -42,13 +42,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
         id: node_inst
