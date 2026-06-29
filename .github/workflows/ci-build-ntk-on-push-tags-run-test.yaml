@@ -83,7 +83,9 @@ jobs:
       - name: ▶️ Get Env From Example
         run: |
           sed '/^#/d' .env.example > .env
-          cat .env >> $GITHUB_ENV
+          # Forward only well-formed KEY=value lines: .env.example may contain bare keys
+          # (e.g. MESSAGE_EXTERNAL_SOURCE_LAST_ID) that are invalid for $GITHUB_ENV.
+          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env >> "$GITHUB_ENV" || true
 
       - name: ⏬ Install Dependencies
         env:
@@ -164,7 +166,9 @@ jobs:
       - name: ▶️ Get Env From Example
         run: |
           sed '/^#/d' .env.example > .env
-          cat .env >> $GITHUB_ENV
+          # Forward only well-formed KEY=value lines: .env.example may contain bare keys
+          # (e.g. MESSAGE_EXTERNAL_SOURCE_LAST_ID) that are invalid for $GITHUB_ENV.
+          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env >> "$GITHUB_ENV" || true
 
       - name: ⏬ Install Dependencies
         env:
