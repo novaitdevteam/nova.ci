@@ -181,7 +181,11 @@ jobs:
       UNIT_CHECK: ${{ steps.unit_res.outputs.UNIT_CHECK }}
     steps:
       - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which runs in parallel with this gate.
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Resolve test plan
         id: test_plan

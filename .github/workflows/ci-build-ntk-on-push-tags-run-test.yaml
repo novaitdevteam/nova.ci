@@ -67,7 +67,11 @@ jobs:
       REPORT: ${{ steps.report.outputs.artifact-url }}
     steps:
       - name: Checkout
+        # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
+        # removes refs/tags/<tag>, so a tag-based checkout would race and fail.
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
@@ -144,7 +148,11 @@ jobs:
       REPORT: ${{ steps.report.outputs.artifact-url }}
     steps:
       - name: Checkout
+        # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
+        # removes refs/tags/<tag>, so a tag-based checkout would race and fail.
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
