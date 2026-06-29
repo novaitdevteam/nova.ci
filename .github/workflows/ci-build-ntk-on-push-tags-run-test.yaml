@@ -283,14 +283,23 @@ jobs:
           INT_SUMMARY: ${{ needs.integration-tests.outputs.SUMMARY }}
         run: |
           set -euo pipefail
-          # List result + counts + report only for a job that actually ran (not skipped).
+          # Map a job result to a clear status label so it is obvious which suite failed.
+          label() {
+            case "$1" in
+              success)   echo "✅ passed" ;;
+              failure)   echo "❌ FAILED" ;;
+              cancelled) echo "⏹️ cancelled" ;;
+              *)         echo "$1" ;;
+            esac
+          }
+          # List status + counts + report only for a job that actually ran (not skipped).
           lines=""
           if [[ "${UNIT_RESULT:-}" != "skipped" ]]; then
-            lines="${lines}🧪 Unit (${UNIT_RESULT:-}) — ${UNIT_SUMMARY:-n/a}"$'\n'
+            lines="${lines}🧪 Unit: $(label "${UNIT_RESULT:-}") — ${UNIT_SUMMARY:-n/a}"$'\n'
             lines="${lines}   ▶️ Report: ${UNIT_URL:-}"$'\n'
           fi
           if [[ "${INT_RESULT:-}" != "skipped" ]]; then
-            lines="${lines}🧩 Integration (${INT_RESULT:-}) — ${INT_SUMMARY:-n/a}"$'\n'
+            lines="${lines}🧩 Integration: $(label "${INT_RESULT:-}") — ${INT_SUMMARY:-n/a}"$'\n'
             lines="${lines}   ▶️ Report: ${INT_URL:-}"$'\n'
           fi
           {
