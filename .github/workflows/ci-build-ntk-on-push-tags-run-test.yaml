@@ -23,7 +23,8 @@ on:
 env:
   #DATABASE CONFIG
   DATABASE_DIALECT: postgres
-  DATABASE_HOST: postgres
+  # Integration DBs run as host-published containers, reached on localhost.
+  DATABASE_HOST: 127.0.0.1
   DATABASE_PORT: 5432
   DATABASE_USERNAME: postgres
   DATABASE_PASSWORD: password
@@ -76,7 +77,7 @@ jobs:
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -120,31 +121,6 @@ jobs:
     name: Integration Tests
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: ${{ contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
-    services:
-      postgres:
-        # novatalks.core mirrors the production PG major version with the official PG 17.9
-        # image; other repos (e.g. novatalks.engine) keep the stock postgres:16.
-        image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
-        env:
-          POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
-          POSTGRES_DB: ${{ env.DATABASE_NAME }}
-          POSTGRES_USER: ${{ env.DATABASE_USERNAME }}
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:8
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
@@ -156,10 +132,45 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      # GitHub `services:` start before any step, so they require Docker pre-installed on
+      # the runner image (which the self-hosted image lacks). Instead install Docker here
+      # and run Postgres + Redis manually with host port mapping, so DATABASE_HOST /
+      # REDIS_HOST (127.0.0.1 / localhost) reach the published ports.
+      - name: 🐳 Ensure Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: 🐘 Start Postgres + Redis
+        env:
+          # novatalks.core mirrors the production PG major version (PG 17.9); others use postgres:16.
+          PG_IMAGE: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
+        run: |
+          set -euo pipefail
+          docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+          docker run -d --name nova-pg \
+            -e POSTGRES_PASSWORD="$DATABASE_PASSWORD" \
+            -e POSTGRES_DB="$DATABASE_NAME" \
+            -e POSTGRES_USER="$DATABASE_USERNAME" \
+            -p 5432:5432 "$PG_IMAGE"
+          docker run -d --name nova-redis -p 6379:6379 redis:8
+
+          echo "Waiting for Postgres..."
+          for _ in $(seq 1 30); do
+            docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$DATABASE_NAME"
+
+          echo "Waiting for Redis..."
+          for _ in $(seq 1 15); do
+            [ "$(docker exec nova-redis redis-cli ping 2>/dev/null)" = "PONG" ] && break
+            sleep 1
+          done
+          docker exec nova-redis redis-cli ping
+
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -177,14 +188,11 @@ jobs:
           npm pkg delete scripts.prepare
           npm ci
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
       - name: Enable pgcrypto extension
         run: |
-          psql -h $DATABASE_HOST -U $DATABASE_USERNAME -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-        env:
-          PGPASSWORD: ${{ env.DATABASE_PASSWORD }}
+          docker exec -e PGPASSWORD="$DATABASE_PASSWORD" nova-pg \
+            psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
 
       # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by
       # default because integration tests share DB state and run with --runInBand.
@@ -215,6 +223,10 @@ jobs:
         if: failure()
         id: end_step
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+
+      - name: 🧹 Tear down containers
+        if: always()
+        run: docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
 
   notify-telegram:
     name: Notifier
