@@ -54,9 +54,9 @@ The central switcher currently routes these events:
 | `push` | standard build repositories | branch push commit message contains `build` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
 | `pull_request` | `novatalks.core` | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build-engine` and `build-reporting` matrix |
 | `pull_request` | standard PR build repositories | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build_target: build` |
-| `push` | `novatalks.engine`, `novatalks.core` | tag contains `int-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
-| `push` | `novatalks.engine`, `novatalks.core` | tag contains `unit-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: unit` |
-| `push` | `novatalks.engine`, `novatalks.core` | tag contains `full-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: both` |
+| `push` | `novatalks.core` | tag contains `int-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
+| `push` | `novatalks.core` | tag contains `unit-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: unit` |
+| `push` | `novatalks.core` | tag contains `full-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: both` |
 | `push` | `nova.docs` | tag contains `build` | [`ci-build-ntk-on-push-tags-gh-deploy.yaml`](.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml) |
 | `push` | `novatalks.ui-lite` | tag contains `build-apk` | [`ci-build-ntk-on-push-tags-mob-apk-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml) |
 | `push` | `novatalks.mobile` | tag contains `build-apk` | [`ci-build-ntk-on-push-tags-mob-apk-build-public.yaml`](.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml) |
@@ -68,7 +68,6 @@ The central switcher currently routes these events:
 
 Standard build repositories:
 
-- `novatalks.engine`
 - `novatalks.core`
 - `novatalks.ui`
 - `nova.botflow`
@@ -366,7 +365,7 @@ Unit tests use `npm run test:unit` (jest `--selectProjects unit`, parallel via j
 
 Default is `integration` (backward compatible with existing `int-test` tags).
 
-**Tag conventions for `novatalks.engine` and `novatalks.core`:**
+**Tag conventions for `novatalks.core`:**
 
 ```bash
 git tag int-test-NC2-1234 && git push origin int-test-NC2-1234   # integration only
@@ -385,9 +384,11 @@ Integration tests use `npm run test:integration` (which already includes `--runI
 The Postgres service image is repository-aware:
 
 - `novatalks.core`: uses the official `postgres:17.9-trixie` image (PG 17.9 on Debian trixie), matching the production major version.
-- All other repositories (e.g. `novatalks.engine`): use `postgres:16`.
+- All other repositories (e.g. `novatalks.ui`): use `postgres:16`.
 
 The `POSTGRES_*` env vars, `pg_isready` health check, and `CREATE EXTENSION pgcrypto` step are the same for all repositories.
+
+File storage is also repository-aware. For `novatalks.core` only, a `Configure S3 (Cloudflare R2) file storage` step runs before the integration tests and writes `FILE_DRIVER=s3` plus the `AWS_S3_*` settings to `$GITHUB_ENV`, sourced from the repository secrets `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET` (region `auto`, path-style on). The step is gated on `github.event.repository.name == 'novatalks.core'`, so other repositories (e.g. `novatalks.ui`) keep their default `FILE_DRIVER`. Secrets reach the reusable workflow via the switcher's `secrets: inherit`.
 
 npm dependencies are cached via setup-node `cache: npm`.
 

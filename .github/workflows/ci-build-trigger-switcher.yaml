@@ -22,7 +22,7 @@ jobs:
 
   call-external-on-push-to-protected-branches:
     name: Call Builder If Push Directly To Protected Branches
-    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && (github.ref_name == 'master' || github.ref_name == 'development') }}
+    if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && (github.ref_name == 'master' || github.ref_name == 'development') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-direct-to-protected-branches.yaml@main
     secrets: inherit
     with:
@@ -30,7 +30,7 @@ jobs:
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags
-    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, 'build') || startsWith(github.ref_name, 'scan')) }}
+    if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, 'build') || startsWith(github.ref_name, 'scan')) }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@NC2-2103
     secrets: inherit
     with:
@@ -38,7 +38,7 @@ jobs:
 
   call-external-on-pull-request-merged:
     name: Call Builder On Merge PR
-    if: ${{ contains(fromJSON('["novatalks.engine", "novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
+    if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@NC2-2103
     secrets: inherit
     with:
@@ -66,7 +66,7 @@ jobs:
   call-external-on-pull-request-build:
     name: Call Builder On Pull Request
     if:
-      ${{ contains(fromJSON('["novatalks.engine", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name)
+      ${{ contains(fromJSON('["novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name)
       && github.event_name == 'pull_request'
       && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
       && !github.event.pull_request.draft }}
@@ -79,7 +79,7 @@ jobs:
   call-external-on-push-tags-run-test:
     name: Call Test Runner On Push Tags
     if:
-      ${{ (github.event.repository.name == 'novatalks.engine' || github.event.repository.name == 'novatalks.core')
+      ${{ github.event.repository.name == 'novatalks.core'
       && github.event_name == 'push'
       && github.ref_type == 'tag'
       && (contains(github.ref_name, 'int-test') || contains(github.ref_name, 'unit-test') || contains(github.ref_name, 'full-test')) }}

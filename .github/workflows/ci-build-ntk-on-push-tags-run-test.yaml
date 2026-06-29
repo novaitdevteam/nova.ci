@@ -214,6 +214,28 @@ jobs:
             psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
             -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
 
+      # novatalks.core integration tests exercise S3 (Cloudflare R2) file storage.
+      # Inject the R2 credentials for novatalks.core only, so other repos (e.g. engine)
+      # keep their default FILE_DRIVER and are unaffected. Secrets are passed via step env
+      # (not inline ${{ secrets }} in run) so they are masked and never rendered into the script.
+      - name: ⚙️ Configure S3 (Cloudflare R2) file storage
+        if: ${{ github.event.repository.name == 'novatalks.core' }}
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          {
+            echo "FILE_DRIVER=s3"
+            echo "AWS_S3_ENDPOINT=$R2_ENDPOINT"
+            echo "AWS_S3_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID"
+            echo "AWS_S3_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY"
+            echo "AWS_S3_BUCKET=$R2_BUCKET"
+            echo "AWS_S3_REGION=auto"
+            echo "AWS_S3_FORCE_PATH_STYLE=true"
+          } >> "$GITHUB_ENV"
+
       # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by
       # default because integration tests share DB state and run with --runInBand.
       # To parallelize, give each shard its own postgres/redis service and split with --shard=i/N.

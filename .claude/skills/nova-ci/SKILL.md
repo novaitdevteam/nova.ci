@@ -53,7 +53,6 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 
 Standard build repositories currently are:
 
-- `novatalks.engine`
 - `novatalks.core`
 - `novatalks.ui`
 - `nova.botflow`
@@ -122,7 +121,9 @@ The workflow also has a `workflow_dispatch` trigger with a `test_mode` choice in
 
 Separate jobs: `unit-tests` (runs when mode is `unit` or `both`, no DB services) and `integration-tests` (runs when mode is `integration` or `both`, with redis:8 and a Postgres service). A `delete-tag` job deletes the trigger tag via `actions/github-script@v8` `git.deleteRef` (no third-party action).
 
-The Postgres service image is repository-aware: `novatalks.core` uses the official `postgres:17.9-trixie` image (PG 17.9 on Debian trixie, matching the production major version), selected via `github.event.repository.name == 'novatalks.core'`; all other repositories (e.g. `novatalks.engine`) use `postgres:16`. The `POSTGRES_*` env vars, `pg_isready` health check, and `CREATE EXTENSION pgcrypto` step are unchanged across all repos.
+The Postgres service image is repository-aware: `novatalks.core` uses the official `postgres:17.9-trixie` image (PG 17.9 on Debian trixie, matching the production major version), selected via `github.event.repository.name == 'novatalks.core'`; all other repositories (e.g. `novatalks.ui`) use `postgres:16`. The `POSTGRES_*` env vars, `pg_isready` health check, and `CREATE EXTENSION pgcrypto` step are unchanged across all repos.
+
+File storage is repository-aware too: a `Configure S3 (Cloudflare R2) file storage` step, gated on `github.event.repository.name == 'novatalks.core'`, writes `FILE_DRIVER=s3` and the `AWS_S3_*` settings to `$GITHUB_ENV` before the integration run, from repo secrets `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (region `auto`, force path style). Keep it scoped to `novatalks.core` so other repos keep their default `FILE_DRIVER`, and keep the `R2_*` secrets routed via step `env:` (not inline `${{ secrets }}` in `run`). Secrets reach the reusable workflow through the switcher's `secrets: inherit`.
 
 Both test jobs use npm scripts: `npm run test:unit` and `npm run test:integration` (the integration script already includes `--runInBand --forceExit --silent --verbose`). Do not replace them with raw `npx jest` flags in CI. No `continue-on-error` on either job; integration failures now fail the job (they were previously masked).
 
