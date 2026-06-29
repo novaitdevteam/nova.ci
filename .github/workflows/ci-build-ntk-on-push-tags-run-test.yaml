@@ -296,11 +296,11 @@ jobs:
           lines=""
           if [[ "${UNIT_RESULT:-}" != "skipped" ]]; then
             lines="${lines}🧪 Unit: $(label "${UNIT_RESULT:-}") — ${UNIT_SUMMARY:-n/a}"$'\n'
-            lines="${lines}   ▶️ Report: ${UNIT_URL:-}"$'\n'
+            lines="${lines}   ▶️ Report: ${UNIT_URL:-}"$'\n\n'
           fi
           if [[ "${INT_RESULT:-}" != "skipped" ]]; then
             lines="${lines}🧩 Integration: $(label "${INT_RESULT:-}") — ${INT_SUMMARY:-n/a}"$'\n'
-            lines="${lines}   ▶️ Report: ${INT_URL:-}"$'\n'
+            lines="${lines}   ▶️ Report: ${INT_URL:-}"$'\n\n'
           fi
           {
             echo "value<<EOF"
