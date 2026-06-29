@@ -234,6 +234,29 @@ jobs:
     if: always()
     needs: [unit-tests, integration-tests]
     steps:
+      - name: Compose report lines
+        id: reports
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          UNIT_URL: ${{ needs.unit-tests.outputs.REPORT }}
+          INT_RESULT: ${{ needs.integration-tests.result }}
+          INT_URL: ${{ needs.integration-tests.outputs.REPORT }}
+        run: |
+          set -euo pipefail
+          # Only list a report for a job that actually ran (not skipped by test_mode).
+          lines=""
+          if [[ "${UNIT_RESULT:-}" != "skipped" ]]; then
+            lines="${lines}▶️ Unit Report: ${UNIT_URL:-}"$'\n'
+          fi
+          if [[ "${INT_RESULT:-}" != "skipped" ]]; then
+            lines="${lines}▶️ Integration Report: ${INT_URL:-}"$'\n'
+          fi
+          {
+            echo "value<<EOF"
+            printf '%s' "$lines"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -245,8 +268,7 @@ jobs:
             Test run (${{ inputs.test_mode || 'integration' }}) completed ✅
 
             Repository: ${{ github.repository }}
-            ▶️ Unit Report: ${{ needs.unit-tests.outputs.REPORT }}
-            ▶️ Integration Report: ${{ needs.integration-tests.outputs.REPORT }}
+            ${{ steps.reports.outputs.value }}
 
           if_false: |
             👷 ${{ github.actor }} start test
