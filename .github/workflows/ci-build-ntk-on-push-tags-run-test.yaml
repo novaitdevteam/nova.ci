@@ -66,6 +66,7 @@ jobs:
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
+      SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
       - name: Checkout
         # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
@@ -103,6 +104,24 @@ jobs:
           set -o pipefail
           npm run test:unit 2>&1 | tee results.txt
 
+      - name: 📊 Summarize results
+        if: always()
+        id: summary
+        env:
+          LABEL: Unit
+        run: |
+          tests="n/a"; suites="n/a"
+          if [ -f results.txt ]; then
+            t=$(grep -E '^Tests:' results.txt | tail -1 | sed -E 's/^Tests:[[:space:]]*//'); [ -n "$t" ] && tests="$t"
+            s=$(grep -E '^Test Suites:' results.txt | tail -1 | sed -E 's/^Test Suites:[[:space:]]*//'); [ -n "$s" ] && suites="$s"
+          fi
+          echo "SUMMARY=Tests: ${tests} | Suites: ${suites}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### ${LABEL} tests"
+            echo "- **Tests:** ${tests}"
+            echo "- **Suites:** ${suites}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Save Artifact
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
@@ -124,6 +143,7 @@ jobs:
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
+      SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
       - name: Checkout
         # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
@@ -210,6 +230,24 @@ jobs:
           set -o pipefail
           npm run test:integration 2>&1 | tee results.txt
 
+      - name: 📊 Summarize results
+        if: always()
+        id: summary
+        env:
+          LABEL: Integration
+        run: |
+          tests="n/a"; suites="n/a"
+          if [ -f results.txt ]; then
+            t=$(grep -E '^Tests:' results.txt | tail -1 | sed -E 's/^Tests:[[:space:]]*//'); [ -n "$t" ] && tests="$t"
+            s=$(grep -E '^Test Suites:' results.txt | tail -1 | sed -E 's/^Test Suites:[[:space:]]*//'); [ -n "$s" ] && suites="$s"
+          fi
+          echo "SUMMARY=Tests: ${tests} | Suites: ${suites}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### ${LABEL} tests"
+            echo "- **Tests:** ${tests}"
+            echo "- **Suites:** ${suites}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Save Artifact
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
@@ -239,17 +277,21 @@ jobs:
         env:
           UNIT_RESULT: ${{ needs.unit-tests.result }}
           UNIT_URL: ${{ needs.unit-tests.outputs.REPORT }}
+          UNIT_SUMMARY: ${{ needs.unit-tests.outputs.SUMMARY }}
           INT_RESULT: ${{ needs.integration-tests.result }}
           INT_URL: ${{ needs.integration-tests.outputs.REPORT }}
+          INT_SUMMARY: ${{ needs.integration-tests.outputs.SUMMARY }}
         run: |
           set -euo pipefail
-          # Only list a report for a job that actually ran (not skipped by test_mode).
+          # List result + counts + report only for a job that actually ran (not skipped).
           lines=""
           if [[ "${UNIT_RESULT:-}" != "skipped" ]]; then
-            lines="${lines}▶️ Unit Report: ${UNIT_URL:-}"$'\n'
+            lines="${lines}🧪 Unit (${UNIT_RESULT:-}) — ${UNIT_SUMMARY:-n/a}"$'\n'
+            lines="${lines}   ▶️ Report: ${UNIT_URL:-}"$'\n'
           fi
           if [[ "${INT_RESULT:-}" != "skipped" ]]; then
-            lines="${lines}▶️ Integration Report: ${INT_URL:-}"$'\n'
+            lines="${lines}🧩 Integration (${INT_RESULT:-}) — ${INT_SUMMARY:-n/a}"$'\n'
+            lines="${lines}   ▶️ Report: ${INT_URL:-}"$'\n'
           fi
           {
             echo "value<<EOF"
@@ -273,8 +315,9 @@ jobs:
           if_false: |
             👷 ${{ github.actor }} start test
 
-            ❌Tests Failed
+            ❌ Tests Failed (${{ inputs.test_mode || 'integration' }})
 
+            ${{ steps.reports.outputs.value }}
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.integration-tests.outputs.END_STEP_JOB_ID || needs.unit-tests.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
 
