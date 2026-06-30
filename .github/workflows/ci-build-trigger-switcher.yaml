@@ -31,7 +31,7 @@ jobs:
   call-external-on-push-tags:
     name: Call Builder On Push Tags
     if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, 'build') || startsWith(github.ref_name, 'scan')) }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@NC2-2103
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -39,7 +39,7 @@ jobs:
   call-external-on-pull-request-merged:
     name: Call Builder On Merge PR
     if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@NC2-2103
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -57,7 +57,7 @@ jobs:
         build_target:
           - build-engine
           - build-reporting
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@NC2-2103
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -70,7 +70,7 @@ jobs:
       && github.event_name == 'pull_request'
       && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
       && !github.event.pull_request.draft }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@NC2-2103
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -83,7 +83,7 @@ jobs:
       && github.event_name == 'push'
       && github.ref_type == 'tag'
       && (contains(github.ref_name, 'int-test') || contains(github.ref_name, 'unit-test') || contains(github.ref_name, 'full-test')) }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@NC2-2103
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml@main
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
