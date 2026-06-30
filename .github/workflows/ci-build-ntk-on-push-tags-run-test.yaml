@@ -5,133 +5,122 @@ on:
       runner_labels:
         required: false
         type: string
+      test_mode:
+        required: false
+        type: string
+        default: "integration"   # one of: unit | integration | both
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        required: false
+        type: choice
+        default: "integration"
+        options:
+          - integration
+          - unit
+          - both
 
 env:
   #DATABASE CONFIG
   DATABASE_DIALECT: postgres
-  DATABASE_HOST: postgres
+  # Integration DBs run as host-published containers, reached on localhost.
+  DATABASE_HOST: 127.0.0.1
   DATABASE_PORT: 5432
   DATABASE_USERNAME: postgres
   DATABASE_PASSWORD: password
   DATABASE_NAME: db_name
 
 jobs:
-  e2e-test:
-    name: Test Runner
-    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
-    services:
-      postgres:
-        image: postgres:16
+  delete-tag:
+    name: Delete Trigger Tag
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
+    if: ${{ github.ref_type == 'tag' }}
+    steps:
+      - name: Delete Tag
+        uses: actions/github-script@v8
         env:
-          POSTGRES_PASSWORD: ${{ env.DATABASE_PASSWORD }}
-          POSTGRES_DB: ${{ env.DATABASE_NAME }}
-          POSTGRES_USER: ${{ env.DATABASE_USERNAME }}
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:8
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          TAG_NAME: ${{ github.ref_name }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = process.env.TAG_NAME;
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+              core.info(`Deleted tag ${tag}`);
+            } catch (error) {
+              if (error.status === 404 || error.status === 422) {
+                core.warning(`Tag ${tag} not found, skipping deletion.`);
+              } else {
+                throw error;
+              }
+            }
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
+    if: ${{ contains(fromJSON('["unit","both"]'), inputs.test_mode || 'integration') }}
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
+      SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
       - name: Checkout
+        # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
+        # removes refs/tags/<tag>, so a tag-based checkout would race and fail.
         uses: actions/checkout@v6
-
-      - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
-          tag_name: ${{ github.ref_name }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.sha }}
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
-        id: node_inst
         with:
-          node-version: 22
-          package-manager-cache: false
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: ▶️ Get Env From Example
-        id: prep_1
         run: |
           sed '/^#/d' .env.example > .env
-          cat .env >> $GITHUB_ENV
-
-      # - name: ▶️ Delete Lock Files
-      #   run: |
-      #     rm package-lock.json
-      #     rm yarn.lock
+          # Forward only well-formed KEY=value lines: .env.example may contain bare keys
+          # (e.g. MESSAGE_EXTERNAL_SOURCE_LAST_ID) that are invalid for $GITHUB_ENV.
+          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env >> "$GITHUB_ENV" || true
 
       - name: ⏬ Install Dependencies
         env:
           NODE_ENV: development
-          #NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           npm pkg delete scripts.prepare
           npm ci
 
-      # deprecated
-      # - name: ▶️ Migrate DB
-      #   run: npm run db:migrate #--loglevel info
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Enable pgcrypto extension
-        run: |
-          psql -h $DATABASE_HOST -U $DATABASE_USERNAME -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+      - name: 🧪 Run Unit Tests
         env:
-          PGPASSWORD: ${{ env.DATABASE_PASSWORD }}
-
-      - name: 🚶 Run One Test
-        if: ${{ contains(github.ref_name, 'int-test') && endsWith( github.ref_name, '.ts' ) }}
-        run: |
-          echo ${{ github.ref_name }} | cut -d "-" -f3 | xargs npm run test
-        env:
-          NODE_ENV: production
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
-
-      # - name: 🏃 Run Test Modules
-      #   if: ${{ endsWith( github.ref_name, 'int-test' ) }}
-      #   run: npm run test #--loglevel info
-      #   #run: npm run test account.controller.integration.spec.ts #--loglevel info
-      #   #run: npm run test inbox.controller.integration.spec.ts
-      #   env:
-      #     NODE_ENV: development
-      #     NODE_OPTIONS: "--max-old-space-size=8192"
-      #     LOG_LEVEL: "error"
-      #     UV_THREADPOOL_SIZE: 32
-
-      # a=$(find ./src -name '*.spec.ts' | wc -l);
-      # for i in `find ./src -name '*.spec.ts'` ; do if [ $a -le 0 ]; then break; fi; npm run test ${i##*/} &>> ./results.txt ; echo 'Test '$i' completed with exit code '$? ; ((a--)) ; done
-      - name: 🏃 Run Test Modules by Files
-        if: ${{ endsWith( github.ref_name, 'int-test' ) }}
-        continue-on-error: true
-        shell: bash {0}
         run: |
-          # cat .env >> $GITHUB_ENV
-          npx jest --runInBand --forceExit
+          set -o pipefail
+          npm run test:unit 2>&1 | tee results.txt
 
+      - name: 📊 Summarize results
+        if: always()
+        id: summary
         env:
-          NODE_ENV: production
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          LOG_LEVEL: "error"
-          UV_THREADPOOL_SIZE: 32
-          FORCE_COLOR: "false"
-          NO_COLOR: "true"
-          DATABASE_LOGGING: "false"
+          LABEL: Unit
+        run: |
+          tests="n/a"; suites="n/a"
+          if [ -f results.txt ]; then
+            t=$(grep -E '^Tests:' results.txt | tail -1 | sed -E 's/^Tests:[[:space:]]*//'); [ -n "$t" ] && tests="$t"
+            s=$(grep -E '^Test Suites:' results.txt | tail -1 | sed -E 's/^Test Suites:[[:space:]]*//'); [ -n "$s" ] && suites="$s"
+          fi
+          echo "SUMMARY=Tests: ${tests} | Suites: ${suites}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### ${LABEL} tests"
+            echo "- **Tests:** ${tests}"
+            echo "- **Suites:** ${suites}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7
@@ -147,31 +136,220 @@ jobs:
         id: end_step
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
+  integration-tests:
+    name: Integration Tests
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
+    if: ${{ contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
+    outputs:
+      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
+      REPORT: ${{ steps.report.outputs.artifact-url }}
+      SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
+    steps:
+      - name: Checkout
+        # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
+        # removes refs/tags/<tag>, so a tag-based checkout would race and fail.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      # GitHub `services:` start before any step, so they require Docker pre-installed on
+      # the runner image (which the self-hosted image lacks). Instead install Docker here
+      # and run Postgres + Redis manually with host port mapping, so DATABASE_HOST /
+      # REDIS_HOST (127.0.0.1 / localhost) reach the published ports.
+      - name: 🐳 Ensure Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: 🐘 Start Postgres + Redis
+        env:
+          # novatalks.core mirrors the production PG major version (PG 17.9); others use postgres:16.
+          PG_IMAGE: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
+        run: |
+          set -euo pipefail
+          docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+          docker run -d --name nova-pg \
+            -e POSTGRES_PASSWORD="$DATABASE_PASSWORD" \
+            -e POSTGRES_DB="$DATABASE_NAME" \
+            -e POSTGRES_USER="$DATABASE_USERNAME" \
+            -p 5432:5432 "$PG_IMAGE"
+          docker run -d --name nova-redis -p 6379:6379 redis:8
+
+          echo "Waiting for Postgres..."
+          for _ in $(seq 1 30); do
+            docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$DATABASE_NAME"
+
+          echo "Waiting for Redis..."
+          for _ in $(seq 1 15); do
+            [ "$(docker exec nova-redis redis-cli ping 2>/dev/null)" = "PONG" ] && break
+            sleep 1
+          done
+          docker exec nova-redis redis-cli ping
+
+      - name: 💿 Setup NODEJS
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: ▶️ Get Env From Example
+        run: |
+          sed '/^#/d' .env.example > .env
+          # Forward only well-formed KEY=value lines: .env.example may contain bare keys
+          # (e.g. MESSAGE_EXTERNAL_SOURCE_LAST_ID) that are invalid for $GITHUB_ENV.
+          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env >> "$GITHUB_ENV" || true
+
+      - name: ⏬ Install Dependencies
+        env:
+          NODE_ENV: development
+        run: |
+          npm pkg delete scripts.prepare
+          npm ci
+
+      - name: Enable pgcrypto extension
+        run: |
+          docker exec -e PGPASSWORD="$DATABASE_PASSWORD" nova-pg \
+            psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+      # novatalks.core integration tests exercise S3 (Cloudflare R2) file storage.
+      # Inject the R2 credentials for novatalks.core only, so other repos (e.g. engine)
+      # keep their default FILE_DRIVER and are unaffected. Secrets are passed via step env
+      # (not inline ${{ secrets }} in run) so they are masked and never rendered into the script.
+      - name: ⚙️ Configure S3 (Cloudflare R2) file storage
+        if: ${{ github.event.repository.name == 'novatalks.core' }}
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          {
+            echo "FILE_DRIVER=s3"
+            echo "AWS_S3_ENDPOINT=$R2_ENDPOINT"
+            echo "AWS_S3_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID"
+            echo "AWS_S3_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY"
+            echo "AWS_S3_BUCKET=$R2_BUCKET"
+            echo "AWS_S3_REGION=auto"
+            echo "AWS_S3_FORCE_PATH_STYLE=true"
+          } >> "$GITHUB_ENV"
+
+      # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by
+      # default because integration tests share DB state and run with --runInBand.
+      # To parallelize, give each shard its own postgres/redis service and split with --shard=i/N.
+      - name: 🏃 Run Integration Tests
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          LOG_LEVEL: "error"
+          UV_THREADPOOL_SIZE: "32"
+          FORCE_COLOR: "false"
+          NO_COLOR: "true"
+          DATABASE_LOGGING: "false"
+        run: |
+          set -o pipefail
+          npm run test:integration 2>&1 | tee results.txt
+
+      - name: 📊 Summarize results
+        if: always()
+        id: summary
+        env:
+          LABEL: Integration
+        run: |
+          tests="n/a"; suites="n/a"
+          if [ -f results.txt ]; then
+            t=$(grep -E '^Tests:' results.txt | tail -1 | sed -E 's/^Tests:[[:space:]]*//'); [ -n "$t" ] && tests="$t"
+            s=$(grep -E '^Test Suites:' results.txt | tail -1 | sed -E 's/^Test Suites:[[:space:]]*//'); [ -n "$s" ] && suites="$s"
+          fi
+          echo "SUMMARY=Tests: ${tests} | Suites: ${suites}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### ${LABEL} tests"
+            echo "- **Tests:** ${tests}"
+            echo "- **Suites:** ${suites}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save Artifact
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        id: report
+        with:
+          name: integration-test-report
+          path: ./results.txt
+          retention-days: 30
+
+      - name: End Step On Failure
+        if: failure()
+        id: end_step
+        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+
+      - name: 🧹 Tear down containers
+        if: always()
+        run: docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+
   notify-telegram:
     name: Notifier
-    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: always()
-    needs: e2e-test
+    needs: [unit-tests, integration-tests]
     steps:
+      - name: Compose report lines
+        id: reports
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          UNIT_URL: ${{ needs.unit-tests.outputs.REPORT }}
+          UNIT_SUMMARY: ${{ needs.unit-tests.outputs.SUMMARY }}
+          INT_RESULT: ${{ needs.integration-tests.result }}
+          INT_URL: ${{ needs.integration-tests.outputs.REPORT }}
+          INT_SUMMARY: ${{ needs.integration-tests.outputs.SUMMARY }}
+        run: |
+          set -euo pipefail
+          # Map a job result to a clear status label so it is obvious which suite failed.
+          label() {
+            case "$1" in
+              success)   echo "✅ passed" ;;
+              failure)   echo "❌ FAILED" ;;
+              cancelled) echo "⏹️ cancelled" ;;
+              *)         echo "$1" ;;
+            esac
+          }
+          # List status + counts + report only for a job that actually ran (not skipped).
+          lines=""
+          if [[ "${UNIT_RESULT:-}" != "skipped" ]]; then
+            lines="${lines}🧪 Unit: $(label "${UNIT_RESULT:-}") — ${UNIT_SUMMARY:-n/a}"$'\n'
+            lines="${lines}   ▶️ Report: ${UNIT_URL:-}"$'\n\n'
+          fi
+          if [[ "${INT_RESULT:-}" != "skipped" ]]; then
+            lines="${lines}🧩 Integration: $(label "${INT_RESULT:-}") — ${INT_SUMMARY:-n/a}"$'\n'
+            lines="${lines}   ▶️ Report: ${INT_URL:-}"$'\n\n'
+          fi
+          {
+            echo "value<<EOF"
+            printf '%s' "$lines"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+          cond: ${{ !contains(join(needs.*.result, ','), 'failure') }}
           if_true: |
             👷 ${{ github.actor }} start test
 
-            Test assembly has been completed ✅
+            Test run (${{ inputs.test_mode || 'integration' }}) completed ✅
 
             Repository: ${{ github.repository }}
-            ▶️ GitHub Artifact: ${{ needs.e2e-test.outputs.REPORT }}
+            ${{ steps.reports.outputs.value }}
 
           if_false: |
             👷 ${{ github.actor }} start test
 
-            ❌Tests Failed
+            ❌ Tests Failed (${{ inputs.test_mode || 'integration' }})
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.e2e-test.outputs.END_STEP_JOB_ID}}
+            ${{ steps.reports.outputs.value }}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.integration-tests.outputs.END_STEP_JOB_ID || needs.unit-tests.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
 
       - name: Send to Telegram

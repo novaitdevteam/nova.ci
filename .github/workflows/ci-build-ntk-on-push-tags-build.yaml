@@ -173,6 +173,119 @@ jobs:
             echo "LINTER_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
           fi
 
+  unit-test:
+    name: Unit Tests
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      UNIT_CHECK: ${{ steps.unit_res.outputs.UNIT_CHECK }}
+    steps:
+      - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which runs in parallel with this gate.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Resolve test plan
+        id: test_plan
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          BUILD_TARGET: ${{ inputs.build_target }}
+        run: |
+          set -euo pipefail
+
+          set_output() {
+            local key="$1"
+            shift || true
+            {
+              echo "${key}<<EOF"
+              printf '%s\n' "$@"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          set_output install_command ""
+          set_output unit_test_command ""
+          set_output node_options ""
+          set_output node_cache ""
+          set_output cache_dependency_path ""
+
+          selected_unit_cmd=""
+          case "$REPO_NAME" in
+            novatalks.core)
+              set_output install_command "npm ci"
+              set_output node_options "--max-old-space-size=4096"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              # Unit tests are not build-target specific. In the core PR matrix (build-engine + build-reporting)
+              # run unit only once: skip on the build-reporting leg so it is not executed twice.
+              if [[ "$BUILD_TARGET" != "build-reporting" ]]; then
+                set_output unit_test_command "npm run test:unit"
+                selected_unit_cmd="npm run test:unit"
+              fi
+              ;;
+            *) ;;  # other repos: no unit gate (no-op success)
+          esac
+
+          echo "Selected unit test command: ${selected_unit_cmd:-(none)}"
+
+      - name: 💿 Setup Node.js with npm cache
+        if: ${{ steps.test_plan.outputs.node_cache == 'npm' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ steps.test_plan.outputs.cache_dependency_path }}
+
+      - name: 💿 Setup Node.js
+        if: ${{ steps.test_plan.outputs.node_cache != 'npm' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install deps for unit tests
+        if: ${{ steps.test_plan.outputs.unit_test_command != '' && steps.test_plan.outputs.install_command != '' }}
+        run: |
+          ${{ steps.test_plan.outputs.install_command }}
+
+      - name: Run unit tests
+        id: unit
+        if: ${{ steps.test_plan.outputs.unit_test_command != '' }}
+        env:
+          NODE_OPTIONS: ${{ steps.test_plan.outputs.node_options }}
+        run: |
+          set -o pipefail
+          ${{ steps.test_plan.outputs.unit_test_command }} 2>&1 | tee results.txt
+
+      # Surface pass/fail counts in the Actions/Checks UI (incl. on PRs, where there is
+      # no notifier). Runs even on failure so the counts of failed tests are visible.
+      - name: 📊 Summarize unit results
+        if: ${{ always() && steps.test_plan.outputs.unit_test_command != '' }}
+        run: |
+          tests="n/a"; suites="n/a"
+          if [ -f results.txt ]; then
+            t=$(grep -E '^Tests:' results.txt | tail -1 | sed -E 's/^Tests:[[:space:]]*//'); [ -n "$t" ] && tests="$t"
+            s=$(grep -E '^Test Suites:' results.txt | tail -1 | sed -E 's/^Test Suites:[[:space:]]*//'); [ -n "$s" ] && suites="$s"
+          fi
+          {
+            echo "### Unit tests"
+            echo "- **Tests:** ${tests}"
+            echo "- **Suites:** ${suites}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ======== end ========
+      - name: End Unit Step
+        if: always()
+        id: unit_res
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "UNIT_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "UNIT_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
+          fi
+
   build-image:
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -180,8 +293,8 @@ jobs:
     # permissions:
     #   contents: read
     #   packages: write
-    if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [linter]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.unit-test.result == 'success' }}
+    needs: [linter, unit-test]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
@@ -663,7 +776,7 @@ jobs:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter, trivy-scan]
+    needs: [build-image, linter, trivy-scan, unit-test]
     steps:
       - name: Compose Trivy line
         id: trivy_line
@@ -722,6 +835,7 @@ jobs:
             🔵 Image Name: ${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
+            Unit Tests Status: ${{ needs.unit-test.outputs.UNIT_CHECK }}
 
             ${{ steps.trivy_line.outputs.value }}
 
@@ -733,6 +847,7 @@ jobs:
             ❌Build Failed
 
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
+            Unit Tests Status: ${{ needs.unit-test.outputs.UNIT_CHECK }}
 
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
