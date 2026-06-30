@@ -57,7 +57,7 @@ item is actionable on its own later.
   2. `novatalks.engine` deprecation (removed from switcher routing + docs).
   One PR or two? Then create branch(es) + PR(s). Nothing committed yet.
 
-- [ ] **Add the 4 repo secrets on `novatalks.core`** for the S3 step:
+- [x] **Add the 4 repo secrets on `novatalks.core`** for the S3 step:
   `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
 
 - [ ] **Resolve the switcher version pin (Q8).** Switcher pins build/test workflows at `@NC2-2103`,
