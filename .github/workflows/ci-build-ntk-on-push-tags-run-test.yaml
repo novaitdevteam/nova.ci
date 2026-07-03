@@ -139,7 +139,12 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
-    if: ${{ contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
+    # Sequenced after unit-tests so a full-test (both) run reuses one runner instead of
+    # taking two large VMs in parallel. `!cancelled()` keeps integration running when
+    # unit-tests is skipped (mode: integration) or failed (mode: both — suites report
+    # independently in the notifier).
+    needs: [unit-tests]
+    if: ${{ !cancelled() && contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}

@@ -17,14 +17,16 @@ item is actionable on its own later.
   - Confirm the 412 is `resource_limit_exceeded`:
     `curl -s -H "Authorization: Bearer $HCLOUD_TOKEN" -X POST "$HC/servers" -d @create-server.json | jq '.error'`
   - Count current usage: `curl -s -H "Authorization: Bearer $HCLOUD_TOKEN" "$HC/servers" | jq '[.servers[]]|length'`
-  - Needed before P2 (sets `MAX_TOTAL_RUNNERS`). Note: one `full-test` needs **2 large (cx53)**
-    at once (parallel unit + integration), so the limit must accommodate that.
+  - Needed before P2 (sets `MAX_TOTAL_RUNNERS`). Note: `full-test` used to need **2 large (cx53)**
+    at once (parallel unit + integration); since integration-tests got `needs: [unit-tests]`
+    (runner-reliability branch), one full-test needs only **1 large**.
 
 - [ ] **P4 — Raise the Hetzner limit or free capacity so cx53 (large) can always create.**
   - Either request a project limit increase from Hetzner support, or cap concurrency (P2).
   - Until done, every full-test/int-test push for novatalks.core can 412 when at the cap.
 
-- [ ] **P2 — Add a global `MAX_TOTAL_RUNNERS` guard to `ci-build-create-runner.sh`** *(nova.ci)*.
+- [x] **P2 — Add a global `MAX_TOTAL_RUNNERS` guard to `ci-build-create-runner.sh`** *(nova.ci)*.
+  landed on runner-reliability branch: global cap, env-overridable, default 6 — tune after P1
   - Before creating, count ALL `dev-00-gh-runner-*` Hetzner servers; if `>= MAX_TOTAL_RUNNERS`
     (set just under the P1 project limit), skip creation → wait queue.
   - Today the cap is **per-size (≤2)** and ignores the global project limit, so multiple sizes
@@ -36,7 +38,8 @@ item is actionable on its own later.
   - On Hetzner 412 / `resource_limit_exceeded`, stop after ~5–10 attempts instead of 360×10s (~1h).
   - Cross-repo change — not editable from nova.ci.
 
-- [ ] **P5 — Reduce the race in the per-size max-2 cap** *(nova.ci, `ci-build-create-runner.sh`)*.
+- [x] **P5 — Reduce the race in the per-size max-2 cap** *(nova.ci, `ci-build-create-runner.sh`)*.
+  Hetzner-side per-size counting (starting/initializing/running by server_type), jitter 0–9s
   - Concurrent triggers each pass `TOTAL_SIZE < 2` before peers' servers show as starting/initializing
     → over-provisioning (saw 3 small at once). Failed (412) creates also don't count as starting.
   - Harden the count and/or shorten/replace the `sleep $((RANDOM % 60))` race window.
@@ -52,7 +55,8 @@ item is actionable on its own later.
 
 ## B. nova.ci changes pending merge (uncommitted working tree on `main`)
 
-- [ ] **Decide PR strategy (Q7).** Two logically separate changes are staged in the working tree:
+- [x] **Decide PR strategy (Q7).** Two logically separate changes are staged in the working tree:
+  resolved: shipped as single PR #3 (NC2-2103), merged to main
   1. R2/S3 secrets for `novatalks.core` integration tests (`ci-build-ntk-on-push-tags-run-test.yaml` + docs).
   2. `novatalks.engine` deprecation (removed from switcher routing + docs).
   One PR or two? Then create branch(es) + PR(s). Nothing committed yet.
@@ -60,7 +64,8 @@ item is actionable on its own later.
 - [x] **Add the 4 repo secrets on `novatalks.core`** for the S3 step:
   `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
 
-- [ ] **Resolve the switcher version pin (Q8).** Switcher pins build/test workflows at `@NC2-2103`,
+- [x] **Resolve the switcher version pin (Q8).** Switcher pins build/test workflows at `@NC2-2103`,
+  resolved: pins restored to @main before merge (3f2fff4)
   not `@main`. The new S3 step in run-test only activates in the ref the switcher resolves.
   Merge changes into `NC2-2103`, or bump the pins to `@main` after merge. Confirm the team's flow.
 
@@ -68,10 +73,11 @@ item is actionable on its own later.
 
 ## C. Open questions
 
-- [ ] **Q9 — Watchdog offline policy.** Currently the Hetzner watchdog deletes orphans (no runner)
+- [x] **Q9 — Watchdog offline policy.** Currently the Hetzner watchdog deletes orphans (no runner)
   immediately after grace, but offline/idle runners only near the hourly boundary / past
   `MAX_IDLE_AGE` (conservative — protects long jobs whose runner blips offline). Add
   `OFFLINE_IMMEDIATE=true` for strictly-ephemeral runners? Default kept conservative.
+  Resolved: handled by the watchdog CronJob in k3s.
 
 ---
 
@@ -82,6 +88,7 @@ item is actionable on its own later.
   `dnsConfig` workaround for the broken cluster CoreDNS on `ntk-01-k3ss01`.
 - [x] Gated `test → large` runner sizing to `novatalks.core` only in `ci-build-create-runner.sh`
   (other repos: `test → small`). Docs synced, `validate.sh` green.
+  (re-landed on runner-reliability branch after being lost in the NC2-2103 merge)
 - [x] Added the S3 (Cloudflare R2) file-storage step to `novatalks.core` integration tests
   (gated, secrets via step env). Docs synced, `validate.sh` green.
 - [x] Deprecated `novatalks.engine`: removed from all switcher routes (build/protected/PR/test)

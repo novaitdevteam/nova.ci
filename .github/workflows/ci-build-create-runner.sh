@@ -2,10 +2,18 @@ REPO="${GITHUB_REPOSITORY##*/}"
 
 TAG="${GITHUB_REF#refs/tags/}"
 
+# Global cap on concurrently existing dev-00-gh-runner-* Hetzner servers, across all
+# sizes. Defaults to 6 (the theoretical max of the per-size caps: 2 small + 2 medium +
+# 2 large). Env-overridable by callers. Tune this down just under the actual Hetzner
+# project server limit once that limit is known.
+MAX_TOTAL_RUNNERS="${MAX_TOTAL_RUNNERS:-6}"
+
 # Runner sizing matrix.
 # novatalks.core differentiates test sizing: unit tests are light and DB-less (medium),
 # while integration/both need postgres + redis + the app (large). build stays small.
-# All other repositories keep the original build->small / test->large mapping unchanged.
+# All other repositories always use small, regardless of tag: the switcher only routes
+# test tags to the large test matrix for novatalks.core, so a large VM for any other
+# repo's test tag would be pure waste.
 if [[ "$REPO" == "novatalks.core" ]]; then
     if [[ "$TAG" == *build* ]]; then
         REQUIRED_SIZE="small"
@@ -17,13 +25,7 @@ if [[ "$REPO" == "novatalks.core" ]]; then
         REQUIRED_SIZE="small"
     fi
 else
-    if [[ "$TAG" == *build* ]]; then
-        REQUIRED_SIZE="small"
-    elif [[ "$TAG" == *test* ]]; then
-        REQUIRED_SIZE="large"
-    else
-        REQUIRED_SIZE="small"
-    fi
+    REQUIRED_SIZE="small"
 fi
 
 
@@ -52,26 +54,23 @@ REQUIRED_PRIORITY=$(size_priority "$REQUIRED_SIZE")
 
 REQUIRED_TYPE=$(size_type "$REQUIRED_SIZE")
 
-DELAY=$((RANDOM % 60))
+DELAY=$((RANDOM % 10))
 
-echo "Sleep $DELAY sec to avoid runner race..."
+echo "Sleep $DELAY sec (0-9) to avoid runner race..."
 sleep $DELAY
 
 HETZNER_RESPONSE=$(curl -s \
     "https://api.hetzner.cloud/v1/servers" \
     --header "Authorization: Bearer $HCLOUD_TOKEN")
 
-CREATING_RUNNERS=$(echo "$HETZNER_RESPONSE" | jq -r \
-    --arg required_type "$REQUIRED_TYPE" '
+TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
     [
         .servers[]
         | select(.name | startswith("dev-00-gh-runner-"))
-        | select(.status == "starting" or .status == "initializing")
-        | select(.server_type.name == $required_type)
     ] | length
 ')
 
-echo "Runners in creating process: $CREATING_RUNNERS"
+echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
 
 RESPONSE=$(curl -s \
     -H "Authorization: Bearer $GH_TOKEN" \
@@ -139,13 +138,30 @@ if [ -n "$BEST_MATCH" ]; then
 fi
 
 
-COUNT_SIZE=$(echo "$PARSED" | jq -r --arg size "$REQUIRED_SIZE" '
-    map(select(.size == $size)) | length
+if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
+    echo "Global runner cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → wait queue"
+
+    echo "runner_need=false" >> $GITHUB_OUTPUT
+    echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
+    exit 0
+fi
+
+
+# Count per-size directly from Hetzner server state (starting/initializing/running of
+# the required server_type), not from GitHub-registered runners. This covers VMs that
+# were just created but haven't registered as a GitHub runner yet, and excludes offline
+# "ghost" GitHub registrations left over from failed creates that have no backing VM.
+TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
+    --arg required_type "$REQUIRED_TYPE" '
+    [
+        .servers[]
+        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.server_type.name == $required_type)
+        | select(.status == "starting" or .status == "initializing" or .status == "running")
+    ] | length
 ')
 
-TOTAL_SIZE=$((COUNT_SIZE + CREATING_RUNNERS))
-
-echo "Current $REQUIRED_SIZE runners: $TOTAL_SIZE"
+echo "Current $REQUIRED_SIZE Hetzner servers (starting/initializing/running): $TOTAL_SIZE"
 
 if [ "$TOTAL_SIZE" -lt 2 ]; then
     echo "Create new runner ($REQUIRED_SIZE)"
