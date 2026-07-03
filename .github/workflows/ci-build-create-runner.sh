@@ -2,6 +2,12 @@ REPO="${GITHUB_REPOSITORY##*/}"
 
 TAG="${GITHUB_REF#refs/tags/}"
 
+# Global cap on concurrently existing dev-00-gh-runner-* Hetzner servers, across all
+# sizes. Defaults to 6 (the theoretical max of the per-size caps: 2 small + 2 medium +
+# 2 large). Env-overridable by callers. Tune this down just under the actual Hetzner
+# project server limit once that limit is known.
+MAX_TOTAL_RUNNERS="${MAX_TOTAL_RUNNERS:-6}"
+
 # Runner sizing matrix.
 # novatalks.core differentiates test sizing: unit tests are light and DB-less (medium),
 # while integration/both need postgres + redis + the app (large). build stays small.
@@ -56,6 +62,15 @@ sleep $DELAY
 HETZNER_RESPONSE=$(curl -s \
     "https://api.hetzner.cloud/v1/servers" \
     --header "Authorization: Bearer $HCLOUD_TOKEN")
+
+TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
+    [
+        .servers[]
+        | select(.name | startswith("dev-00-gh-runner-"))
+    ] | length
+')
+
+echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
 
 CREATING_RUNNERS=$(echo "$HETZNER_RESPONSE" | jq -r \
     --arg required_type "$REQUIRED_TYPE" '
@@ -131,6 +146,15 @@ if [ -n "$BEST_MATCH" ]; then
     echo "Using existing runner: $BEST_MATCH"
     echo "runner_need=false" >> $GITHUB_OUTPUT
     echo "runner_labels=$BEST_MATCH" >> $GITHUB_OUTPUT
+    exit 0
+fi
+
+
+if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
+    echo "Global runner cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → wait queue"
+
+    echo "runner_need=false" >> $GITHUB_OUTPUT
+    echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
     exit 0
 fi
 
