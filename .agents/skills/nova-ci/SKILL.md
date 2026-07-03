@@ -142,7 +142,9 @@ Runner sizing is resolved in `ci-build-create-runner.sh` (downloaded from `nova.
 | `int-test` / `full-test` | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
 | anything else | — | `small` | cx33 | default |
 
-`unit-test` is matched before the generic `test` check so unit-only runs get `medium` while `int-test`/`full-test` get `large`. A `full-test` tag runs both unit and integration tests on the `large` runner (one tag push = one runner size). Each size class has its own **max-2-online** concurrency cap; `medium` and `large` are independent pools. All other repositories keep the original two-tier mapping: `build` → `small`, `test` → `large`.
+`unit-test` is matched before the generic `test` check so unit-only runs get `medium` while `int-test`/`full-test` get `large`. A `full-test` tag runs both unit and integration tests on the `large` runner (one tag push = one runner size). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools. All other repositories always resolve to `small`, regardless of tag.
+
+Per-size counts are computed directly from the Hetzner API response (servers named `dev-00-gh-runner-*` with a matching `server_type` in `starting`, `initializing`, or `running` status), not from GitHub-registered runners, so in-flight VM creations are counted and offline "ghost" GitHub registrations (left over from failed creates) don't block new ones. A global `MAX_TOTAL_RUNNERS` guard (env-overridable, default `6`) counts every `dev-00-gh-runner-*` Hetzner server in any status across all sizes; once that total is reached, new triggers go to the wait queue regardless of per-size counts. The race-jitter sleep before these lookups is 0-9 seconds.
 
 Docker build jobs should call `.github/actions/install-docker/action.yml` before Docker login, Buildx setup, or image builds. Keep Docker setup out of notifier jobs.
 

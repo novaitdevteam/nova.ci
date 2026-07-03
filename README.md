@@ -284,19 +284,17 @@ The notifier message includes a `Unit Tests Status:` line (✅ passed / ❌ fail
 
 Connected repositories download and run [`ci-build-create-runner.sh`](.github/workflows/ci-build-create-runner.sh) from `main`.
 
-Runner sizing is derived from the triggering tag. For most repositories:
-
-- tag contains `build` -> `small`
-- tag contains `test` -> `large`
-- anything else -> `small`
+Runner sizing is derived from the triggering tag, but only for `novatalks.core` (see below). All other repositories always resolve to `small`, regardless of tag — the switcher only routes test tags to the large test matrix for `novatalks.core`, so a large VM would be wasted on any other repository's test tag.
 
 The script:
 
 - checks existing GitHub self-hosted runners named `dev-00-gh-runner-*`
-- checks Hetzner servers currently starting or initializing
 - reuses an online idle runner whose size priority is at least the required size
-- creates up to two runners per required size
+- enforces a global `MAX_TOTAL_RUNNERS` cap (env-overridable, default `6`) counting **all** `dev-00-gh-runner-*` Hetzner servers in any status, across all sizes; when the cap is reached the run is sent to the wait queue (`runner_need=false`) regardless of per-size counts
+- otherwise counts per-size Hetzner servers (`starting`, `initializing`, or `running` of the required `server_type`) directly from the Hetzner API response, and creates up to two runners per required size
 - emits `runner_need`, `runner_labels`, `runner_size`, and `runner_name`
+
+A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to reduce (not eliminate) create races between concurrent triggers.
 
 For PR events there is no tag, so the current default runner size is `small`.
 
@@ -315,9 +313,9 @@ For PR events there is no tag, so the current default runner size is `small`.
 
 Because one tag push provisions **one** runner size for the entire run, a `full-test` tag executes both unit and integration tests on the `large` runner (acceptable; only unit-only runs get `medium`).
 
-Each size class (`small`, `medium`, `large`) has its own **max-2-online** concurrency cap. `medium` and `large` are independent pools, so unit-test (`medium`) and integration-test (`large`) runs do not contend for the same runners.
+Each size class (`small`, `medium`, `large`) has its own **max-2** concurrency cap, measured directly from Hetzner server state (`starting`/`initializing`/`running` servers of the size's `server_type`) rather than GitHub runner registrations, so in-flight VM creations are counted and offline "ghost" GitHub registrations are not. `medium` and `large` are independent pools, so unit-test (`medium`) and integration-test (`large`) runs do not contend for the same runners. All size pools additionally share the global `MAX_TOTAL_RUNNERS` cap described above.
 
-All other standard build repositories keep the original two-tier sizing: `build` → `small`, `test` → `large`.
+All other standard build repositories always use `small`, regardless of tag.
 
 ## Validation
 
