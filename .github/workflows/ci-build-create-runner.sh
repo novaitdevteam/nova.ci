@@ -54,9 +54,9 @@ REQUIRED_PRIORITY=$(size_priority "$REQUIRED_SIZE")
 
 REQUIRED_TYPE=$(size_type "$REQUIRED_SIZE")
 
-DELAY=$((RANDOM % 60))
+DELAY=$((RANDOM % 10))
 
-echo "Sleep $DELAY sec to avoid runner race..."
+echo "Sleep $DELAY sec (0-9) to avoid runner race..."
 sleep $DELAY
 
 HETZNER_RESPONSE=$(curl -s \
@@ -71,18 +71,6 @@ TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
 ')
 
 echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
-
-CREATING_RUNNERS=$(echo "$HETZNER_RESPONSE" | jq -r \
-    --arg required_type "$REQUIRED_TYPE" '
-    [
-        .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
-        | select(.status == "starting" or .status == "initializing")
-        | select(.server_type.name == $required_type)
-    ] | length
-')
-
-echo "Runners in creating process: $CREATING_RUNNERS"
 
 RESPONSE=$(curl -s \
     -H "Authorization: Bearer $GH_TOKEN" \
@@ -159,13 +147,21 @@ if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
 fi
 
 
-COUNT_SIZE=$(echo "$PARSED" | jq -r --arg size "$REQUIRED_SIZE" '
-    map(select(.size == $size)) | length
+# Count per-size directly from Hetzner server state (starting/initializing/running of
+# the required server_type), not from GitHub-registered runners. This covers VMs that
+# were just created but haven't registered as a GitHub runner yet, and excludes offline
+# "ghost" GitHub registrations left over from failed creates that have no backing VM.
+TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
+    --arg required_type "$REQUIRED_TYPE" '
+    [
+        .servers[]
+        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.server_type.name == $required_type)
+        | select(.status == "starting" or .status == "initializing" or .status == "running")
+    ] | length
 ')
 
-TOTAL_SIZE=$((COUNT_SIZE + CREATING_RUNNERS))
-
-echo "Current $REQUIRED_SIZE runners: $TOTAL_SIZE"
+echo "Current $REQUIRED_SIZE Hetzner servers (starting/initializing/running): $TOTAL_SIZE"
 
 if [ "$TOTAL_SIZE" -lt 2 ]; then
     echo "Create new runner ($REQUIRED_SIZE)"
