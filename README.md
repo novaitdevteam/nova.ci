@@ -311,7 +311,7 @@ For PR events there is no tag, so the current default runner size is `small`.
 
 `unit-test` is matched before the generic `test` check, so unit-only runs get `medium` while `int-test` and `full-test` get `large`.
 
-Because one tag push provisions **one** runner size for the entire run, a `full-test` tag executes both unit and integration tests on the `large` runner (acceptable; only unit-only runs get `medium`).
+Because one tag push provisions **one** runner size for the entire run, a `full-test` tag executes both unit and integration tests on the `large` runner (acceptable; only unit-only runs get `medium`). The `integration-tests` job runs after `unit-tests` (`needs: [unit-tests]`), so a `full-test` run occupies a single `large` runner sequentially instead of two in parallel.
 
 Each size class (`small`, `medium`, `large`) has its own **max-2** concurrency cap, measured directly from Hetzner server state (`starting`/`initializing`/`running` servers of the size's `server_type`) rather than GitHub runner registrations, so in-flight VM creations are counted and offline "ghost" GitHub registrations are not. `medium` and `large` are independent pools, so unit-test (`medium`) and integration-test (`large`) runs do not contend for the same runners. All size pools additionally share the global `MAX_TOTAL_RUNNERS` cap described above.
 
@@ -362,6 +362,8 @@ Unit tests use `npm run test:unit` (jest `--selectProjects unit`, parallel via j
 | `both` | unit tests then integration tests | `full-test` |
 
 Default is `integration` (backward compatible with existing `int-test` tags).
+
+In `both` mode the suites run sequentially: `integration-tests` has `needs: [unit-tests]` with a `!cancelled()` condition, so integration still runs when `unit-tests` is skipped (`integration` mode) or failed (`both` mode — the suites report independently in the notifier), and a `full-test` run needs only one runner.
 
 **Tag conventions for `novatalks.core`:**
 

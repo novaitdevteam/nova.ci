@@ -17,8 +17,9 @@ item is actionable on its own later.
   - Confirm the 412 is `resource_limit_exceeded`:
     `curl -s -H "Authorization: Bearer $HCLOUD_TOKEN" -X POST "$HC/servers" -d @create-server.json | jq '.error'`
   - Count current usage: `curl -s -H "Authorization: Bearer $HCLOUD_TOKEN" "$HC/servers" | jq '[.servers[]]|length'`
-  - Needed before P2 (sets `MAX_TOTAL_RUNNERS`). Note: one `full-test` needs **2 large (cx53)**
-    at once (parallel unit + integration), so the limit must accommodate that.
+  - Needed before P2 (sets `MAX_TOTAL_RUNNERS`). Note: `full-test` used to need **2 large (cx53)**
+    at once (parallel unit + integration); since integration-tests got `needs: [unit-tests]`
+    (runner-reliability branch), one full-test needs only **1 large**.
 
 - [ ] **P4 — Raise the Hetzner limit or free capacity so cx53 (large) can always create.**
   - Either request a project limit increase from Hetzner support, or cap concurrency (P2).

@@ -119,7 +119,7 @@ The test workflow accepts `test_mode: unit | integration | both` (default `integ
 
 The workflow also has a `workflow_dispatch` trigger with a `test_mode` choice input for manual runs.
 
-Separate jobs: `unit-tests` (runs when mode is `unit` or `both`, no DB services) and `integration-tests` (runs when mode is `integration` or `both`, with redis:8 and a Postgres service). A `delete-tag` job deletes the trigger tag via `actions/github-script@v8` `git.deleteRef` (no third-party action).
+Separate jobs: `unit-tests` (runs when mode is `unit` or `both`, no DB services) and `integration-tests` (runs when mode is `integration` or `both`, with redis:8 and a Postgres service). `integration-tests` has `needs: [unit-tests]` with a `!cancelled()` condition: in `both` mode the suites run sequentially on one runner (integration still runs if unit fails; suites report independently), and in `integration` mode the skipped `unit-tests` job does not block it. A `delete-tag` job deletes the trigger tag via `actions/github-script@v8` `git.deleteRef` (no third-party action).
 
 The Postgres service image is repository-aware: `novatalks.core` uses the official `postgres:17.9-trixie` image (PG 17.9 on Debian trixie, matching the production major version), selected via `github.event.repository.name == 'novatalks.core'`; all other repositories (e.g. `novatalks.ui`) use `postgres:16`. The `POSTGRES_*` env vars, `pg_isready` health check, and `CREATE EXTENSION pgcrypto` step are unchanged across all repos.
 
@@ -142,7 +142,7 @@ Runner sizing is resolved in `ci-build-create-runner.sh` (downloaded from `nova.
 | `int-test` / `full-test` | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
 | anything else | — | `small` | cx33 | default |
 
-`unit-test` is matched before the generic `test` check so unit-only runs get `medium` while `int-test`/`full-test` get `large`. A `full-test` tag runs both unit and integration tests on the `large` runner (one tag push = one runner size). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools. All other repositories always resolve to `small`, regardless of tag.
+`unit-test` is matched before the generic `test` check so unit-only runs get `medium` while `int-test`/`full-test` get `large`. A `full-test` tag runs both unit and integration tests sequentially on a single `large` runner (one tag push = one runner size; `integration-tests` needs `unit-tests`). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools. All other repositories always resolve to `small`, regardless of tag.
 
 Per-size counts are computed directly from the Hetzner API response (servers named `dev-00-gh-runner-*` with a matching `server_type` in `starting`, `initializing`, or `running` status), not from GitHub-registered runners, so in-flight VM creations are counted and offline "ghost" GitHub registrations (left over from failed creates) don't block new ones. A global `MAX_TOTAL_RUNNERS` guard (env-overridable, default `6`) counts every `dev-00-gh-runner-*` Hetzner server in any status across all sizes; once that total is reached, new triggers go to the wait queue regardless of per-size counts. The race-jitter sleep before these lookups is 0-9 seconds.
 
