@@ -72,10 +72,11 @@ item is actionable on its own later.
 
 ## C. Open questions
 
-- [ ] **Q9 — Watchdog offline policy.** Currently the Hetzner watchdog deletes orphans (no runner)
+- [x] **Q9 — Watchdog offline policy.** Currently the Hetzner watchdog deletes orphans (no runner)
   immediately after grace, but offline/idle runners only near the hourly boundary / past
   `MAX_IDLE_AGE` (conservative — protects long jobs whose runner blips offline). Add
   `OFFLINE_IMMEDIATE=true` for strictly-ephemeral runners? Default kept conservative.
+  Resolved: handled by the watchdog CronJob in k3s.
 
 ---
 
