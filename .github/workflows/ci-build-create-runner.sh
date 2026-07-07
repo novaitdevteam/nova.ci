@@ -109,6 +109,44 @@ TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
 
 echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
 
+# Count per-size directly from Hetzner server state (starting/initializing/running of
+# the required server_type), not from GitHub-registered runners. This covers VMs that
+# were just created but haven't registered as a GitHub runner yet, and excludes offline
+# "ghost" GitHub registrations left over from failed creates that have no backing VM.
+TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
+    --arg required_type "$REQUIRED_TYPE" '
+    [
+        .servers[]
+        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.server_type.name == $required_type)
+        | select(.status == "starting" or .status == "initializing" or .status == "running")
+    ] | length
+')
+
+echo "Current $REQUIRED_SIZE Hetzner servers (starting/initializing/running): $TOTAL_SIZE"
+
+# Emit wait-queue diagnostics: without them a queued job just sits on a runner label
+# with no hint in the step log or summary about why nothing was created and what will
+# (or will not) eventually pick the job up.
+report_wait_queue() {
+    local reason="$1"
+
+    if [ "$TOTAL_SIZE" -gt 0 ]; then
+        echo "::notice::Runner wait queue: $reason. $TOTAL_SIZE active $REQUIRED_SIZE runner VM(s) exist; the job starts once one frees up."
+    else
+        echo "::warning::Runner wait queue starvation risk: $reason, and no active $REQUIRED_SIZE runner VM exists. This job waits until another trigger creates one, or until the job timeout."
+    fi
+
+    {
+        echo "### Runner wait queue"
+        echo ""
+        echo "- Reason: $reason"
+        echo "- Required size: \`$REQUIRED_SIZE\` (\`$REQUIRED_TYPE\`)"
+        echo "- Active \`$REQUIRED_SIZE\` runner VMs: $TOTAL_SIZE"
+        echo "- Total \`dev-00-gh-runner-*\` servers (any status/size): $TOTAL_ALL (cap $MAX_TOTAL_RUNNERS)"
+    } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+}
+
 # Fetch every runners page. The GitHub API returns 30 runners per page by default;
 # with more registered runners in the org, idle dev-00-gh-runner-* runners beyond the
 # first page would be invisible to the reuse check and cause unnecessary VM creation.
@@ -194,28 +232,13 @@ fi
 
 if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
     echo "Global runner cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → wait queue"
+    report_wait_queue "global cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS dev-00-gh-runner-* servers in any status)"
 
     echo "runner_need=false" >> $GITHUB_OUTPUT
     echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
     exit 0
 fi
 
-
-# Count per-size directly from Hetzner server state (starting/initializing/running of
-# the required server_type), not from GitHub-registered runners. This covers VMs that
-# were just created but haven't registered as a GitHub runner yet, and excludes offline
-# "ghost" GitHub registrations left over from failed creates that have no backing VM.
-TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
-    --arg required_type "$REQUIRED_TYPE" '
-    [
-        .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
-        | select(.server_type.name == $required_type)
-        | select(.status == "starting" or .status == "initializing" or .status == "running")
-    ] | length
-')
-
-echo "Current $REQUIRED_SIZE Hetzner servers (starting/initializing/running): $TOTAL_SIZE"
 
 if [ "$TOTAL_SIZE" -lt 2 ]; then
     echo "Create new runner ($REQUIRED_SIZE)"
@@ -225,6 +248,7 @@ if [ "$TOTAL_SIZE" -lt 2 ]; then
     echo "runner_need=true" >> $GITHUB_OUTPUT
 else
     echo "Limit reached → do nothing (wait queue)"
+    report_wait_queue "per-size cap reached ($TOTAL_SIZE/2 $REQUIRED_SIZE servers)"
 
     echo "runner_need=false" >> $GITHUB_OUTPUT
     echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT

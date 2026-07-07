@@ -295,6 +295,7 @@ The script:
 - otherwise counts per-size Hetzner servers (`starting`, `initializing`, or `running` of the required `server_type`) directly from the Hetzner API response, and creates up to two runners per required size
 - emits `runner_need`, `runner_labels`, `runner_size`, and `runner_name`
 - runs under `set -euo pipefail` and fails the step loudly (`::error::`) on any Hetzner/GitHub API or parse error, instead of silently falling through to a create/wait decision made on empty counts
+- annotates wait-queue decisions with `::notice::` (runners of the required size exist and will free up) or `::warning::` (starvation risk: no active VM of the required size exists, the queued job depends on a future trigger creating one), plus a diagnostic block in the job summary with the cap counts
 
 A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to reduce (not eliminate) create races between concurrent triggers.
 
