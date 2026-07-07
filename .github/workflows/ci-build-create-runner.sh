@@ -5,7 +5,15 @@ set -euo pipefail
 
 REPO="${GITHUB_REPOSITORY##*/}"
 
-TAG="${GITHUB_REF#refs/tags/}"
+# Only real tag pushes carry sizing intent. For branch and PR events GITHUB_REF is
+# refs/heads/<branch> or refs/pull/<n>/merge, and a branch name that happens to contain
+# "test" (e.g. NC2-123-fix-test-timeout) must not provision a large VM for a plain
+# build. An empty TAG falls through the sizing matrix to "small".
+if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+    TAG="${GITHUB_REF#refs/tags/}"
+else
+    TAG=""
+fi
 
 # Global cap on concurrently existing dev-00-gh-runner-* Hetzner servers, across all
 # sizes. Defaults to 6 (the theoretical max of the per-size caps: 2 small + 2 medium +
