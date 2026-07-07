@@ -89,16 +89,27 @@ TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
 
 echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
 
-RESPONSE=$(curl -s \
-    -H "Authorization: Bearer $GH_TOKEN" \
-    -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/orgs/$ORG/actions/runners")
-
-
-RUNNERS=$(echo "$RESPONSE" | jq -r '
-    [.runners[]
-    | select(.name | startswith("dev-00-gh-runner-"))
-    ]')
+# Fetch every runners page. The GitHub API returns 30 runners per page by default;
+# with more registered runners in the org, idle dev-00-gh-runner-* runners beyond the
+# first page would be invisible to the reuse check and cause unnecessary VM creation.
+RUNNERS='[]'
+GH_PAGE=1
+while true; do
+    RESPONSE=$(curl -s \
+        -H "Authorization: Bearer $GH_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/orgs/$ORG/actions/runners?per_page=100&page=$GH_PAGE")
+    PAGE_RUNNERS=$(echo "$RESPONSE" | jq '
+        [.runners[]?
+        | select(.name | startswith("dev-00-gh-runner-"))
+        ]')
+    RUNNERS=$(jq -n --argjson acc "$RUNNERS" --argjson page "${PAGE_RUNNERS:-[]}" '$acc + $page')
+    PAGE_COUNT=$(echo "$RESPONSE" | jq -r '.runners | length')
+    if [ -z "$PAGE_COUNT" ] || [ "$PAGE_COUNT" -lt 100 ] || [ "$GH_PAGE" -ge 10 ]; then
+        break
+    fi
+    GH_PAGE=$((GH_PAGE + 1))
+done
 
 
 COUNT=$(echo "$RUNNERS" | jq 'length')
