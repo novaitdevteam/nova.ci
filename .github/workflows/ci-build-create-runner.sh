@@ -1,3 +1,8 @@
+#!/usr/bin/env bash
+# Fail loudly instead of silently mis-deciding: an unhandled API or parse error must
+# fail the step, not fall through to a create/wait decision made on empty counts.
+set -euo pipefail
+
 REPO="${GITHUB_REPOSITORY##*/}"
 
 TAG="${GITHUB_REF#refs/tags/}"
@@ -65,9 +70,16 @@ sleep $DELAY
 HETZNER_PAGES=""
 HETZNER_PAGE=1
 while true; do
-    HETZNER_PAGE_RESPONSE=$(curl -s \
+    HETZNER_PAGE_RESPONSE=$(curl -sS --fail-with-body \
         "https://api.hetzner.cloud/v1/servers?per_page=50&page=$HETZNER_PAGE" \
-        --header "Authorization: Bearer $HCLOUD_TOKEN")
+        --header "Authorization: Bearer $HCLOUD_TOKEN") || {
+        echo "::error::Hetzner API servers request failed (page $HETZNER_PAGE): ${HETZNER_PAGE_RESPONSE:0:300}"
+        exit 1
+    }
+    if ! echo "$HETZNER_PAGE_RESPONSE" | jq -e '.servers | type == "array"' >/dev/null; then
+        echo "::error::Unexpected Hetzner API response shape (page $HETZNER_PAGE, no .servers array): ${HETZNER_PAGE_RESPONSE:0:300}"
+        exit 1
+    fi
     HETZNER_PAGES="$HETZNER_PAGES$HETZNER_PAGE_RESPONSE"
     HETZNER_NEXT_PAGE=$(echo "$HETZNER_PAGE_RESPONSE" | jq -r '.meta.pagination.next_page // empty')
     if [ -z "$HETZNER_NEXT_PAGE" ] || [ "$HETZNER_PAGE" -ge 20 ]; then
@@ -95,10 +107,17 @@ echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
 RUNNERS='[]'
 GH_PAGE=1
 while true; do
-    RESPONSE=$(curl -s \
+    RESPONSE=$(curl -sS --fail-with-body \
         -H "Authorization: Bearer $GH_TOKEN" \
         -H "Accept: application/vnd.github+json" \
-        "https://api.github.com/orgs/$ORG/actions/runners?per_page=100&page=$GH_PAGE")
+        "https://api.github.com/orgs/$ORG/actions/runners?per_page=100&page=$GH_PAGE") || {
+        echo "::error::GitHub API runners request failed (page $GH_PAGE): ${RESPONSE:0:300}"
+        exit 1
+    }
+    if ! echo "$RESPONSE" | jq -e '.runners | type == "array"' >/dev/null; then
+        echo "::error::Unexpected GitHub API response shape (page $GH_PAGE, no .runners array): ${RESPONSE:0:300}"
+        exit 1
+    fi
     PAGE_RUNNERS=$(echo "$RESPONSE" | jq '
         [.runners[]?
         | select(.name | startswith("dev-00-gh-runner-"))
@@ -151,10 +170,9 @@ if [ "$(echo "$BEST" | jq 'length')" -gt 0 ]; then
         })
         | sort_by(.priority)
         | reverse
-        | .[]
-        | select(.priority >= '"$REQUIRED_PRIORITY"')
-        | .size
-    ' | head -n1)
+        | map(select(.priority >= '"$REQUIRED_PRIORITY"'))
+        | .[0].size // empty
+    ')
 fi
 
 

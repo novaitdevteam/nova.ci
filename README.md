@@ -294,6 +294,7 @@ The script:
 - enforces a global `MAX_TOTAL_RUNNERS` cap (env-overridable, default `6`) counting **all** `dev-00-gh-runner-*` Hetzner servers in any status, across all sizes; when the cap is reached the run is sent to the wait queue (`runner_need=false`) regardless of per-size counts
 - otherwise counts per-size Hetzner servers (`starting`, `initializing`, or `running` of the required `server_type`) directly from the Hetzner API response, and creates up to two runners per required size
 - emits `runner_need`, `runner_labels`, `runner_size`, and `runner_name`
+- runs under `set -euo pipefail` and fails the step loudly (`::error::`) on any Hetzner/GitHub API or parse error, instead of silently falling through to a create/wait decision made on empty counts
 
 A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to reduce (not eliminate) create races between concurrent triggers.
 
