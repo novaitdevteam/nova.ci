@@ -197,8 +197,21 @@ PARSED=$(echo "$RUNNERS" | jq '
 ')
 
 
-BEST=$(echo "$PARSED" | jq -r '
-    map(select(.status=="online" and .busy==false))
+# A GitHub registration can outlive (or misrepresent) its VM: a runner may still show
+# online && idle while its Hetzner server is already deleting (idle auto-shutdown,
+# watchdog cleanup) or gone entirely (ghost registration). Reusing one queues the job
+# on a runner that will never pick it up, so only trust runners whose backing Hetzner
+# VM is actually running.
+ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq '
+    [
+        .servers[]
+        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.status == "running")
+        | .name
+    ]')
+
+BEST=$(echo "$PARSED" | jq -r --argjson active_vms "$ACTIVE_VM_NAMES" '
+    map(select(.status=="online" and .busy==false and (.name as $n | $active_vms | index($n))))
 ')
 
 

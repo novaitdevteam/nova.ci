@@ -290,7 +290,7 @@ The script:
 
 - fetches the full Hetzner server list with pagination (`per_page=50`), so cap counts are not truncated to the API's default first page of 25 servers
 - checks existing GitHub self-hosted runners named `dev-00-gh-runner-*` (also paginated, `per_page=100`, so idle runners beyond the first API page stay visible to the reuse check)
-- reuses an online idle runner whose size priority is at least the required size
+- reuses an online idle runner whose size priority is at least the required size **and** whose backing Hetzner VM is in `running` status — GitHub registrations whose VM is already deleting or gone (ghosts) are not reused, since a job queued on them would never start
 - enforces a global `MAX_TOTAL_RUNNERS` cap (env-overridable, default `6`) counting **all** `dev-00-gh-runner-*` Hetzner servers in any status, across all sizes; when the cap is reached the run is sent to the wait queue (`runner_need=false`) regardless of per-size counts
 - otherwise counts per-size Hetzner servers (`starting`, `initializing`, or `running` of the required `server_type`) directly from the Hetzner API response, and creates up to two runners per required size
 - emits `runner_need`, `runner_labels`, `runner_size`, and `runner_name`
