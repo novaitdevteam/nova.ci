@@ -298,7 +298,7 @@ The script:
 
 A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to reduce (not eliminate) create races between concurrent triggers.
 
-For PR events there is no tag, so the current default runner size is `small`.
+The sizing matrix applies only to real tag pushes (`refs/tags/*`). Branch pushes and PR events always resolve to `small` — a branch name that happens to contain `test` (e.g. `NC2-123-fix-test-timeout`) must not provision a large VM for a plain build.
 
 ### Runner Sizing (novatalks.core)
 
