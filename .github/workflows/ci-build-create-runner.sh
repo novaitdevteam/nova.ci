@@ -47,7 +47,7 @@ size_priority() {
         small) echo 1 ;;
         medium) echo 2 ;;
         large) echo 3 ;;
-        *) echo 0 ;;
+        *) echo "::error::Unknown runner size: $1" >&2; exit 1 ;;
     esac
 }
 
@@ -57,7 +57,7 @@ size_type() {
         small) echo cx33 ;;
         medium) echo cx43 ;;
         large) echo cx53 ;;
-        *) echo 0 ;;
+        *) echo "::error::Unknown runner size: $1" >&2; exit 1 ;;
     esac
 }
 
@@ -180,7 +180,7 @@ done
 COUNT=$(echo "$RUNNERS" | jq 'length')
 
 
-echo "Total running runners: $COUNT"
+echo "GitHub-registered dev-00-gh-runner-* runners (any status): $COUNT"
 
 
 PARSED=$(echo "$RUNNERS" | jq '
@@ -237,8 +237,8 @@ fi
 
 if [ -n "$BEST_MATCH" ]; then
     echo "Using existing runner: $BEST_MATCH"
-    echo "runner_need=false" >> $GITHUB_OUTPUT
-    echo "runner_labels=$BEST_MATCH" >> $GITHUB_OUTPUT
+    echo "runner_need=false" >> "$GITHUB_OUTPUT"
+    echo "runner_labels=$BEST_MATCH" >> "$GITHUB_OUTPUT"
     exit 0
 fi
 
@@ -247,22 +247,23 @@ if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
     echo "Global runner cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → wait queue"
     report_wait_queue "global cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS dev-00-gh-runner-* servers in any status)"
 
-    echo "runner_need=false" >> $GITHUB_OUTPUT
-    echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
+    echo "runner_need=false" >> "$GITHUB_OUTPUT"
+    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
     exit 0
 fi
 
 
 if [ "$TOTAL_SIZE" -lt 2 ]; then
     echo "Create new runner ($REQUIRED_SIZE)"
-    echo "runner_size=$REQUIRED_TYPE" >> $GITHUB_OUTPUT
-    echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> $GITHUB_OUTPUT
-    echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
-    echo "runner_need=true" >> $GITHUB_OUTPUT
+    echo "runner_size=$REQUIRED_TYPE" >> "$GITHUB_OUTPUT"
+    # %3N (milliseconds) is GNU date only -- fine on the ubuntu runners this runs on.
+    echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
+    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
+    echo "runner_need=true" >> "$GITHUB_OUTPUT"
 else
     echo "Limit reached → do nothing (wait queue)"
     report_wait_queue "per-size cap reached ($TOTAL_SIZE/2 $REQUIRED_SIZE servers)"
 
-    echo "runner_need=false" >> $GITHUB_OUTPUT
-    echo "runner_labels=$REQUIRED_SIZE" >> $GITHUB_OUTPUT
+    echo "runner_need=false" >> "$GITHUB_OUTPUT"
+    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
 fi
