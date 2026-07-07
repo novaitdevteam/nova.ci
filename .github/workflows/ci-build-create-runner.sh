@@ -59,9 +59,26 @@ DELAY=$((RANDOM % 10))
 echo "Sleep $DELAY sec (0-9) to avoid runner race..."
 sleep $DELAY
 
-HETZNER_RESPONSE=$(curl -s \
-    "https://api.hetzner.cloud/v1/servers" \
-    --header "Authorization: Bearer $HCLOUD_TOKEN")
+# Fetch the full server list with pagination. The Hetzner API returns 25 servers per
+# page by default; once the project holds more servers than one page, runner VMs fall
+# off the truncated list, both caps undercount, and extra runners get created.
+HETZNER_PAGES=""
+HETZNER_PAGE=1
+while true; do
+    HETZNER_PAGE_RESPONSE=$(curl -s \
+        "https://api.hetzner.cloud/v1/servers?per_page=50&page=$HETZNER_PAGE" \
+        --header "Authorization: Bearer $HCLOUD_TOKEN")
+    HETZNER_PAGES="$HETZNER_PAGES$HETZNER_PAGE_RESPONSE"
+    HETZNER_NEXT_PAGE=$(echo "$HETZNER_PAGE_RESPONSE" | jq -r '.meta.pagination.next_page // empty')
+    if [ -z "$HETZNER_NEXT_PAGE" ] || [ "$HETZNER_PAGE" -ge 20 ]; then
+        break
+    fi
+    HETZNER_PAGE=$HETZNER_NEXT_PAGE
+done
+
+# Merge all pages into a single {servers: [...]} document so the jq filters below
+# keep working on one response object.
+HETZNER_RESPONSE=$(echo "$HETZNER_PAGES" | jq -s '{servers: (map(.servers // []) | add)}')
 
 TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
     [
