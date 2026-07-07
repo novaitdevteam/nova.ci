@@ -129,10 +129,12 @@ echo "Current $REQUIRED_SIZE Hetzner servers (starting/initializing/running): $T
 # with no hint in the step log or summary about why nothing was created and what will
 # (or will not) eventually pick the job up.
 report_wait_queue() {
-    local reason="$1"
+    local reason="$1" tone="${2:-auto}"
 
     if [ "$TOTAL_SIZE" -gt 0 ]; then
         echo "::notice::Runner wait queue: $reason. $TOTAL_SIZE active $REQUIRED_SIZE runner VM(s) exist; the job starts once one frees up."
+    elif [ "$tone" = "notice" ]; then
+        echo "::notice::Runner wait queue: $reason. If that creation succeeds, its runner picks this job up; otherwise the next trigger after lock expiry (max ${RUNNER_LOCK_TTL_SECONDS:-60}s) creates one."
     else
         echo "::warning::Runner wait queue starvation risk: $reason, and no active $REQUIRED_SIZE runner VM exists. This job waits until another trigger creates one, or until the job timeout."
     fi
@@ -253,13 +255,141 @@ if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
 fi
 
 
+# --- Create lock --------------------------------------------------------------------
+# The create decision here and the actual VM creation in the caller are seconds apart,
+# and a new VM only becomes visible to the per-size count once Hetzner lists it. Two
+# concurrent triggers can therefore both see room in the pool and both create
+# (check-then-act race). A short-TTL distributed lock closes that window: an annotated
+# tag object in $RUNNER_LOCK_REPO carries the acquisition timestamp, and creating the
+# lock ref refs/runner-locks/<size> is atomic (HTTP 422 = somebody else won). The lock
+# lives in one fixed repo, so it is shared org-wide across all product repositories --
+# GitHub `concurrency` groups could not give us that (they are repo-scoped).
+# Nobody releases the lock explicitly; it expires via TTL, by which time the winner's
+# VM is visible to the counts. Every failure of the lock machinery itself fails OPEN
+# (proceed without the lock, with a ::warning::): a permissions problem must degrade
+# to today's small race window, never block all runner creation.
+RUNNER_LOCK_REPO="${RUNNER_LOCK_REPO:-$ORG/nova.ci}"
+RUNNER_LOCK_TTL_SECONDS="${RUNNER_LOCK_TTL_SECONDS:-60}"
+LOCK_REF="runner-locks/$REQUIRED_SIZE"
+GH_API_BODY=$(mktemp)
+
+# gh_api METHOD PATH [JSON_PAYLOAD] -> sets GH_API_CODE; response body in $GH_API_BODY
+gh_api() {
+    local method="$1" path="$2" payload="${3:-}"
+    local args=(-sS -X "$method"
+        -H "Authorization: Bearer $GH_TOKEN"
+        -H "Accept: application/vnd.github+json"
+        -o "$GH_API_BODY" -w "%{http_code}")
+    if [ -n "$payload" ]; then
+        args+=(-d "$payload")
+    fi
+    args+=("https://api.github.com$path")
+    GH_API_CODE=$(curl "${args[@]}") || GH_API_CODE=000
+}
+
+acquire_create_lock() {
+    local tag_sha="" lock_epoch="" now="" age="" base_sha="" epoch=""
+
+    gh_api GET "/repos/$RUNNER_LOCK_REPO/git/ref/$LOCK_REF"
+    if [ "$GH_API_CODE" = "200" ]; then
+        tag_sha=$(jq -r '.object.sha // empty' "$GH_API_BODY") || tag_sha=""
+        if [ -n "$tag_sha" ]; then
+            gh_api GET "/repos/$RUNNER_LOCK_REPO/git/tags/$tag_sha"
+            if [ "$GH_API_CODE" = "200" ]; then
+                lock_epoch=$(jq -r '.message // empty' "$GH_API_BODY" | tr -cd '0-9') || lock_epoch=""
+            fi
+        fi
+        now=$(date +%s)
+        # Guard the arithmetic before using the message as an epoch. A malformed value
+        # (milliseconds epoch, digits scraped from prose, leading zeros) must resolve
+        # to "unreadable -> stale", not wedge the lock: a 13-digit ms epoch makes the
+        # age permanently negative ("held" forever, fail-closed), and a leading-zero
+        # string with 8/9 in it octal-aborts the arithmetic -- which would skip the
+        # entire enclosing if/else and leave $GITHUB_OUTPUT empty on a green step.
+        if [[ ! "$lock_epoch" =~ ^[1-9][0-9]{8,10}$ ]]; then
+            lock_epoch=""
+        fi
+        if [ -n "$lock_epoch" ]; then
+            age=$((now - lock_epoch))
+            # Symmetric window: a slightly future-dated epoch (clock skew) still counts
+            # as held, but anything far outside the TTL in either direction is stale.
+            if [ "$age" -lt "$RUNNER_LOCK_TTL_SECONDS" ] && [ "$age" -gt "-$RUNNER_LOCK_TTL_SECONDS" ]; then
+                echo "Create lock $LOCK_REF held (age ${age}s < ${RUNNER_LOCK_TTL_SECONDS}s TTL)"
+                return 1
+            fi
+        fi
+        # Stale (the holder finished or died; its VM, if any, is visible to the counts
+        # by now) or unreadable: clear it and fall through to acquisition.
+        echo "Clearing stale create lock $LOCK_REF"
+        gh_api DELETE "/repos/$RUNNER_LOCK_REPO/git/refs/$LOCK_REF"
+    elif [ "$GH_API_CODE" != "404" ]; then
+        echo "::warning::Create lock inspection failed (HTTP $GH_API_CODE); creating without lock"
+        return 0
+    fi
+
+    gh_api GET "/repos/$RUNNER_LOCK_REPO/git/ref/heads/main"
+    if [ "$GH_API_CODE" != "200" ]; then
+        echo "::warning::Create lock base ref lookup failed (HTTP $GH_API_CODE); creating without lock"
+        return 0
+    fi
+    base_sha=$(jq -r '.object.sha // empty' "$GH_API_BODY") || base_sha=""
+    if [ -z "$base_sha" ]; then
+        echo "::warning::Create lock base ref has no sha; creating without lock"
+        return 0
+    fi
+
+    epoch=$(date +%s)
+    gh_api POST "/repos/$RUNNER_LOCK_REPO/git/tags" "$(jq -n \
+        --arg tag "runner-lock-$REQUIRED_SIZE-$epoch" \
+        --arg message "$epoch" \
+        --arg object "$base_sha" \
+        --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{tag: $tag, message: $message, object: $object, type: "commit",
+          tagger: {name: "nova-ci-runner-lock", email: "ci-runner-lock@novatalks.invalid", date: $date}}')"
+    if [ "$GH_API_CODE" != "201" ]; then
+        echo "::warning::Create lock tag creation failed (HTTP $GH_API_CODE); creating without lock"
+        return 0
+    fi
+    tag_sha=$(jq -r '.sha // empty' "$GH_API_BODY") || tag_sha=""
+    if [ -z "$tag_sha" ]; then
+        echo "::warning::Create lock tag response has no sha; creating without lock"
+        return 0
+    fi
+
+    gh_api POST "/repos/$RUNNER_LOCK_REPO/git/refs" "$(jq -n \
+        --arg ref "refs/$LOCK_REF" --arg sha "$tag_sha" '{ref: $ref, sha: $sha}')"
+    case "$GH_API_CODE" in
+        201)
+            echo "Acquired create lock $LOCK_REF"
+            return 0
+            ;;
+        422)
+            echo "Lost create lock race on $LOCK_REF"
+            return 1
+            ;;
+        *)
+            echo "::warning::Create lock ref creation failed (HTTP $GH_API_CODE); creating without lock"
+            return 0
+            ;;
+    esac
+}
+
+
 if [ "$TOTAL_SIZE" -lt 2 ]; then
-    echo "Create new runner ($REQUIRED_SIZE)"
-    echo "runner_size=$REQUIRED_TYPE" >> "$GITHUB_OUTPUT"
-    # %3N (milliseconds) is GNU date only -- fine on the ubuntu runners this runs on.
-    echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
-    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
-    echo "runner_need=true" >> "$GITHUB_OUTPUT"
+    if acquire_create_lock; then
+        echo "Create new runner ($REQUIRED_SIZE)"
+        echo "runner_size=$REQUIRED_TYPE" >> "$GITHUB_OUTPUT"
+        # %3N (milliseconds) is GNU date only -- fine on the ubuntu runners this runs on.
+        echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
+        echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
+        echo "runner_need=true" >> "$GITHUB_OUTPUT"
+    else
+        echo "Create lock held → wait queue"
+        report_wait_queue "another run took the $REQUIRED_SIZE create lock moments ago" notice
+
+        echo "runner_need=false" >> "$GITHUB_OUTPUT"
+        echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
+    fi
 else
     echo "Limit reached → do nothing (wait queue)"
     report_wait_queue "per-size cap reached ($TOTAL_SIZE/2 $REQUIRED_SIZE servers)"

@@ -297,7 +297,17 @@ The script:
 - runs under `set -euo pipefail` and fails the step loudly (`::error::`) on any Hetzner/GitHub API or parse error, instead of silently falling through to a create/wait decision made on empty counts
 - annotates wait-queue decisions with `::notice::` (runners of the required size exist and will free up) or `::warning::` (starvation risk: no active VM of the required size exists, the queued job depends on a future trigger creating one), plus a diagnostic block in the job summary with the cap counts
 
-A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to reduce (not eliminate) create races between concurrent triggers.
+A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to spread out concurrent triggers.
+
+### Create Lock
+
+The create decision (this script) and the actual VM creation (the caller's next step) are seconds apart, and a new VM only becomes visible to the per-size count once Hetzner lists it — so two concurrent triggers could both see room in the pool and both create (check-then-act race). Before emitting `runner_need=true`, the script therefore takes a short-TTL distributed lock:
+
+- The lock is the ref `refs/runner-locks/<size>` in `RUNNER_LOCK_REPO` (env-overridable, default `<org>/nova.ci`). Creating a ref is atomic on the GitHub side: HTTP 422 means somebody else holds it.
+- The ref points at an annotated tag object whose message is the acquisition epoch. A lock younger than `RUNNER_LOCK_TTL_SECONDS` (env-overridable, default `60`) sends the run to the wait queue with a `::notice::`; an older, far-future, or unreadable lock is treated as stale, cleared, and re-acquired.
+- Nobody releases the lock explicitly — it expires via TTL, by which time the winner's VM is visible to the per-size count, which takes over as the guard.
+- Because the lock lives in one fixed repository, it is shared org-wide across all product repositories. (GitHub `concurrency` groups could not provide this: they are scoped to a single repository, while the runner pools are org-wide.)
+- The lock machinery fails **open**: any API or permission failure emits a `::warning::` and proceeds without the lock (i.e. degrades to the small pre-lock race window) rather than blocking runner creation. For the lock to engage, `GH_TOKEN` needs `contents: write` on the lock repository.
 
 The sizing matrix applies only to real tag pushes (`refs/tags/*`). Branch pushes and PR events always resolve to `small` — a branch name that happens to contain `test` (e.g. `NC2-123-fix-test-timeout`) must not provision a large VM for a plain build.
 
