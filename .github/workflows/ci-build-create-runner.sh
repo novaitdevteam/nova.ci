@@ -259,57 +259,55 @@ fi
 # The create decision here and the actual VM creation in the caller are seconds apart,
 # and a new VM only becomes visible to the per-size count once Hetzner lists it. Two
 # concurrent triggers can therefore both see room in the pool and both create
-# (check-then-act race). A short-TTL lock closes that window: an annotated tag object
-# in $RUNNER_LOCK_REPO carries the acquisition timestamp, and creating the lock ref
-# refs/runner-locks/<size> is atomic (HTTP 422 = somebody else won).
+# (check-then-act race). A short-TTL lock closes that window.
 #
-# The lock defaults to the caller's OWN repository ($GITHUB_REPOSITORY) and writes with
-# $RUNNER_LOCK_TOKEN (default $GH_TOKEN). The built-in GITHUB_TOKEN always has
-# `contents: write` on its own repo, so no cross-repo permission grant is needed -- this
-# closes the dominant same-repo race (many triggers on one product repo). It is NOT
-# org-wide: a rarer cross-repo collision (two different repos, same size, same instant)
-# stays open and is absorbed by the soft per-size cap plus the Hetzner watchdog. Point
-# RUNNER_LOCK_REPO at a shared repo (and RUNNER_LOCK_TOKEN at a token with write there)
-# to restore org-wide scope. Nobody releases the lock explicitly; it expires via TTL, by
-# which time the winner's VM is visible to the counts. Every failure of the lock
-# machinery itself fails OPEN (proceed without the lock, with a ::warning::): a
-# permissions problem must degrade to the small race window, never block all creation.
-RUNNER_LOCK_REPO="${RUNNER_LOCK_REPO:-$GITHUB_REPOSITORY}"
-RUNNER_LOCK_TOKEN="${RUNNER_LOCK_TOKEN:-$GH_TOKEN}"
+# The lock is a Hetzner placement group named runner-create-lock-<size>: placement
+# group names are unique per project, so POST /placement_groups is atomic (a
+# uniqueness_error means somebody else won). It lives in the same Hetzner project the
+# runner VMs are created in, written with the same HCLOUD_TOKEN every caller already
+# passes to create those VMs -- org-wide scope with no extra credentials. (The earlier
+# GitHub-ref lock variants died exactly there: the org PAT has no contents:write on
+# any lock repo, and the built-in GITHUB_TOKEN would need per-caller wiring.) A
+# placement group is free, pure metadata, and -- unlike an SSH key -- creating one
+# does not trigger account security notifications.
+# The group's "epoch" label carries the acquisition timestamp. Nobody releases the
+# lock explicitly; it expires via TTL, by which time the winner's VM is visible to the
+# counts, and the next trigger for that size clears the stale group. Every failure of
+# the lock machinery itself fails OPEN (proceed without the lock, with a ::warning::):
+# an API problem must degrade to the small race window, never block all creation.
 RUNNER_LOCK_TTL_SECONDS="${RUNNER_LOCK_TTL_SECONDS:-60}"
-LOCK_REF="runner-locks/$REQUIRED_SIZE"
-GH_API_BODY=$(mktemp)
+LOCK_NAME="runner-create-lock-$REQUIRED_SIZE"
+HC_API_BODY=$(mktemp)
 
-# gh_api METHOD PATH [JSON_PAYLOAD] -> sets GH_API_CODE; response body in $GH_API_BODY
-gh_api() {
+# hcloud_api METHOD PATH [JSON_PAYLOAD] -> sets HC_API_CODE; response body in $HC_API_BODY
+hcloud_api() {
     local method="$1" path="$2" payload="${3:-}"
     local args=(-sS -X "$method"
-        -H "Authorization: Bearer $RUNNER_LOCK_TOKEN"
-        -H "Accept: application/vnd.github+json"
-        -o "$GH_API_BODY" -w "%{http_code}")
+        -H "Authorization: Bearer $HCLOUD_TOKEN"
+        -H "Content-Type: application/json"
+        -o "$HC_API_BODY" -w "%{http_code}")
     if [ -n "$payload" ]; then
         args+=(-d "$payload")
     fi
-    args+=("https://api.github.com$path")
-    GH_API_CODE=$(curl "${args[@]}") || GH_API_CODE=000
+    args+=("https://api.hetzner.cloud/v1$path")
+    HC_API_CODE=$(curl "${args[@]}") || HC_API_CODE=000
 }
 
 acquire_create_lock() {
-    local tag_sha="" lock_epoch="" now="" age="" base_sha="" epoch=""
+    local lock_id="" lock_epoch="" now="" age="" epoch="" err_code=""
 
-    gh_api GET "/repos/$RUNNER_LOCK_REPO/git/ref/$LOCK_REF"
-    if [ "$GH_API_CODE" = "200" ]; then
-        tag_sha=$(jq -r '.object.sha // empty' "$GH_API_BODY") || tag_sha=""
-        if [ -n "$tag_sha" ]; then
-            gh_api GET "/repos/$RUNNER_LOCK_REPO/git/tags/$tag_sha"
-            if [ "$GH_API_CODE" = "200" ]; then
-                lock_epoch=$(jq -r '.message // empty' "$GH_API_BODY" | tr -cd '0-9') || lock_epoch=""
-            fi
-        fi
+    hcloud_api GET "/placement_groups?name=$LOCK_NAME"
+    if [ "$HC_API_CODE" != "200" ]; then
+        echo "::warning::Create lock inspection failed (HTTP $HC_API_CODE); creating without lock"
+        return 0
+    fi
+    lock_id=$(jq -r '.placement_groups[0].id // empty' "$HC_API_BODY") || lock_id=""
+    if [ -n "$lock_id" ]; then
+        lock_epoch=$(jq -r '.placement_groups[0].labels.epoch // empty' "$HC_API_BODY" | tr -cd '0-9') || lock_epoch=""
         now=$(date +%s)
-        # Guard the arithmetic before using the message as an epoch. A malformed value
-        # (milliseconds epoch, digits scraped from prose, leading zeros) must resolve
-        # to "unreadable -> stale", not wedge the lock: a 13-digit ms epoch makes the
+        # Guard the arithmetic before using the label as an epoch. A malformed value
+        # (milliseconds epoch, stray digits, leading zeros) must resolve to
+        # "unreadable -> stale", not wedge the lock: a 13-digit ms epoch makes the
         # age permanently negative ("held" forever, fail-closed), and a leading-zero
         # string with 8/9 in it octal-aborts the arithmetic -- which would skip the
         # entire enclosing if/else and leave $GITHUB_OUTPUT empty on a green step.
@@ -321,62 +319,35 @@ acquire_create_lock() {
             # Symmetric window: a slightly future-dated epoch (clock skew) still counts
             # as held, but anything far outside the TTL in either direction is stale.
             if [ "$age" -lt "$RUNNER_LOCK_TTL_SECONDS" ] && [ "$age" -gt "-$RUNNER_LOCK_TTL_SECONDS" ]; then
-                echo "Create lock $LOCK_REF held (age ${age}s < ${RUNNER_LOCK_TTL_SECONDS}s TTL)"
+                echo "Create lock $LOCK_NAME held (age ${age}s < ${RUNNER_LOCK_TTL_SECONDS}s TTL)"
                 return 1
             fi
         fi
         # Stale (the holder finished or died; its VM, if any, is visible to the counts
-        # by now) or unreadable: clear it and fall through to acquisition.
-        echo "Clearing stale create lock $LOCK_REF"
-        gh_api DELETE "/repos/$RUNNER_LOCK_REPO/git/refs/$LOCK_REF"
-    elif [ "$GH_API_CODE" != "404" ]; then
-        echo "::warning::Create lock inspection failed (HTTP $GH_API_CODE); creating without lock"
-        return 0
-    fi
-
-    # Anchor the throwaway tag object at the commit that triggered this run. It always
-    # exists in the caller's own repo (unlike a hardcoded heads/main, which many repos
-    # do not have), so no base-branch lookup is needed.
-    base_sha="${GITHUB_SHA:-}"
-    if [ -z "$base_sha" ]; then
-        echo "::warning::Create lock has no base sha (GITHUB_SHA unset); creating without lock"
-        return 0
+        # by now) or unreadable: clear it and fall through to acquisition. Two triggers
+        # clearing the same stale group is fine: the second DELETE 404s harmlessly and
+        # the create below still decides a single winner.
+        echo "Clearing stale create lock $LOCK_NAME"
+        hcloud_api DELETE "/placement_groups/$lock_id"
     fi
 
     epoch=$(date +%s)
-    gh_api POST "/repos/$RUNNER_LOCK_REPO/git/tags" "$(jq -n \
-        --arg tag "runner-lock-$REQUIRED_SIZE-$epoch" \
-        --arg message "$epoch" \
-        --arg object "$base_sha" \
-        --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{tag: $tag, message: $message, object: $object, type: "commit",
-          tagger: {name: "nova-ci-runner-lock", email: "ci-runner-lock@novatalks.invalid", date: $date}}')"
-    if [ "$GH_API_CODE" != "201" ]; then
-        echo "::warning::Create lock tag creation failed (HTTP $GH_API_CODE); creating without lock"
+    hcloud_api POST "/placement_groups" "$(jq -n \
+        --arg name "$LOCK_NAME" --arg epoch "$epoch" \
+        '{name: $name, type: "spread", labels: {"nova-ci": "create-lock", epoch: $epoch}}')"
+    if [ "$HC_API_CODE" = "201" ]; then
+        echo "Acquired create lock $LOCK_NAME"
         return 0
     fi
-    tag_sha=$(jq -r '.sha // empty' "$GH_API_BODY") || tag_sha=""
-    if [ -z "$tag_sha" ]; then
-        echo "::warning::Create lock tag response has no sha; creating without lock"
-        return 0
+    # Decide by the API error code, not the HTTP status: name collision is the one
+    # "somebody else won" signal; anything else is a machinery failure -> fail open.
+    err_code=$(jq -r '.error.code // empty' "$HC_API_BODY") || err_code=""
+    if [ "$err_code" = "uniqueness_error" ]; then
+        echo "Lost create lock race on $LOCK_NAME"
+        return 1
     fi
-
-    gh_api POST "/repos/$RUNNER_LOCK_REPO/git/refs" "$(jq -n \
-        --arg ref "refs/$LOCK_REF" --arg sha "$tag_sha" '{ref: $ref, sha: $sha}')"
-    case "$GH_API_CODE" in
-        201)
-            echo "Acquired create lock $LOCK_REF"
-            return 0
-            ;;
-        422)
-            echo "Lost create lock race on $LOCK_REF"
-            return 1
-            ;;
-        *)
-            echo "::warning::Create lock ref creation failed (HTTP $GH_API_CODE); creating without lock"
-            return 0
-            ;;
-    esac
+    echo "::warning::Create lock creation failed (HTTP $HC_API_CODE, ${err_code:-no error code}); creating without lock"
+    return 0
 }
 
 
