@@ -301,13 +301,13 @@ A random 0-9 second jitter sleep runs before the Hetzner/GitHub lookups to sprea
 
 ### Create Lock
 
-The create decision (this script) and the actual VM creation (the caller's next step) are seconds apart, and a new VM only becomes visible to the per-size count once Hetzner lists it — so two concurrent triggers could both see room in the pool and both create (check-then-act race). Before emitting `runner_need=true`, the script therefore takes a short-TTL distributed lock:
+The create decision (this script) and the actual VM creation (the caller's next step) are seconds apart, and a new VM only becomes visible to the per-size count once Hetzner lists it — so two concurrent triggers could both see room in the pool and both create (check-then-act race). Before emitting `runner_need=true`, the script therefore takes a short-TTL lock:
 
-- The lock is the ref `refs/runner-locks/<size>` in `RUNNER_LOCK_REPO` (env-overridable, default `<org>/nova.ci`). Creating a ref is atomic on the GitHub side: HTTP 422 means somebody else holds it.
-- The ref points at an annotated tag object whose message is the acquisition epoch. A lock younger than `RUNNER_LOCK_TTL_SECONDS` (env-overridable, default `60`) sends the run to the wait queue with a `::notice::`; an older, far-future, or unreadable lock is treated as stale, cleared, and re-acquired.
+- The lock is the ref `refs/runner-locks/<size>` in `RUNNER_LOCK_REPO` (env-overridable, default `$GITHUB_REPOSITORY` — the caller's own repository), written with `RUNNER_LOCK_TOKEN` (env-overridable, default `$GH_TOKEN`). Creating a ref is atomic on the GitHub side: HTTP 422 means somebody else holds it.
+- The ref points at an annotated tag object anchored at `$GITHUB_SHA` (always valid in the caller's own repo, so no base-branch lookup is needed) whose message is the acquisition epoch. A lock younger than `RUNNER_LOCK_TTL_SECONDS` (env-overridable, default `60`) sends the run to the wait queue with a `::notice::`; an older, far-future, or unreadable lock is treated as stale, cleared, and re-acquired.
 - Nobody releases the lock explicitly — it expires via TTL, by which time the winner's VM is visible to the per-size count, which takes over as the guard.
-- Because the lock lives in one fixed repository, it is shared org-wide across all product repositories. (GitHub `concurrency` groups could not provide this: they are scoped to a single repository, while the runner pools are org-wide.)
-- The lock machinery fails **open**: any API or permission failure emits a `::warning::` and proceeds without the lock (i.e. degrades to the small pre-lock race window) rather than blocking runner creation. For the lock to engage, `GH_TOKEN` needs `contents: write` on the lock repository.
+- Scoping to the caller's own repo means the built-in `GITHUB_TOKEN` already has the `contents: write` it needs — **no cross-repo permission grant**. This closes the dominant same-repo race (many triggers on one product repo). It is **not** org-wide: a rarer cross-repo collision (two different repos, same size, same instant) stays open and is absorbed by the soft per-size cap plus the Hetzner watchdog. To restore org-wide scope, point `RUNNER_LOCK_REPO` at a shared repo and `RUNNER_LOCK_TOKEN` at a token with `contents: write` there.
+- The lock machinery fails **open**: any API or permission failure emits a `::warning::` and proceeds without the lock (i.e. degrades to the small pre-lock race window) rather than blocking runner creation.
 
 The sizing matrix applies only to real tag pushes (`refs/tags/*`). Branch pushes and PR events always resolve to `small` — a branch name that happens to contain `test` (e.g. `NC2-123-fix-test-timeout`) must not provision a large VM for a plain build.
 

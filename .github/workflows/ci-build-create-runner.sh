@@ -259,16 +259,23 @@ fi
 # The create decision here and the actual VM creation in the caller are seconds apart,
 # and a new VM only becomes visible to the per-size count once Hetzner lists it. Two
 # concurrent triggers can therefore both see room in the pool and both create
-# (check-then-act race). A short-TTL distributed lock closes that window: an annotated
-# tag object in $RUNNER_LOCK_REPO carries the acquisition timestamp, and creating the
-# lock ref refs/runner-locks/<size> is atomic (HTTP 422 = somebody else won). The lock
-# lives in one fixed repo, so it is shared org-wide across all product repositories --
-# GitHub `concurrency` groups could not give us that (they are repo-scoped).
-# Nobody releases the lock explicitly; it expires via TTL, by which time the winner's
-# VM is visible to the counts. Every failure of the lock machinery itself fails OPEN
-# (proceed without the lock, with a ::warning::): a permissions problem must degrade
-# to today's small race window, never block all runner creation.
-RUNNER_LOCK_REPO="${RUNNER_LOCK_REPO:-$ORG/nova.ci}"
+# (check-then-act race). A short-TTL lock closes that window: an annotated tag object
+# in $RUNNER_LOCK_REPO carries the acquisition timestamp, and creating the lock ref
+# refs/runner-locks/<size> is atomic (HTTP 422 = somebody else won).
+#
+# The lock defaults to the caller's OWN repository ($GITHUB_REPOSITORY) and writes with
+# $RUNNER_LOCK_TOKEN (default $GH_TOKEN). The built-in GITHUB_TOKEN always has
+# `contents: write` on its own repo, so no cross-repo permission grant is needed -- this
+# closes the dominant same-repo race (many triggers on one product repo). It is NOT
+# org-wide: a rarer cross-repo collision (two different repos, same size, same instant)
+# stays open and is absorbed by the soft per-size cap plus the Hetzner watchdog. Point
+# RUNNER_LOCK_REPO at a shared repo (and RUNNER_LOCK_TOKEN at a token with write there)
+# to restore org-wide scope. Nobody releases the lock explicitly; it expires via TTL, by
+# which time the winner's VM is visible to the counts. Every failure of the lock
+# machinery itself fails OPEN (proceed without the lock, with a ::warning::): a
+# permissions problem must degrade to the small race window, never block all creation.
+RUNNER_LOCK_REPO="${RUNNER_LOCK_REPO:-$GITHUB_REPOSITORY}"
+RUNNER_LOCK_TOKEN="${RUNNER_LOCK_TOKEN:-$GH_TOKEN}"
 RUNNER_LOCK_TTL_SECONDS="${RUNNER_LOCK_TTL_SECONDS:-60}"
 LOCK_REF="runner-locks/$REQUIRED_SIZE"
 GH_API_BODY=$(mktemp)
@@ -277,7 +284,7 @@ GH_API_BODY=$(mktemp)
 gh_api() {
     local method="$1" path="$2" payload="${3:-}"
     local args=(-sS -X "$method"
-        -H "Authorization: Bearer $GH_TOKEN"
+        -H "Authorization: Bearer $RUNNER_LOCK_TOKEN"
         -H "Accept: application/vnd.github+json"
         -o "$GH_API_BODY" -w "%{http_code}")
     if [ -n "$payload" ]; then
@@ -327,14 +334,12 @@ acquire_create_lock() {
         return 0
     fi
 
-    gh_api GET "/repos/$RUNNER_LOCK_REPO/git/ref/heads/main"
-    if [ "$GH_API_CODE" != "200" ]; then
-        echo "::warning::Create lock base ref lookup failed (HTTP $GH_API_CODE); creating without lock"
-        return 0
-    fi
-    base_sha=$(jq -r '.object.sha // empty' "$GH_API_BODY") || base_sha=""
+    # Anchor the throwaway tag object at the commit that triggered this run. It always
+    # exists in the caller's own repo (unlike a hardcoded heads/main, which many repos
+    # do not have), so no base-branch lookup is needed.
+    base_sha="${GITHUB_SHA:-}"
     if [ -z "$base_sha" ]; then
-        echo "::warning::Create lock base ref has no sha; creating without lock"
+        echo "::warning::Create lock has no base sha (GITHUB_SHA unset); creating without lock"
         return 0
     fi
 
