@@ -39,7 +39,6 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 
 ## Dispatch Rules To Preserve
 
-- Push to `master` or `development` in standard build repositories fails via the protected-branch workflow.
 - Push tags containing `build`, or starting with `scan`, in standard build repositories call the main build workflow.
 - Branch pushes whose head commit message contains `build` call the main build workflow.
 - Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow, but run lint and unit tests only: the `build-image`, `trivy-scan`, and notifier jobs are gated on `github.event_name != 'pull_request'`.

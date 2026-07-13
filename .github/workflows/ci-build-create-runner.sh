@@ -72,13 +72,21 @@ DELAY=$((RANDOM % 10))
 echo "Sleep $DELAY sec (0-9) to avoid runner race..."
 sleep $DELAY
 
+# Retry transient API failures instead of failing the whole runner-check step on a
+# momentary GitHub/Hetzner blip (e.g. a 503 "service unavailable" during a provider
+# incident). --fail-with-body on the calls below makes curl treat 4xx/5xx as errors;
+# --retry then retries only the transient ones (408/429/500/502/503/504, connection
+# resets) with exponential backoff, while auth/4xx errors still fail fast. This mirrors
+# the build step's own retry loop and GitHub's action-download retries.
+CURL_RETRY=(--retry 5 --retry-delay 0 --retry-connrefused)
+
 # Fetch the full server list with pagination. The Hetzner API returns 25 servers per
 # page by default; once the project holds more servers than one page, runner VMs fall
 # off the truncated list, both caps undercount, and extra runners get created.
 HETZNER_PAGES=""
 HETZNER_PAGE=1
 while true; do
-    HETZNER_PAGE_RESPONSE=$(curl -sS --fail-with-body \
+    HETZNER_PAGE_RESPONSE=$(curl -sS --fail-with-body "${CURL_RETRY[@]}" \
         "https://api.hetzner.cloud/v1/servers?per_page=50&page=$HETZNER_PAGE" \
         --header "Authorization: Bearer $HCLOUD_TOKEN") || {
         echo "::error::Hetzner API servers request failed (page $HETZNER_PAGE): ${HETZNER_PAGE_RESPONSE:0:300}"
@@ -155,7 +163,7 @@ report_wait_queue() {
 RUNNERS='[]'
 GH_PAGE=1
 while true; do
-    RESPONSE=$(curl -sS --fail-with-body \
+    RESPONSE=$(curl -sS --fail-with-body "${CURL_RETRY[@]}" \
         -H "Authorization: Bearer $GH_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         "https://api.github.com/orgs/$ORG/actions/runners?per_page=100&page=$GH_PAGE") || {

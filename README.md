@@ -49,7 +49,6 @@ The central switcher currently routes these events:
 
 | Event | Repositories | Condition | Called workflow |
 | --- | --- | --- | --- |
-| `push` | standard build repositories | branch is `master` or `development` | [`ci-build-ntk-on-push-direct-to-protected-branches.yaml`](.github/workflows/ci-build-ntk-on-push-direct-to-protected-branches.yaml) |
 | `push` | standard build repositories | tag ref contains `build`, or starts with `scan` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
 | `push` | standard build repositories | branch push commit message contains `build` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
 | `pull_request` | `novatalks.core` | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build-engine` and `build-reporting` matrix |
@@ -428,7 +427,6 @@ Current reusable workflows in [`.github/workflows`](.github/workflows):
 
 - [`ci-build-trigger-switcher.yaml`](.github/workflows/ci-build-trigger-switcher.yaml): central dispatcher
 - [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml): lint, build, publish, and notify for container images
-- [`ci-build-ntk-on-push-direct-to-protected-branches.yaml`](.github/workflows/ci-build-ntk-on-push-direct-to-protected-branches.yaml): fails direct pushes to protected branches
 - [`ci-build-ntk-on-push-branches.yaml`](.github/workflows/ci-build-ntk-on-push-branches.yaml): placeholder flow for selected branch builds
 - [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml): test runner for `int-test`, `unit-test`, and `full-test` tags; accepts `test_mode` (unit/integration/both, default integration)
 - [`ci-build-ntk-on-push-tags-run-e2e.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-e2e.yaml): reusable E2E test flow
