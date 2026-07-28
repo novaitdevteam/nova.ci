@@ -60,6 +60,7 @@ Standard build repositories currently are:
 - `nova.chatsconnector.genesys.cloud.premium.wizard.engine`
 - `novatalks.geoip-api`
 - `nova.chatsconnector.whatsapp-client-api`
+- `nova.chatsconnector.signal-client-api`
 - `novatalks.uspacy.connector`
 
 `novatalks.core` is excluded from the generic PR build route because it has dedicated PR targets.

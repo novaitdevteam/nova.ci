@@ -105,6 +105,13 @@ jobs:
               set_output cache_dependency_path "package-lock.json"
               set_output lint_command "npm run lint"
               ;;
+            nova.chatsconnector.signal-client-api)
+              strategy="nova.chatsconnector.signal-client-api"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npm run lint"
+              ;;
             nova.botflow)
               strategy="nova.botflow"
               set_output install_command "npm ci"
