@@ -28,13 +28,27 @@ jobs:
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
-  call-external-on-pull-request-merged:
-    name: Call Builder On Merge PR
-    if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
-    secrets: inherit
-    with:
-      runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
+  # LEGACY (disabled 2026-08-12): branch-push build route.
+  #
+  # `contains(head_commit.message, 'build')` matched the substring anywhere in the
+  # FULL commit message, body included, so ordinary prose triggered a full build and
+  # image push from feature branches. Real examples:
+  #   - "Specs build partial module graphs with Test.createTestingModule"  (run 31576663619)
+  #   - "Verified: nest build, tsc --noEmit ... (3 build errors)"          (run 31607179275)
+  # Both fired on plain feature-branch pushes and were mistaken for PR builds.
+  #
+  # Kept commented for now instead of deleted, in case a branch-push route is needed
+  # again. If it comes back, gate it on an explicit marker (e.g. `[build]`) and/or a
+  # branch allowlist — not a bare `build` substring. Tag pushes (`build*` / `scan*`)
+  # and pull requests are unaffected.
+  #
+  # call-external-on-pull-request-merged:
+  #   name: Call Builder On Merge PR
+  #   if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && github.ref_type == 'branch' && contains(github.event.head_commit.message, 'build') }}
+  #   uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
+  #   secrets: inherit
+  #   with:
+  #     runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-pull-request-novatalks-core:
     name: Call Core Builder On Pull Request (${{ matrix.build_target }})

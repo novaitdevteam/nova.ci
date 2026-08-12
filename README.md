@@ -50,7 +50,7 @@ The central switcher currently routes these events:
 | Event | Repositories | Condition | Called workflow |
 | --- | --- | --- | --- |
 | `push` | standard build repositories | tag ref contains `build`, or starts with `scan` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
-| `push` | standard build repositories | branch push commit message contains `build` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
+| ~~`push`~~ | ~~standard build repositories~~ | ~~branch push commit message contains `build`~~ | **Disabled 2026-08-12** — see [Legacy branch-push build route](#legacy-branch-push-build-route) |
 | `pull_request` | `novatalks.core` | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build-engine` and `build-reporting` matrix |
 | `pull_request` | standard PR build repositories | non-draft PR on `opened`, `synchronize`, `reopened`, or `ready_for_review` | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build_target: build` |
 | `push` | `novatalks.core` | tag contains `int-test` | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
@@ -79,6 +79,19 @@ Standard build repositories:
 - `novatalks.uspacy.connector`
 
 Standard PR build repositories are the same list except `novatalks.core`, because `novatalks.core` has dedicated PR targets.
+
+### Legacy branch-push build route
+
+The `call-external-on-pull-request-merged` job ("Call Builder On Merge PR") is **commented out in the switcher as of 2026-08-12**. It used to build and publish an image on any branch push whose head commit message contained `build`.
+
+`contains(github.event.head_commit.message, 'build')` matches the substring anywhere in the full commit message, body included, so ordinary prose triggered full builds from feature branches:
+
+- `Specs build partial module graphs with Test.createTestingModule` — [run 31576663619](https://github.com/novaitdevteam/novatalks.core/actions/runs/31576663619)
+- `Verified: nest build, tsc --noEmit ...` / `(3 build errors)` — [run 31607179275](https://github.com/novaitdevteam/novatalks.core/actions/runs/31607179275)
+
+Both fired on plain feature-branch pushes and were easily mistaken for pull request builds. The job block is kept commented rather than deleted in case the route is needed again; if it returns, it should be gated on an explicit marker (for example `[build]`) and/or a branch allowlist, not a bare `build` substring.
+
+Unaffected by this change: tag pushes (`build*`, `scan*`), pull request routes, and the `build-me-please` branch route.
 
 ## Pull Request Builds
 

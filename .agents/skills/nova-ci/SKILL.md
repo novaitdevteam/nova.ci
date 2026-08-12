@@ -40,7 +40,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 ## Dispatch Rules To Preserve
 
 - Push tags containing `build`, or starting with `scan`, in standard build repositories call the main build workflow.
-- Branch pushes whose head commit message contains `build` call the main build workflow.
+- Branch pushes no longer trigger builds. The `call-external-on-pull-request-merged` job ("Call Builder On Merge PR") is commented out as legacy since 2026-08-12: its `contains(github.event.head_commit.message, 'build')` condition matched the substring anywhere in the full commit message, so prose like "Specs build partial module graphs" or "Verified: nest build" built and published images from feature branches. Keep the block commented rather than deleted; if it is revived, gate it on an explicit marker (e.g. `[build]`) and/or a branch allowlist, not a bare `build` substring.
 - Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow, but run lint and unit tests only: the `build-image`, `trivy-scan`, and notifier jobs are gated on `github.event_name != 'pull_request'`.
 - `novatalks.core` PRs lint two targets: `build-engine` and `build-reporting`; unit tests run once on `build-engine` and are skipped on `build-reporting`.
 - Other standard PR build repositories lint with `build_target: build`.
