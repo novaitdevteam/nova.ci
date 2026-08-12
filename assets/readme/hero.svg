@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="452" viewBox="0 0 1200 452"
+     role="img" aria-labelledby="heroTitle heroDesc">
+  <title id="heroTitle">nova.ci — shared GitHub Actions workflows for NovaTalks</title>
+  <desc id="heroDesc">One central switcher receives every product repository's events and routes them: a build tag builds and publishes an image, a pull request runs lint and unit tests only, a test tag runs the test suites.</desc>
+
+  <rect width="1200" height="452" rx="20" fill="#0B0E11"/>
+
+  <!-- ============ top zone: identity ============ -->
+  <g id="identity">
+    <text x="56" y="76" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="19" letter-spacing="2.2" fill="#8B96A2">NOVATALKS · SHARED GITHUB ACTIONS</text>
+
+    <text x="56" y="152" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"
+          font-size="80" font-weight="700" fill="#F4F6F8">nova.ci</text>
+
+    <text x="56" y="194" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"
+          font-size="26" fill="#C9D1D9">One switcher routes every repo&#8217;s pushes,</text>
+    <text x="56" y="226" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"
+          font-size="26" fill="#C9D1D9">PRs and tags into shared CI.</text>
+  </g>
+
+  <!-- ============ top zone: the contract every repo copies ============ -->
+  <g id="caller-contract">
+    <rect x="588" y="44" width="556" height="152" rx="12" fill="#14181D" stroke="#262C33" stroke-width="1.5"/>
+    <text x="608" y="76" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#6E7A87"># .github/workflows/ci-build-trigger.yaml</text>
+    <text x="608" y="112" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#F4F6F8">uses: novaitdevteam/nova.ci/.github/workflows/</text>
+    <text x="608" y="142" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#1F93FF">      ci-build-trigger-switcher.yaml@main</text>
+    <text x="608" y="172" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#F4F6F8">secrets: inherit</text>
+  </g>
+
+  <line x1="56" y1="236" x2="1144" y2="236" stroke="#1C2228" stroke-width="1.5"/>
+
+  <!-- ============ bottom zone: routing ============ -->
+  <g id="routing">
+    <text x="56" y="262" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" letter-spacing="1.6" fill="#6E7A87">EVENT</text>
+    <text x="1144" y="262" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" letter-spacing="1.6" fill="#6E7A87">WORKFLOW  ·  +12 MORE ROUTES</text>
+
+    <!-- connectors: matched path lit, others muted -->
+    <g fill="none" stroke-width="2">
+      <path d="M286 298 C 352 298, 386 350, 452 350" stroke="#1F93FF"/>
+      <path d="M286 350 C 352 350, 386 350, 452 350" stroke="#2A3138"/>
+      <path d="M286 402 C 352 402, 386 350, 452 350" stroke="#2A3138"/>
+
+      <path d="M788 350 C 848 350, 830 298, 890 298" stroke="#1F93FF"/>
+      <path d="M788 350 C 848 350, 830 350, 890 350" stroke="#2A3138"/>
+      <path d="M788 350 C 848 350, 830 402, 890 402" stroke="#2A3138"/>
+    </g>
+
+    <!-- inputs -->
+    <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="20">
+      <rect x="56" y="278" width="230" height="40" rx="8" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="76" y="304" fill="#F4F6F8">tag  build-*</text>
+
+      <rect x="56" y="330" width="230" height="40" rx="8" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="76" y="356" fill="#9AA6B2">pull_request</text>
+
+      <rect x="56" y="382" width="230" height="40" rx="8" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="76" y="408" fill="#9AA6B2">tag  *-test</text>
+    </g>
+
+    <!-- switcher -->
+    <g id="switcher">
+      <rect x="452" y="278" width="336" height="144" rx="14" fill="#14181D" stroke="#39424B" stroke-width="1.5"/>
+      <text x="620" y="326" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="22" fill="#F4F6F8">ci-build-trigger-</text>
+      <text x="620" y="354" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="22" fill="#F4F6F8">switcher.yaml</text>
+      <text x="620" y="390" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="18" fill="#6E7A87">repo · event · ref · action</text>
+    </g>
+
+    <!-- outputs -->
+    <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="20">
+      <rect x="890" y="278" width="254" height="40" rx="8" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="910" y="304" fill="#F4F6F8">build image → GHCR</text>
+
+      <rect x="890" y="330" width="254" height="40" rx="8" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="910" y="356" fill="#9AA6B2">lint + unit only</text>
+
+      <rect x="890" y="382" width="254" height="40" rx="8" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="910" y="408" fill="#9AA6B2">run test suites</text>
+    </g>
+  </g>
+</svg>

@@ -40,7 +40,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 ## Dispatch Rules To Preserve
 
 - Push tags containing `build`, or starting with `scan`, in standard build repositories call the main build workflow.
-- Branch pushes whose head commit message contains `build` call the main build workflow.
+- Branch pushes no longer trigger builds. The `call-external-on-pull-request-merged` job ("Call Builder On Merge PR") is commented out as legacy since 2026-08-12: its `contains(github.event.head_commit.message, 'build')` condition matched the substring anywhere in the full commit message, so prose like "Specs build partial module graphs" or "Verified: nest build" built and published images from feature branches. Keep the block commented rather than deleted; if it is revived, gate it on an explicit marker (e.g. `[build]`) and/or a branch allowlist, not a bare `build` substring.
 - Non-draft `pull_request` events on `opened`, `synchronize`, `reopened`, and `ready_for_review` call the main build workflow, but run lint and unit tests only: the `build-image`, `trivy-scan`, and notifier jobs are gated on `github.event_name != 'pull_request'`.
 - `novatalks.core` PRs lint two targets: `build-engine` and `build-reporting`; unit tests run once on `build-engine` and are skipped on `build-reporting`.
 - Other standard PR build repositories lint with `build_target: build`.
@@ -105,7 +105,7 @@ PR pipeline: `linter` + `unit-test` only. No image build. A unit test failure fa
 
 Do not add `continue-on-error` to the `unit-test` job. Keep the gate backward-compatible: repos without a unit test plan must resolve to no-op success, not error.
 
-The notifier includes a `Unit Tests Status:` line (✅/❌) in the build message alongside the ESLinter status.
+The notifier includes a `Unit Tests Status:` line in the build message alongside the ESLinter status, with three states: `✅` (tests ran and passed), `❌` (job failed), and `⏭️ n/a (no unit tests configured)` when the "Resolve test plan" step produced no `unit_test_command`. Keep the `n/a` state: reporting `✅` for a repository that ran zero tests is misleading. The status is computed in the "End Unit Step" step from `job.status` plus the resolved `unit_test_command`; the gate value consumed by `build-image` is still the job result (`success`).
 
 ### Test Workflow Modes (ci-build-ntk-on-push-tags-run-test.yaml)
 
@@ -166,7 +166,7 @@ Notifier jobs use `.github/actions/action-cond/action.yml` to select message tex
 
 Telegram and Google Chat notifications should use `actions/github-script@v8` with Node.js `fetch`. Do not reintroduce Docker-based Telegram actions such as `appleboy/telegram-action`; notifier jobs should not require Docker.
 
-In `ci-build-ntk-on-push-tags-build.yaml` the notifier `needs: [build-image, linter, unit-test, trivy-scan]` and a `Compose Trivy line` step builds a scan line color-coded by worst severity (`🔴 CRITICAL found!` / `🟠 HIGH found` / `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped`), with CRITICAL/HIGH counts and the report link, from `trivy-scan` outputs, injected into the same message sent to Telegram and Google Chat. The message also includes a `Unit Tests Status:` line (✅/❌) from the `unit-test` job result. The job summary uses a matching colored alert banner (CAUTION/WARNING/NOTE).
+In `ci-build-ntk-on-push-tags-build.yaml` the notifier `needs: [build-image, linter, unit-test, trivy-scan]` and a `Compose Trivy line` step builds a scan line color-coded by worst severity (`🔴 CRITICAL found!` / `🟠 HIGH found` / `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped`), with CRITICAL/HIGH counts and the report link, from `trivy-scan` outputs, injected into the same message sent to Telegram and Google Chat. The message also includes a `Unit Tests Status:` line (✅ / ❌ / `⏭️ n/a (no unit tests configured)`) from the `unit-test` job output. The job summary uses a matching colored alert banner (CAUTION/WARNING/NOTE).
 
 ## Trivy Image Scan Semantics
 

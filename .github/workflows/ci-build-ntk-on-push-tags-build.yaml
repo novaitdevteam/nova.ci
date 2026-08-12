@@ -286,11 +286,17 @@ jobs:
       - name: End Unit Step
         if: always()
         id: unit_res
+        env:
+          UNIT_TEST_COMMAND: ${{ steps.test_plan.outputs.unit_test_command }}
         run: |
-          if [[ "${{ job.status }}" == "success" ]]; then
-            echo "UNIT_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
-          else
+          if [[ "${{ job.status }}" != "success" ]]; then
             echo "UNIT_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
+          elif [[ -z "$UNIT_TEST_COMMAND" ]]; then
+            # No unit test plan for this repo/target: the gate is a no-op success.
+            # Report it as "not configured" so the notifier does not claim tests passed.
+            echo "UNIT_CHECK=⏭️ n/a (no unit tests configured)" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "UNIT_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
           fi
 
   build-image:
