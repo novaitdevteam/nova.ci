@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="480" viewBox="0 0 1200 480"
+     role="img" aria-labelledby="pipeTitle pipeDesc">
+  <title id="pipeTitle">Build workflow pipeline and the pull request cut-off</title>
+  <desc id="pipeDesc">Linter and unit-test run on every event, including pull requests. Lint is advisory and never blocks; a unit test failure blocks the build. Everything to the right — build-image, trivy-scan and the notifier — runs only on push and tag events, never on a pull request.</desc>
+
+  <rect width="1200" height="480" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="48" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">BUILD PIPELINE</text>
+  <text x="1160" y="48" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">ci-build-ntk-on-push-tags-build.yaml</text>
+
+  <!-- ============ zone 1: runs on everything ============ -->
+  <g id="zone-all-events">
+    <rect x="40" y="76" width="328" height="344" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
+    <text x="64" y="110" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" letter-spacing="1.4" fill="#1F93FF">PR + PUSH + TAGS</text>
+
+    <rect x="64" y="140" width="280" height="108" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="88" y="184" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="22" fill="#F4F6F8">linter</text>
+    <text x="88" y="216" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">never blocks the build</text>
+
+    <rect x="64" y="272" width="280" height="108" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="88" y="316" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="22" fill="#F4F6F8">unit-test</text>
+    <text x="88" y="348" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">must pass to build</text>
+  </g>
+
+  <!-- pull request boundary -->
+  <line x1="380" y1="76" x2="380" y2="420" stroke="#39424B" stroke-width="2" stroke-dasharray="6 8"/>
+
+  <!-- ============ zone 2: non-PR only ============ -->
+  <g id="zone-non-pr">
+    <rect x="392" y="76" width="768" height="344" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
+    <text x="416" y="110" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" letter-spacing="1.4" fill="#6E7A87">PUSH / TAG ONLY — SKIPPED ON EVERY PULL REQUEST</text>
+
+    <!-- build-image -->
+    <rect x="416" y="170" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="440" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="22" fill="#F4F6F8">build-image</text>
+    <text x="440" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">GHCR + Dockerhub</text>
+    <text x="440" y="270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">+ registry cache</text>
+
+    <!-- trivy-scan -->
+    <rect x="668" y="170" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="692" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="22" fill="#F4F6F8">trivy-scan</text>
+    <text x="692" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">main/master/dev</text>
+    <text x="692" y="270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">or a scan* tag</text>
+
+    <!-- notify -->
+    <rect x="920" y="170" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="944" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="22" fill="#F4F6F8">notify</text>
+    <text x="944" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">Telegram + GChat</text>
+    <text x="944" y="270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#8B96A2">lint · unit · trivy</text>
+
+    <text x="416" y="356" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="18" fill="#6E7A87">every image is tagged</text>
+    <text x="416" y="386" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+          font-size="20" fill="#9AA6B2">&lt;release&gt;_&lt;short-ref-name&gt;&lt;suffix&gt;_&lt;short-sha&gt;</text>
+  </g>
+
+  <!-- ============ connectors ============ -->
+  <g fill="none" stroke-width="2">
+    <path d="M344 194 C 372 194, 388 236, 410 236" stroke="#2A3138"/>
+    <path d="M344 326 C 372 326, 388 236, 410 236" stroke="#1F93FF"/>
+    <path d="M632 236 L 662 236" stroke="#2A3138"/>
+    <path d="M884 236 L 914 236" stroke="#2A3138"/>
+  </g>
+  <g fill="#2A3138">
+    <path d="M410 236 l -10 -6 v 12 z"/>
+    <path d="M668 236 l -10 -6 v 12 z"/>
+    <path d="M920 236 l -10 -6 v 12 z"/>
+  </g>
+
+  <text x="40" y="452" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">build-image: !cancelled() &amp;&amp; github.event_name != 'pull_request' &amp;&amp; needs.unit-test.result == 'success'</text>
+</svg>
