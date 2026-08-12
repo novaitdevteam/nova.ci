@@ -291,7 +291,7 @@ Telegram notifications are sent with `actions/github-script@v8` and Node.js `fet
 
 Notifier jobs do not use Docker-based Telegram actions and do not require Docker.
 
-The notifier message includes a `Unit Tests Status:` line (✅ passed / ❌ failed) alongside the existing ESLinter status line, reflecting the `unit-test` job result.
+The notifier message includes a `Unit Tests Status:` line alongside the existing ESLinter status line, reflecting the `unit-test` job result: ✅ passed, ❌ failed, or `⏭️ n/a (no unit tests configured)` when the repository has no unit test plan. The `n/a` state exists so a repository without unit tests is not reported as if its tests passed.
 
 ## Runner Selection
 
@@ -370,6 +370,8 @@ After changing CI behavior, still verify by hand that README, [`CLAUDE.md`](CLAU
 A `unit-test` job runs as a fast parallel gate in [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) alongside `linter`, on both PR and non-PR events.
 
 The job is repo-aware via a "Resolve test plan" step. Currently only `novatalks.core` runs unit tests (`npm run test:unit`). All other standard build repositories resolve to a no-op success, so they are unaffected and backward compatible. To enable unit tests for a new repository, add a case in that step.
+
+A no-op success is reported to the notifier as `⏭️ n/a (no unit tests configured)`, not `✅`: the "End Unit Step" step checks whether `unit_test_command` was resolved, so a repository that ran zero tests is never shown as having passing tests. The build gate itself is unchanged — a no-op run still counts as `needs.unit-test.result == 'success'` and does not block `build-image`.
 
 Unit tests use `npm run test:unit` (jest `--selectProjects unit`, parallel via jest workers). There is no `continue-on-error`.
 
