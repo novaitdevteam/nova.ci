@@ -97,15 +97,15 @@ Mobile APK workflows should keep Node.js at `22.22.0` or newer because current Q
 
 ### Unit Test Gate (ci-build-ntk-on-push-tags-build.yaml)
 
-A `unit-test` job runs in parallel with `linter` on both PR and non-PR events. It is repo-aware via a "Resolve test plan" step. Currently only `novatalks.core` runs `npm run test:unit`; all other standard build repos resolve to a no-op success. To enable unit tests for a new repository, add a case in that step.
+A `unit-test` job runs sequentially after `linter` (`needs: [linter]`, `if: !cancelled()`) on both PR and non-PR events, so a build uses one runner at a time instead of two. It runs even when lint failed. It is repo-aware via a "Resolve test plan" step. Currently only `novatalks.core` runs `npm run test:unit`; all other standard build repos resolve to a no-op success. To enable unit tests for a new repository, add a case in that step.
 
-`build-image` has `needs: [linter, unit-test]`. The condition is `!cancelled() && github.event_name != 'pull_request' && needs.unit-test.result == 'success'`. Lint is advisory (build runs even if lint fails). A unit test failure blocks the build.
+`build-image` has `needs: [linter, unit-test]`. The condition is `!cancelled() && github.event_name != 'pull_request'`. Both lint and unit tests are advisory: the build runs even if either fails. They are reported in the notifier and PR checks.
 
-PR pipeline: `linter` + `unit-test` only. No image build. A unit test failure fails the PR check.
+PR pipeline: `linter` then `unit-test` only. No image build. A unit test failure fails the PR check but blocks nothing downstream.
 
-Do not add `continue-on-error` to the `unit-test` job. Keep the gate backward-compatible: repos without a unit test plan must resolve to no-op success, not error.
+Do not add `continue-on-error` to the `unit-test` job — it must still report red on failure. Keep it backward-compatible: repos without a unit test plan must resolve to no-op success, not error.
 
-The notifier includes a `Unit Tests Status:` line in the build message alongside the ESLinter status, with three states: `✅` (tests ran and passed), `❌` (job failed), and `⏭️ n/a (no unit tests configured)` when the "Resolve test plan" step produced no `unit_test_command`. Keep the `n/a` state: reporting `✅` for a repository that ran zero tests is misleading. The status is computed in the "End Unit Step" step from `job.status` plus the resolved `unit_test_command`; the gate value consumed by `build-image` is still the job result (`success`).
+The notifier includes a `Unit Tests Status:` line in the build message alongside the ESLinter status, with three states: `✅` (tests ran and passed), `❌` (job failed), and `⏭️ n/a (no unit tests configured)` when the "Resolve test plan" step produced no `unit_test_command`. Keep the `n/a` state: reporting `✅` for a repository that ran zero tests is misleading. The status is computed in the "End Unit Step" step from `job.status` plus the resolved `unit_test_command`; the job result stays `success` for a no-op run.
 
 ### Test Workflow Modes (ci-build-ntk-on-push-tags-run-test.yaml)
 

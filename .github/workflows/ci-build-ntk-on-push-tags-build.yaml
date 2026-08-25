@@ -184,6 +184,10 @@ jobs:
     name: Unit Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
+    # Sequential after lint so a run occupies one runner at a time, not two.
+    # Advisory: runs even when lint fails, and its own result does not block the build.
+    needs: [linter]
+    if: ${{ !cancelled() }}
     outputs:
       UNIT_CHECK: ${{ steps.unit_res.outputs.UNIT_CHECK }}
     steps:
@@ -306,7 +310,7 @@ jobs:
     # permissions:
     #   contents: read
     #   packages: write
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.unit-test.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     needs: [linter, unit-test]
     outputs:
       REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
