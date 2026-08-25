@@ -144,7 +144,7 @@ Unaffected: tag pushes (`build*`, `scan*`), pull request routes, and the `build-
 ## Build pipeline
 
 <p align="center">
-  <img src="./assets/readme/pipeline.svg" width="100%" alt="linter and unit-test run on every event including pull requests; build-image, trivy-scan and notify run only on push and tag events" />
+  <img src="./assets/readme/pipeline.svg" width="100%" alt="linter then unit-test run sequentially on every event including pull requests; build-image, trivy-scan and notify run only on push and tag events" />
 </p>
 
 [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) accepts:
@@ -158,7 +158,7 @@ Unaffected: tag pushes (`build*`, `scan*`), pull request routes, and the `build-
 
 When `build_target` is empty, behavior is resolved from `github.ref_name`. When it is set, it drives lint and Dockerfile selection.
 
-**Gates.** `build-image` has `needs: [linter, unit-test]` and the condition `!cancelled() && github.event_name != 'pull_request' && needs.unit-test.result == 'success'`. Lint is advisory — the build still runs if lint fails. A unit test failure blocks the build.
+**Gates.** `unit-test` has `needs: [linter]` with `if: !cancelled()`, so lint and unit tests run **sequentially** and a run occupies one runner at a time instead of two. `build-image` has `needs: [linter, unit-test]` and the condition `!cancelled() && github.event_name != 'pull_request'`. Both lint and unit tests are advisory — the build still runs if either fails. They are reported in the notifier and in the PR checks.
 
 ### Pull request builds
 
@@ -293,9 +293,9 @@ The image is built and pushed before the scan in every mode, so a failing scan m
 
 ### Unit tests (build gate)
 
-The `unit-test` job runs as a fast parallel gate alongside `linter`, on both PR and non-PR events. It is repo-aware via a "Resolve test plan" step: currently only `novatalks.core` runs unit tests (`npm run test:unit`, jest `--selectProjects unit`, parallel via jest workers). All other standard build repositories resolve to a no-op success, so they stay backward compatible. To enable a new repository, add a case in that step.
+The `unit-test` job runs right after `linter`, on the same runner, on both PR and non-PR events (sequential so a single build does not occupy two runners). It runs even when lint fails (`if: !cancelled()`), and its result is advisory — it does not block `build-image`. It is repo-aware via a "Resolve test plan" step: currently only `novatalks.core` runs unit tests (`npm run test:unit`, jest `--selectProjects unit`, parallel via jest workers). All other standard build repositories resolve to a no-op success, so they stay backward compatible. To enable a new repository, add a case in that step.
 
-A no-op success is reported to the notifier as `⏭️ n/a (no unit tests configured)`, **not** `✅` — the "End Unit Step" step checks whether `unit_test_command` was resolved, so a repository that ran zero tests is never shown as having passing tests. The gate itself is unchanged: a no-op run still counts as `needs.unit-test.result == 'success'` and does not block `build-image`.
+A no-op success is reported to the notifier as `⏭️ n/a (no unit tests configured)`, **not** `✅` — the "End Unit Step" step checks whether `unit_test_command` was resolved, so a repository that ran zero tests is never shown as having passing tests. A no-op run still reports `success` as the job result.
 
 There is no `continue-on-error`.
 
@@ -330,7 +330,7 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 
 ### Reading failures
 
-- **`unit-test` red** — the build is blocked and the PR check fails. Fix the test or the code before merging or triggering a build.
+- **`unit-test` red** — advisory. It does not block the build, but the PR check fails and it is reported in the notifier message.
 - **`integration-tests` red** — a real integration failure (no longer hidden). Investigate via the `integration-test-report` artifact on the run.
 - **Lint red** — advisory. It does not block the build, but it is reported in the notifier message.
 

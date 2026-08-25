@@ -2,7 +2,7 @@
      width="1200" height="480" viewBox="0 0 1200 480"
      role="img" aria-labelledby="pipeTitle pipeDesc">
   <title id="pipeTitle">Build workflow pipeline and the pull request cut-off</title>
-  <desc id="pipeDesc">Linter and unit-test run on every event, including pull requests. Lint is advisory and never blocks; a unit test failure blocks the build. Everything to the right — build-image, trivy-scan and the notifier — runs only on push and tag events, never on a pull request.</desc>
+  <desc id="pipeDesc">Linter runs first, then unit-test on the same runner, on every event including pull requests. Both are advisory and never block the build. Everything to the right — build-image, trivy-scan and the notifier — runs only on push and tag events, never on a pull request.</desc>
 
   <rect width="1200" height="480" rx="20" fill="#0B0E11"/>
 
@@ -21,13 +21,13 @@
     <text x="88" y="184" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
           font-size="22" fill="#F4F6F8">linter</text>
     <text x="88" y="216" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-          font-size="18" fill="#8B96A2">never blocks the build</text>
+          font-size="18" fill="#8B96A2">advisory, runs first</text>
 
     <rect x="64" y="272" width="280" height="108" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
     <text x="88" y="316" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
           font-size="22" fill="#F4F6F8">unit-test</text>
     <text x="88" y="348" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-          font-size="18" fill="#8B96A2">must pass to build</text>
+          font-size="18" fill="#8B96A2">advisory, after lint</text>
   </g>
 
   <!-- pull request boundary -->
@@ -74,17 +74,18 @@
 
   <!-- ============ connectors ============ -->
   <g fill="none" stroke-width="2">
-    <path d="M344 194 C 372 194, 388 236, 410 236" stroke="#2A3138"/>
+    <path d="M204 248 L 204 266" stroke="#2A3138"/>
     <path d="M344 326 C 372 326, 388 236, 410 236" stroke="#1F93FF"/>
     <path d="M632 236 L 662 236" stroke="#2A3138"/>
     <path d="M884 236 L 914 236" stroke="#2A3138"/>
   </g>
   <g fill="#2A3138">
+    <path d="M204 272 l -6 -10 h 12 z"/>
     <path d="M410 236 l -10 -6 v 12 z"/>
     <path d="M668 236 l -10 -6 v 12 z"/>
     <path d="M920 236 l -10 -6 v 12 z"/>
   </g>
 
   <text x="40" y="452" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-        font-size="18" fill="#6E7A87">build-image: !cancelled() &amp;&amp; github.event_name != 'pull_request' &amp;&amp; needs.unit-test.result == 'success'</text>
+        font-size="18" fill="#6E7A87">build-image: !cancelled() &amp;&amp; github.event_name != 'pull_request'   ·   unit-test: needs [linter], if !cancelled()</text>
 </svg>
