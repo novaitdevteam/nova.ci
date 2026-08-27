@@ -26,6 +26,9 @@ Primary files:
 - `.github/actions/install-docker/action.yml`: Docker prerequisite helper for Docker build jobs
 - `scripts/validate.sh`: validation harness (YAML, whitespace, skill mirror, create-runner self-check, actionlint); also `make validate`
 - `scripts/test-create-runner.sh`: offline scenario self-check for `ci-build-create-runner.sh` (curl stubbed); extend it when adding a decision branch
+- `.github/actions/gitleaks/action.yml` + `scan.sh`: the only place any workflow may invoke Gitleaks; `security/gitleaks/gitleaks.toml` is the central rule set and allowlist
+- `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
+- `scripts/gitleaks-baseline.sh`: one-time full-history secret audit across product repositories; deliberately not a CI job
 - `.github/actions/notify/action.yml`: the only place that talks to Telegram and Google Chat
 - `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
 
@@ -52,6 +55,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Tags containing `full-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: both`.
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget, botflow assets, and Playwright tests.
+- The inline `secret-scan` job runs on `pull_request` (including drafts, unlike the build routes) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 11 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
 
@@ -163,6 +167,92 @@ Mobile APK workflows should not assume the self-hosted runner image has all Andr
 - write `src-capacitor/android/local.properties` with the resolved `sdk.dir`
 - locate and use `apksigner` under the resolved SDK
 
+## Secret Detection Semantics
+
+Gitleaks runs as a `secret-scan` job — inline in `ci-build-trigger-switcher.yaml` for
+product repositories, and in `ci-self-validate.yaml` for nova.ci itself (which has no
+caller workflow). Both delegate to `.github/actions/gitleaks`.
+
+Preserve these behaviors:
+
+- **The check name is an API.** `CI Build Trigger Switcher / secret-scan` for product
+  repositories, `secret-scan` for nova.ci. It is the required-status-check string, so
+  renaming the job silently un-protects every repository. The job is inline rather than
+  behind another `uses:` precisely because a third hop would add a third name segment.
+- **Scan only the commits the event adds** — merge-base..head for pull requests,
+  `before..after` for pushes. Never point the blocking check at full history: legacy
+  findings would then fail every unrelated pull request. Full history is
+  `scripts/gitleaks-baseline.sh`'s job.
+- Use merge-base, not `base.sha`, for pull requests: the base branch moves while a PR
+  is open, so `base.sha..head` would blame it for commits it never touched.
+- **Fail closed.** `scan.sh` exits `2` on an unresolvable range, a missing SHA, an
+  unreadable central config, or a Gitleaks failure with no finding in the log. It must
+  never fall back to Gitleaks' built-in rule set — that silently drops the central
+  allowlist. This is the opposite of the runner create lock, which fails open:
+  blocking a build is cheaper than leaking a credential.
+- **Keep the `git rev-list --count` guard.** `gitleaks git --log-opts` hands the range
+  to `git log` and **exits 0 when git resolves nothing**, so a bad or unfetched SHA
+  would otherwise report a clean scan of zero commits. `scan.sh` counts commits itself
+  and fails if git disagrees.
+- Keep `fetch-depth: 0` on the checkout — the base commit and the PR's own commits all
+  have to be in the clone.
+- Keep the version pinned by release tag **and** SHA-256 in `action.yml` (never
+  `latest`: a moved tag or replaced asset would change what a mandatory check
+  enforces). `test-secret-scan.sh` reads that pin out of `action.yml`, so bumping the
+  version is automatically what gets tested.
+- Keep `--redact`, which blanks the value in stdout and in report files. No SARIF
+  upload (it would need `security-events: write`) and no report artifact: the redacted
+  job summary already carries repository, file, line, rule ID, commit and fingerprint.
+- Keep `permissions: contents: read`.
+- `secret-scan-notify` (`needs: [secret-scan]`, runs only on `failure`) is the
+  compensating control for the missing merge block. The message text is composed in
+  `scan.sh`, not in the workflow, so the harness covers it. It must stay free of
+  credentials **and rule IDs** (a chat group is wider than the repository), must keep
+  the three-way split between a pull-request leak, a protected-branch leak and a failed
+  scan, and must keep the workflow-level fallback message for a job that dies before
+  `scan.sh` runs — silence looks like a clean run. Route it through
+  `.github/actions/notify`, Docker-free, like every other notifier.
+- The central config never needs fetching: using an action from another repository
+  makes GitHub check out that whole repository next to it, so
+  `security/gitleaks/gitleaks.toml` is on disk at the same nova.ci ref as the action.
+  Do not add a second checkout or a `curl` for it.
+- `security/gitleaks/gitleaks.toml` carries exactly one path-scoped allowlist, scoped
+  by `targetRules = ["generic-api-key"]` to the heuristic entropy rule in test-fixture
+  and docs paths. The ~170 provider-specific rules still apply there at full strength;
+  `scripts/test-secret-scan.sh` asserts that a `github-pat` in a `.spec.ts` still
+  fails. Never drop `targetRules` and never widen it to a second rule - that is the
+  blanket `ignore tests/**` that hides real credentials. Any other exception is per
+  finding: a `.gitleaksignore` fingerprint in the product repository, or an inline
+  `gitleaks:allow` comment. There must be no workflow input that turns the scanner
+  off.
+- Deleting a secret in a follow-up commit is deliberately **not** remediation — it is
+  still in the commits the PR would merge. The fix is rotate, then rewrite the branch.
+- Changing `scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the
+  same change; `validate.sh` also fails if any workflow invokes Gitleaks directly.
+
+Repositories covered (11, all reached through their existing caller workflow, no
+product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
+`nova.botflow`, `novatalks.dialer`, `novatalks.chatwidget`, `novatalks.geoip-api`,
+`novatalks.uspacy.connector`, and the telegram, whatsapp and signal chatsconnectors.
+`nova.ci` scans itself via `ci-self-validate.yaml`.
+
+Out of scope by decision on NC2-2742, do not add without a request: `novatalks.tests`,
+`nova.chatsconnector.genesys.cloud.premium.wizard.engine` (deprecated),
+`nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`. The last
+three also have no `ci-build-trigger.yaml`, so no event of theirs reaches the switcher.
+Excluded repositories get no CI coverage at all - `scripts/gitleaks-baseline.sh` is
+their only cover and has to be pointed at them by hand.
+
+Enforcement is blocked by the GitHub plan, not by CI. The org is on **free**, where
+rulesets are plan-gated for private repositories — verified: the same token gets
+`403 Upgrade to GitHub Pro` on private `novatalks.core/rulesets` and `200 []` on public
+`nova.ci/rulesets`. Classic branch protection is documented as Pro/Team-only for
+private repos too, but that was not verified (needs org admin). What is lost is only
+the hard merge block: the scan still runs, still reports red on the pull request, and
+still fails on default-branch pushes. A notifier hookup is the compensating control if
+the plan is not changing — deliberately not wired up, since it needs a channel
+decision. nova.ci, being public, can enforce now.
+
 ## Notification Semantics
 
 Notifier jobs use `.github/actions/action-cond/action.yml` to select message text.
@@ -203,8 +293,9 @@ Keep `docs/` as the canonical broad reference and `README.md` as a thin landing 
 ## Validation
 
 Run the validation harness; it bundles every check (YAML parse of workflows and
-actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, and
-`actionlint` when installed — advisory by default given the repo's pre-existing
+actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, the
+`ci-build-create-runner.sh` and `scan.sh` scenario self-checks, the Gitleaks and
+notifier transport guards, and `actionlint` when installed — advisory by default given the repo's pre-existing
 backlog; `STRICT_ACTIONLINT=1` enforces):
 
 ```bash
@@ -215,7 +306,7 @@ The same harness runs in CI via `ci-self-validate.yaml` on pull requests and pus
 to `main`. After it passes, review diffs for the files that define behavior:
 
 ```bash
-git diff -- .github/workflows .github/actions scripts docs README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions security scripts docs README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 ```
 
 If product repository callers were touched, verify the user explicitly requested that and check those repositories separately.

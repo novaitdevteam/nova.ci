@@ -9,7 +9,7 @@
 
 | Workflow | Purpose |
 | --- | --- |
-| [`ci-build-trigger-switcher.yaml`](../.github/workflows/ci-build-trigger-switcher.yaml) | central dispatcher |
+| [`ci-build-trigger-switcher.yaml`](../.github/workflows/ci-build-trigger-switcher.yaml) | central dispatcher, plus the inline `secret-scan` and `secret-scan-notify` jobs |
 | [`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) | lint, unit gate, build, publish, scan, notify |
 | [`ci-build-ntk-on-push-tags-run-test.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) | test runner for `int-test`, `unit-test`, `full-test` tags |
 | [`ci-build-ntk-on-push-tags-run-e2e.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-e2e.yaml) | reusable E2E test flow |
@@ -22,7 +22,9 @@
 | [`ci-build-ntk-on-push-tags-mob-pwa-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml) | mobile PWA, SPA and CRM builds |
 | [`ci-build-ntk-on-push-tags-flows-to-pub.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml) | publish botflow assets |
 
-Plus one non-reusable meta workflow: [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml), which validates this repository's own workflows, actions and agent docs.
+Plus one non-reusable meta workflow: [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml), which validates this repository's own workflows, actions and agent docs, and runs `secret-scan` over nova.ci itself.
+
+The `secret-scan` job lives inline in the switcher rather than in its own file, so the required-status-check name stays two segments — see [Secret detection](secret-detection.md).
 
 </details>
 
@@ -31,7 +33,29 @@ Plus one non-reusable meta workflow: [`ci-self-validate.yaml`](../.github/workfl
 
 - [`action-cond/action.yml`](../.github/actions/action-cond/action.yml) — composite replacement for the deprecated `haya14busa/action-cond`. Preserves the original interface: inputs `cond`, `if_true`, `if_false`; output `value`. Notifier workflows use it to select success or failure text.
 - [`install-docker/action.yml`](../.github/actions/install-docker/action.yml) — ensures the Docker CLI and daemon are available before Docker-based actions or Buildx steps run on self-hosted runners.
+- [`gitleaks/action.yml`](../.github/actions/gitleaks/action.yml) — installs a version- and checksum-pinned Gitleaks and runs [`scan.sh`](../.github/actions/gitleaks/scan.sh) over the commits a pull request or push adds, with the central config from [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml). The only place any workflow may invoke Gitleaks; `validate.sh` fails on a direct call.
 - [`notify/action.yml`](../.github/actions/notify/action.yml) — sends a composed notification to Telegram and Google Chat. Optional per channel; secrets and message text cross into the script through step `env:`, never through expression interpolation.
+
+</details>
+
+<details>
+<summary><b>Scripts</b> — <a href="../scripts">scripts</a></summary>
+
+- [`validate.sh`](../scripts/validate.sh) — the one harness to run after any change; see [Validation](validation.md)
+- [`test-create-runner.sh`](../scripts/test-create-runner.sh) — offline scenario self-check for the runner script
+- [`test-secret-scan.sh`](../scripts/test-secret-scan.sh) — offline scenario self-check for the secret scan, against real git fixtures and the pinned Gitleaks binary
+- [`gitleaks-baseline.sh`](../scripts/gitleaks-baseline.sh) — one-time full-history secret audit across the product repositories; deliberately not a CI job
+
+</details>
+
+<details>
+<summary><b>Specs and plans</b> — <a href="superpowers">docs/superpowers</a></summary>
+
+Written-up specs and completed-work records, one pair per task, so the reasoning behind a
+change is greppable from git history. They are records, not queues — the work is on `main`.
+
+- [`specs/2026-08-27-nc2-2742-secret-detection.md`](superpowers/specs/2026-08-27-nc2-2742-secret-detection.md) — decisions, verified Gitleaks behaviours, discovered constraints, acceptance-criteria mapping
+- [`plans/2026-08-27-nc2-2742-secret-detection.md`](superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — the six commits, step by step, including the two approaches abandoned along the way
 
 </details>
 

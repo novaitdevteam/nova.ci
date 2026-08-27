@@ -21,6 +21,7 @@
 | `push` | `novatalks.chatwidget` | tag contains `build` | [`…-widget-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml) |
 | `push` | `novatalks.botflow.flows` | tag contains `build` | [`…-flows-to-pub.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml) |
 | `push` | `novatalks.tests` | any tag | [`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) |
+| `pull_request` / `push` | the 12 secret-scan repositories | non-draft **and draft** PRs on the same actions; branch push to the default branch or `main`/`master`/`development` | the inline `secret-scan` job — see [Secret detection](secret-detection.md) |
 | `push` | any repository | branch name contains `build-me-please` | [`…-on-push-branches.yaml`](../.github/workflows/ci-build-ntk-on-push-branches.yaml) |
 | ~~`push`~~ | ~~standard build repositories~~ | ~~branch push commit message contains `build`~~ | **Disabled 2026-08-12** — see [Legacy branch-push build route](#legacy-branch-push-build-route) |
 

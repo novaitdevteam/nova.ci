@@ -1,0 +1,78 @@
+name: "Gitleaks secret scan"
+description: "Scan the commits a pull request or push adds for secrets, using the central NovaTalks Gitleaks config"
+
+outputs:
+  outcome:
+    description: "clean | leaks | error — a notifier must distinguish a committed credential from a broken gate"
+    value: ${{ steps.scan.outputs.outcome }}
+  findings:
+    description: "Number of findings (redacted; values are never exposed)"
+    value: ${{ steps.scan.outputs.findings }}
+  message:
+    description: "Ready-to-send notifier text; empty on a clean run"
+    value: ${{ steps.scan.outputs.message }}
+
+runs:
+  using: composite
+  steps:
+    # Pinned by version AND by checksum: a tag can be moved and a release asset can
+    # be replaced, and `latest` would let an upstream change silently alter what a
+    # mandatory check enforces.
+    #
+    # To upgrade: bump GITLEAKS_VERSION, then take the linux_x64 line from
+    # https://github.com/gitleaks/gitleaks/releases/download/v<ver>/gitleaks_<ver>_checksums.txt
+    - name: Install Gitleaks
+      shell: bash
+      env:
+        GITLEAKS_VERSION: "8.30.1"
+        GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+      run: |
+        set -euo pipefail
+
+        # Self-hosted images do not all ship curl — the same reason install-docker
+        # installs it. GitHub-hosted runners already have it.
+        command -v curl >/dev/null 2>&1 || {
+          sudo apt-get update -qq && sudo apt-get install -y curl
+        }
+
+        tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        dest="${RUNNER_TEMP}/gitleaks"
+        mkdir -p "$dest"
+
+        curl -fsSL --retry 3 --retry-delay 2 \
+          -o "${dest}/${tarball}" \
+          "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+
+        echo "${GITLEAKS_SHA256}  ${dest}/${tarball}" | sha256sum -c -
+
+        tar -xzf "${dest}/${tarball}" -C "$dest" gitleaks
+        chmod +x "${dest}/gitleaks"
+
+        echo "GITLEAKS_BIN=${dest}/gitleaks" >> "$GITHUB_ENV"
+        echo "GITLEAKS_VERSION=${GITLEAKS_VERSION}" >> "$GITHUB_ENV"
+        "${dest}/gitleaks" version
+
+    - name: Scan added commits
+      id: scan
+      shell: bash
+      env:
+        # No config input on purpose. Using an action from another repository makes
+        # GitHub check out that WHOLE repository next to it, so nova.ci's central
+        # config is always already on disk, at the same nova.ci ref as this action —
+        # no second checkout, no curl, no way for the two to drift apart. The path
+        # is three levels up from .github/actions/gitleaks, and scan.sh fails closed
+        # if it is not readable.
+        GITLEAKS_ACTION_ROOT: ${{ github.action_path }}
+        GITLEAKS_LOG_FILE: ${{ runner.temp }}/gitleaks.log
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        NOTIFY_ACTOR: ${{ github.actor }}
+        NOTIFY_PR_TITLE: ${{ github.event.pull_request.title }}
+        NOTIFY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        repo_root="$(cd "${GITLEAKS_ACTION_ROOT}/../../.." && pwd)"
+        export GITLEAKS_CONFIG="${repo_root}/security/gitleaks/gitleaks.toml"
+        bash "${GITLEAKS_ACTION_ROOT}/scan.sh"

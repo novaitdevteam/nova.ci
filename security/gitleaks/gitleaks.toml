@@ -1,0 +1,82 @@
+# Central Gitleaks configuration for every NovaTalks repository.
+#
+# Consumed by .github/actions/gitleaks, which every secret-scan run resolves from
+# this repository at the same commit the workflow itself ran from. One file, one
+# rule set, one allowlist — see docs/secret-detection.md.
+
+title = "NovaTalks secret detection"
+
+# Start from the upstream rule set (~170 providers) rather than hand-maintaining
+# rules. Upgrading GITLEAKS_VERSION in .github/actions/gitleaks/action.yml picks up
+# new rules automatically.
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# NovaTalks-specific rules
+# ---------------------------------------------------------------------------
+# None yet. The upstream set already covers every credential type currently in
+# use across the product repositories (GitHub PATs, GHCR tokens, Hetzner and
+# Cloudflare R2 keys, Telegram bot tokens, Google service accounts, JWTs,
+# private keys, generic high-entropy assignments).
+#
+# Add one here only for a NovaTalks-issued credential format upstream cannot
+# know about, e.g.:
+#
+#   [[rules]]
+#   id = "novatalks-internal-api-key"
+#   description = "NovaTalks internal service API key"
+#   regex = '''ntk_(live|test)_[0-9a-zA-Z]{32}'''
+#   keywords = ["ntk_live_", "ntk_test_"]
+
+# ---------------------------------------------------------------------------
+# Global allowlist
+# ---------------------------------------------------------------------------
+# Deliberately empty of path exclusions.
+#
+# A broad path exclusion (tests/**, config/**, *.example) is how a real
+# credential hides: those are exactly the files people paste a working token
+# into "just to check something". A false positive is cheaper to allowlist per
+# finding than a leaked credential is to rotate.
+#
+# The supported ways to silence a finding, most specific first:
+#
+#   1. .gitleaksignore in the product repository — one line per finding
+#      fingerprint. Scoped to that exact secret in that exact commit and file.
+#   2. a `# gitleaks:allow` comment on the offending line — scoped to the line,
+#      survives rebases, visible to every reader of the code.
+#   3. a rule-scoped allowlist here — only for a pattern that is provably never
+#      a secret across all repositories.
+#
+# Anything wider than that needs a reviewed reason in the pull request.
+
+# The one path-scoped exception, and it is scoped to a single rule on purpose.
+#
+# The NC2-2742 baseline scan found 171 unique generic-api-key sites across the product
+# repositories, and in novatalks.core 91 of 105 of them sat in .spec / .stub / test /
+# docs files: fake tokens in fixtures, added routinely. Left alone, the gate would fail
+# a large share of pull requests there on invented data, and a check that cries wolf is
+# a check people route around.
+#
+# What this does NOT relax: generic-api-key is the heuristic entropy rule. All ~170
+# provider-specific rules (github-pat, gcp-api-key, aws-*, stripe-*, mailgun-*,
+# private-key, ...) still apply in these files at full strength. Verified against 8.30.1:
+# a github-pat-shaped token in a .spec.ts still fails, while a random high-entropy
+# string in the same file does not. A real credential pasted into a test file is still
+# caught by its provider rule; only "random-looking string in a fixture" stops failing.
+#
+# Keep it rule-scoped. Dropping targetRules, or widening it to a second rule, turns this
+# into the blanket "ignore tests/**" that hides real credentials.
+[[allowlists]]
+description = "generic-api-key only: fake tokens in test fixtures and docs. Provider-specific rules still apply here."
+targetRules = ["generic-api-key"]
+paths = [
+  '''\.spec\.[jt]sx?$''',
+  '''\.stub\.[jt]sx?$''',
+  '''(^|/)tests?/''',
+  '''(^|/)__mocks__/''',
+  '''(^|/)__fixtures__/''',
+  '''(^|/)docs?/''',
+  '''\.md$''',
+  '''\.example$''',
+]

@@ -10,7 +10,7 @@ One harness runs every check:
 ./scripts/validate.sh   # or: make validate
 ```
 
-[`scripts/validate.sh`](../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, the [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh) self-check, a guard that no workflow reaches the Telegram or Google Chat API directly, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
+[`scripts/validate.sh`](../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, the [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh) and [`scan.sh`](../.github/actions/gitleaks/scan.sh) self-checks, guards that no workflow reaches the Telegram or Google Chat API directly or invokes Gitleaks itself, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
 
 ## Runner script self-check
 
@@ -20,6 +20,27 @@ Run it alone against any copy of the script:
 
 ```bash
 ./scripts/test-create-runner.sh [path-to-script]
+```
+
+## Secret scan self-check
+
+[`scripts/test-secret-scan.sh`](../scripts/test-secret-scan.sh) gives
+[`scan.sh`](../.github/actions/gitleaks/scan.sh) the same treatment, for the same
+reason: it decides whether a pull request may merge. It builds throwaway git repos and
+runs the real, pinned Gitleaks binary over them — 24 assertions covering clean and
+dirty pull requests, follow-up deletion versus branch rewrite, both allowlist
+mechanisms, merge-base scoping, push ranges, a legacy finding outside the range, new
+branches and rewritten history, that findings stay redacted in both stdout and the
+summary, and four fail-closed cases.
+
+The version and checksum come out of
+[`action.yml`](../.github/actions/gitleaks/action.yml), so the harness can never test a
+version CI does not run. Fixture credentials are assembled from halves at runtime, so
+no line of the harness itself trips the scanner. It uses `gitleaks` from `PATH` when
+present (`brew install gitleaks`), otherwise downloads the pinned linux_x64 build.
+
+```bash
+./scripts/test-secret-scan.sh
 ```
 
 [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed) on every pull request and push to `main`.

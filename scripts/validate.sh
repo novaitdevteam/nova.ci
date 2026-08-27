@@ -7,6 +7,8 @@
 #   - whitespace check (git diff --check)
 #   - .agents <-> .claude skill mirror sync
 #   - ci-build-create-runner.sh scenario self-check (offline, curl stubbed)
+#   - secret-scan scan.sh scenario self-check (git fixtures, pinned gitleaks)
+#   - Gitleaks invocation guard (no workflow may run the scanner itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
 #   - actionlint (when installed)
 #
@@ -59,6 +61,52 @@ if command -v jq >/dev/null 2>&1; then
   fi
 else
   echo "skip: jq not installed"
+fi
+
+section "Secret scan self-check"
+# scan.sh decides whether a pull request may merge, so its branches get the same
+# treatment as the runner script: real git fixtures, the pinned gitleaks binary, and
+# an assertion per decision branch (including that findings stay redacted).
+# Exit 99 means the harness could not get a gitleaks binary. Reporting that as OK is
+# the same silent-pass bug scan.sh guards against, so keep the three cases apart.
+set +e
+out="$(./scripts/test-secret-scan.sh 2>&1)"
+scan_rc=$?
+set -e
+case "$scan_rc" in
+  0)
+    printf '%s\n' "$out" | tail -1
+    echo "OK: all scan.sh scenarios passed"
+    ;;
+  99)
+    printf '%s\n' "$out" | grep '^skip:' | sed 's/^/       /'
+    echo "skip: scan.sh scenarios not run (CI always runs them on linux/x86_64)"
+    ;;
+  *)
+    printf '%s\n' "$out"
+    echo "ERROR: scan.sh self-check failed"
+    fail=1
+    ;;
+esac
+
+section "Gitleaks invocation"
+# The install-and-scan logic lives in .github/actions/gitleaks only. A workflow that
+# calls the binary or the upstream action itself is the copy-paste that action exists
+# to prevent, and would bypass the central config and the redaction flag.
+# Two shapes count as invoking it: running the binary (a gitleaks subcommand in a run
+# block) or using some other gitleaks action. Referencing the step - `id: gitleaks`,
+# `steps.gitleaks.outputs.*` - is not an invocation, so match the invocation shapes
+# rather than the bare word. Both greps use -E: the allowlist needs an alternation that
+# ends in `$`, and that combination did not behave the same under BRE here.
+offenders="$(grep -nE 'gitleaks +(git|dir|detect|protect|stdin)\b|uses:.*gitleaks' .github/workflows/*.yaml \
+  | grep -vE 'uses:.*/\.github/actions/gitleaks(@|$)' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$offenders" ]; then
+  echo "OK: every workflow scans through .github/actions/gitleaks"
+else
+  printf '%s\n' "$offenders" | sed 's/^/       /'
+  echo "ERROR: these lines invoke Gitleaks directly; use .github/actions/gitleaks"
+  fail=1
 fi
 
 section "Notifier transport"

@@ -14,6 +14,16 @@ The build message carries:
 
 The job summary shows a matching colored alert banner (`CAUTION` / `WARNING` / `NOTE`). Under the default `warn-only` mode the build stays green; the styling is the signal. The notifier waits for `trivy-scan` to finish before sending.
 
+
+## Secret scan alerts
+
+The `secret-scan-notify` job in [`ci-build-trigger-switcher.yaml`](../.github/workflows/ci-build-trigger-switcher.yaml)
+sends to the same two channels when a secret scan fails, and distinguishes a committed
+credential (`⚠️` in a pull request, `🚨` on a protected branch) from a scan that could
+not run at all (`🔧` — a broken gate, not a leak). It carries no credential and no rule
+IDs; the redacted detail stays in the job summary. See
+[Secret detection](secret-detection.md#the-secret-scan-notify-job).
+
 ---
 
 [← Runners](runners.md) · [Docs index](README.md) · [Validation →](validation.md)
