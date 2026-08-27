@@ -19,7 +19,11 @@ When `build_target` is empty, behavior is resolved from `github.ref_name`. When 
 
 ## Pull request builds
 
-Pull request events run **lint and unit tests only**. The switcher routes supported non-draft PR events into the build workflow, but `build-image`, `trivy-scan` and the notifier are gated on `github.event_name != 'pull_request'`. No image is built or published, no scan runs, no notification is sent, and no tags are created or deleted.
+Pull request events run **lint and unit tests only**. The switcher routes supported PR events into the build workflow, but `build-image`, `trivy-scan` and the notifier are gated on `github.event_name != 'pull_request'`. No image is built or published, no scan runs, no notification is sent, and no tags are created or deleted.
+
+**Drafts are linted too.** Skipping them used to look like a saving and was in fact a hole: `pull_request:` in the product callers carries no `types:`, so GitHub only ever sends `opened`, `synchronize` and `reopened` — never `ready_for_review`. A pull request opened as a draft and then marked ready got **no lint and no unit tests at all**, and reported `skipped` rather than red, so nobody noticed. [`novatalks.core#217`](https://github.com/novaitdevteam/novatalks.core/pull/217) sat open for a month that way.
+
+Every head SHA arrives through `opened` or `synchronize`, so marking a pull request ready needs no event of its own — the check already sits on that SHA. The cost is that a push to a draft occupies a self-hosted runner for lint and unit; image builds are unaffected.
 
 The switcher passes a synthetic `build_target` so lint targeting still resolves:
 

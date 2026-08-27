@@ -134,13 +134,27 @@ jobs:
   #   with:
   #     runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
+  # Drafts are linted too, and `!github.event.pull_request.draft` is deliberately absent
+  # from both pull request routes below. Skipping drafts looked like a saving and was in
+  # fact a hole: `pull_request:` in the product callers carries no `types:`, so GitHub
+  # sends only `opened`, `synchronize` and `reopened` — never `ready_for_review`. A pull
+  # request opened as a draft and then marked ready therefore got no lint and no unit
+  # tests at all, and reported `skipped` rather than red, so nobody noticed.
+  # novatalks.core#217 sat open for a month that way.
+  #
+  # `ready_for_review` stays listed in the action lists: it is inert with today's callers
+  # but correct the moment one subscribes to it.
+  #
+  # Every head SHA now arrives through `opened` or `synchronize`, so marking a pull
+  # request ready needs no event of its own — the check already sits on that SHA. Cost:
+  # a push to a draft occupies a self-hosted runner for lint and unit. Image builds are
+  # unaffected, still gated on `github.event_name != 'pull_request'`.
   call-external-on-pull-request-novatalks-core:
     name: Call Core Builder On Pull Request (${{ matrix.build_target }})
     if:
       ${{ github.event.repository.name == 'novatalks.core'
       && github.event_name == 'pull_request'
-      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
-      && !github.event.pull_request.draft }}
+      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
     strategy:
       fail-fast: false
       matrix:
@@ -158,8 +172,7 @@ jobs:
     if:
       ${{ contains(fromJSON('["novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name)
       && github.event_name == 'pull_request'
-      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
-      && !github.event.pull_request.draft }}
+      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:

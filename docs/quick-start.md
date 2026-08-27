@@ -94,7 +94,7 @@ Runner selection lives in [`ci-build-create-runner.sh`](../.github/workflows/ci-
 | Run unit tests only | `git tag unit-test-NC2-1234 && git push …` |
 | Run integration tests only | `git tag int-test-NC2-1234 && git push …` |
 | Run both suites | `git tag full-test-NC2-1234 && git push …` |
-| Lint + unit tests on a change | Open a non-draft pull request |
+| Lint + unit tests on a change | Open a pull request — drafts included |
 
 Trigger tags are consumed: the workflow deletes them after the run. Test tags (`unit-test`, `int-test`, `full-test`) are routed for `novatalks.core` only.
 

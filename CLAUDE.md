@@ -38,6 +38,7 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 **Pull requests**
 
 - Pull request events run lint and unit tests only. `build-image`, `trivy-scan` and the notifier stay gated on `github.event_name != 'pull_request'`.
+- **Do not re-add `!github.event.pull_request.draft` to the pull request build routes.** It was removed deliberately: the product callers' `pull_request:` has no `types:`, so `ready_for_review` never arrives, and a draft later marked ready got no lint and no unit tests at all — reported as `skipped`, not red. `novatalks.core#217` sat open for a month that way. Keep `ready_for_review` in the action lists: inert today, correct if a caller ever subscribes.
 - Never introduce real tag deletion for PR builds. Tag deletion stays limited to tag-triggered builds with an empty `build_target`, and uses `actions/github-script@v8` (`git.deleteRef`), not a third-party action.
 
 **Lint and tests**

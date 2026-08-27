@@ -9,8 +9,8 @@
 | Event | Repositories | Condition | Called workflow |
 | --- | --- | --- | --- |
 | `push` | standard build repositories | tag ref contains `build`, or starts with `scan` | [`…-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
-| `pull_request` | `novatalks.core` | non-draft PR on `opened`, `synchronize`, `reopened`, `ready_for_review` | [`…-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with a `build-engine` + `build-reporting` matrix |
-| `pull_request` | standard PR build repositories | non-draft PR on the same actions | [`…-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build_target: build` |
+| `pull_request` | `novatalks.core` | any PR, **drafts included**, on `opened`, `synchronize`, `reopened` | [`…-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with a `build-engine` + `build-reporting` matrix |
+| `pull_request` | standard PR build repositories | any PR, drafts included, on the same actions | [`…-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build_target: build` |
 | `push` | `novatalks.core` | tag contains `int-test` | [`…-run-test.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
 | `push` | `novatalks.core` | tag contains `unit-test` | [`…-run-test.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: unit` |
 | `push` | `novatalks.core` | tag contains `full-test` | [`…-run-test.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: both` |
@@ -21,7 +21,7 @@
 | `push` | `novatalks.chatwidget` | tag contains `build` | [`…-widget-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml) |
 | `push` | `novatalks.botflow.flows` | tag contains `build` | [`…-flows-to-pub.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml) |
 | `push` | `novatalks.tests` | any tag | [`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) |
-| `pull_request` / `push` | the 12 secret-scan repositories | non-draft **and draft** PRs on the same actions; branch push to the default branch or `main`/`master`/`development` | the inline `secret-scan` job — see [Secret detection](secret-detection.md) |
+| `pull_request` / `push` | the 11 secret-scan repositories | PRs, drafts included, on the same actions; branch push to the default branch or `main`/`master`/`development` | the inline `secret-scan` job — see [Secret detection](secret-detection.md) |
 | `push` | any repository | branch name contains `build-me-please` | [`…-on-push-branches.yaml`](../.github/workflows/ci-build-ntk-on-push-branches.yaml) |
 | ~~`push`~~ | ~~standard build repositories~~ | ~~branch push commit message contains `build`~~ | **Disabled 2026-08-12** — see [Legacy branch-push build route](#legacy-branch-push-build-route) |
 

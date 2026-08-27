@@ -34,7 +34,7 @@ git tag scan-NC2-1234       && git push origin scan-NC2-1234        # build + sc
 git tag full-test-NC2-1234  && git push origin full-test-NC2-1234   # unit + integration tests
 ```
 
-Opening a non-draft pull request runs lint and unit tests only — no image, no CVE scan, no notification. Every pull request, draft included, is also scanned for committed credentials by [secret detection](./docs/secret-detection.md).
+Opening a pull request — drafts included — runs lint and unit tests only: no image, no CVE scan, no notification. Every pull request is also scanned for committed credentials by [secret detection](./docs/secret-detection.md).
 
 → Full caller workflow, every trigger and the routing rules: **[Quick start](./docs/quick-start.md)** and **[How a trigger is routed](./docs/routing.md)**.
 
