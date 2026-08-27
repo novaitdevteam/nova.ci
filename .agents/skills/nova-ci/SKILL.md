@@ -221,18 +221,22 @@ Repositories covered (12, all reached through their existing caller workflow, no
 product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
 `nova.botflow`, `novatalks.dialer`, `novatalks.tests`, `novatalks.chatwidget`,
 `novatalks.geoip-api`, `novatalks.uspacy.connector`, and the telegram, whatsapp and
-signal chatsconnectors. `nova.ci` scans itself.
+signal chatsconnectors. `nova.ci` scans itself via `ci-self-validate.yaml`.
 
-Not covered: `nova.ai.marketplace`, `novatalks.charts` and
-`novatalks.grafana.connector` have no `ci-build-trigger.yaml`, so no event of theirs
-reaches the switcher. Adding one is a change **in those repositories** — do not do it
-unless the user asks. `nova.chatsconnector.genesys.cloud.premium.wizard.engine` builds
-here but was excluded from the NC2-2742 list.
+Out of scope by decision on NC2-2742, do not add without a request:
+`nova.chatsconnector.genesys.cloud.premium.wizard.engine` (deprecated),
+`nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`. The last
+three also have no `ci-build-trigger.yaml`, so no event of theirs reaches the switcher.
 
-Enforcement is currently blocked by billing, not by CI: the `novaitdevteam` org is on
-the GitHub **free** plan, where private repositories get neither branch protection nor
-rulesets (`/rulesets` answers `403 Upgrade to GitHub Pro`). Everything needed is in
-place; switching it on needs a **Team** plan. nova.ci, being public, can enforce now.
+Enforcement is blocked by the GitHub plan, not by CI. The org is on **free**, where
+rulesets are plan-gated for private repositories — verified: the same token gets
+`403 Upgrade to GitHub Pro` on private `novatalks.core/rulesets` and `200 []` on public
+`nova.ci/rulesets`. Classic branch protection is documented as Pro/Team-only for
+private repos too, but that was not verified (needs org admin). What is lost is only
+the hard merge block: the scan still runs, still reports red on the pull request, and
+still fails on default-branch pushes. A notifier hookup is the compensating control if
+the plan is not changing — deliberately not wired up, since it needs a channel
+decision. nova.ci, being public, can enforce now.
 
 ## Notification Semantics
 

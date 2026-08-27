@@ -59,7 +59,7 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 - Keep `permissions: contents: read` on the job.
 - Keep `security/gitleaks/gitleaks.toml` free of **path** exclusions. Exceptions go through `.gitleaksignore` fingerprints or inline `gitleaks:allow`, per finding. There must be no input that disables the scanner.
 - Changing `.github/actions/gitleaks/scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the same change.
-- The three repositories with no caller workflow (`nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`) cannot be covered from here. Do not add a caller to them unless the user asks.
+- Out of scope by decision on NC2-2742, do not add without an explicit request: `nova.chatsconnector.genesys.cloud.premium.wizard.engine` (deprecated), `nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector` (the last three also have no caller workflow, so they never reach the switcher).
 
 **Scanning**
 

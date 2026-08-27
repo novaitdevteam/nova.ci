@@ -55,23 +55,19 @@ Wired through the switcher — **no change needed in these repositories**:
 
 `nova.ci` scans itself through `ci-self-validate.yaml`, having no caller workflow.
 
-**Not covered yet.** These three have no `.github/workflows/ci-build-trigger.yaml`, so
-no event of theirs ever reaches this switcher:
+**Out of scope**, by decision on NC2-2742:
 
-| Repository | State |
+| Repository | Why |
 | --- | --- |
-| `nova.ai.marketplace` | no `.github/workflows` directory at all |
-| `novatalks.grafana.connector` | no `.github/workflows` directory at all |
-| `novatalks.charts` | has `lint-chart.yml` and `release-chart.yml`, no CI caller |
+| `nova.chatsconnector.genesys.cloud.premium.wizard.engine` | deprecated |
+| `nova.ai.marketplace` | out of scope (also has no caller workflow) |
+| `novatalks.charts` | out of scope (also has no caller workflow) |
+| `novatalks.grafana.connector` | out of scope (also has no caller workflow) |
 
-Each needs the caller workflow from [Quick start](quick-start.md) added **in that
-repository** — one file, and secret-scan starts running with no further change here.
-Until then only the [baseline audit](#one-time-baseline-audit) covers them; it scans
-them regardless of CI wiring.
-
-`nova.chatsconnector.genesys.cloud.premium.wizard.engine` builds through this switcher
-but was not on the NC2-2742 list, so it is deliberately excluded. Adding it is one
-entry in the job's repository list.
+The last three have no `.github/workflows/ci-build-trigger.yaml`, so no event of theirs
+would reach this switcher even if they were listed. Bringing one in means adding the
+caller workflow from [Quick start](quick-start.md) **in that repository**, then adding
+its name to the job's list here.
 
 Note that four repositories default to `development` and three to `master`, and
 `nova.chatsconnector.signal-client-api` currently defaults to `NC2-1992_docker`. The
@@ -93,18 +89,57 @@ job is defined inline in the switcher rather than behind another `uses:` — a t
 would add a third segment to the name every ruleset has to match.
 
 > [!IMPORTANT]
-> **This cannot be enforced on the product repositories today, and it is a billing
-> limitation rather than a CI one.** The `novaitdevteam` organization is on the GitHub
-> **free** plan, where private repositories get neither branch protection nor rulesets:
-> `GET /repos/novaitdevteam/novatalks.core/rulesets` answers `403 Upgrade to GitHub Pro
-> or make this repository public`, and `novatalks.core` has no branch protection at all
-> right now. Everything needed is in place — a stable name and a job that always
-> reports — but turning the switch on needs a **GitHub Team** plan (or the repository
-> being public). `nova.ci` is public, so it can be enforced there immediately.
+> **Enforcement on the private product repositories is blocked by the GitHub plan, not
+> by anything in CI.** The `novaitdevteam` organization is on the **free** plan. With
+> the same token, `GET /repos/novaitdevteam/novatalks.core/rulesets` (private) answers
+> `403 Upgrade to GitHub Pro or make this repository public to enable this feature`,
+> while `GET /repos/novaitdevteam/nova.ci/rulesets` (public) answers `200 []`. Rulesets
+> are therefore verified plan-gated for private repositories here. Classic branch
+> protection is documented by GitHub as requiring Pro/Team for private repositories
+> too, but that half was **not** verified from here — checking it needs org admin
+> rights (Settings → Branches on any private repo: either the rule form appears, or an
+> upgrade prompt does).
+>
+> What this costs and does not cost is spelled out under
+> [What we lose without enforcement](#what-we-lose-without-enforcement).
 
 Once the plan allows it, per repository: **Settings → Branches → Add branch protection
 rule** (or **Rules → Rulesets**) → *Require status checks to pass before merging* → add
 the name from the table above.
+
+## What we lose without enforcement
+
+Only the **hard block**. Detection, reporting and the audit trail all work today on
+every repository in the list.
+
+| | Free plan (today) | With Team / public |
+| --- | --- | --- |
+| Scan runs on every pull request | ✅ | ✅ |
+| Scan runs on default-branch pushes | ✅ | ✅ |
+| Red ❌ check on the pull request, with file, line, rule and fingerprint | ✅ | ✅ |
+| Failure recorded against the commit, visible in history | ✅ | ✅ |
+| Merge button **disabled** while the check is red | ❌ | ✅ |
+| Cannot be bypassed by a hurried or unaware developer | ❌ | ✅ |
+
+So the gap is narrow but real: a developer who sees `secret-scan ❌` can still click
+merge, and nothing stops them. The credential is detected, named and logged — it is
+just not prevented from landing.
+
+Two things reduce that exposure without changing plan:
+
+1. **The default-branch push scan is a second net.** If a secret does get merged, the
+   push scan fails on the default branch straight away, so the finding surfaces within
+   a minute of the merge rather than at the next audit. Rotation is the same work; it
+   just starts sooner.
+2. **A notification on that failure would close most of the remaining gap** — the
+   notifier transport already exists in [`notify/action.yml`](../.github/actions/notify/action.yml).
+   It is deliberately **not** wired up yet: it needs a decision on which channel a
+   security alert goes to, and it is the compensating control for a limitation that
+   buying a Team plan removes outright. Worth doing only if the plan is not changing.
+
+Note that the free plan also cannot restrict who pushes directly to a default branch,
+which is a broader hole than this check — direct pushes bypass pull requests entirely,
+and the push scan is the only thing watching them.
 
 ## A finding failed my check. Now what?
 

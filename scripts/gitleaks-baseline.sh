@@ -25,8 +25,10 @@ CONFIG="$ROOT/security/gitleaks/gitleaks.toml"
 ORG="${ORG:-novaitdevteam}"
 OUT_DIR="${OUT_DIR:-$ROOT/.baseline}"
 
-# The NC2-2742 list. Includes the three repositories with no caller workflow: they are
-# unreachable from CI today, which makes the one-time audit the only cover they have.
+# The NC2-2742 list: exactly the repositories secret-scan covers in CI, so the audit
+# and the gate agree on scope. nova.ai.marketplace, novatalks.charts and
+# novatalks.grafana.connector are out of scope, and the genesys wizard is deprecated.
+# Pass repository names as arguments to audit anything outside this list.
 DEFAULT_REPOS=(
     novatalks.core
     novatalks.ui
@@ -40,9 +42,6 @@ DEFAULT_REPOS=(
     nova.chatsconnector.telegram-client-api
     nova.chatsconnector.whatsapp-client-api
     nova.chatsconnector.signal-client-api
-    nova.ai.marketplace
-    novatalks.charts
-    novatalks.grafana.connector
     nova.ci
 )
 
