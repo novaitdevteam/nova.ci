@@ -6,6 +6,7 @@
 #   - YAML parse of all reusable workflows and composite actions
 #   - whitespace check (git diff --check)
 #   - .agents <-> .claude skill mirror sync
+#   - docs assets (every page has a diagram; every referenced asset exists)
 #   - ci-build-create-runner.sh scenario self-check (offline, curl stubbed)
 #   - secret-scan scan.sh scenario self-check (git fixtures, pinned gitleaks)
 #   - Gitleaks invocation guard (no workflow may run the scanner itself)
@@ -45,6 +46,55 @@ if diff -q .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md >/dev
 else
   echo "ERROR: .agents/skills/nova-ci/SKILL.md and .claude/skills/nova-ci/SKILL.md differ"
   echo "       keep the canonical .agents copy and its .claude mirror in sync"
+  fail=1
+fi
+
+section "Documentation assets"
+# Three rules that started as prose in CLAUDE.md. Prose is exactly what got skipped when
+# docs/secret-detection.md was added without a diagram, so they are checks now.
+#
+# In Ruby, not Bash: the natural shell form needs a `case` inside a `$( ... )`, and bash
+# 3.2 - which macOS still ships - mis-parses the pattern's `)` as closing the
+# substitution. Ruby is already required above for the YAML parse.
+if ruby -e '
+  fail_count = 0
+
+  # 1. every page under docs/ opens with a diagram from assets/readme/
+  Dir.glob("docs/**/*.md").sort.each do |page|
+    next if File.basename(page) == "README.md"
+    next if page.include?("docs/superpowers/")   # specs and plans are records, not pages
+    next if File.read(page).include?("assets/readme/")
+    puts "       #{page}"
+    fail_count += 1
+  end
+  abort "ERROR: these pages have no assets/readme/ diagram (CLAUDE.md, Editing style)" if fail_count > 0
+  puts "OK: every docs page embeds a diagram"
+
+  # 2. every locally referenced asset resolves - a renamed file is an invisible diff
+  (Dir.glob("docs/**/*.md") + ["README.md"]).sort.each do |md|
+    File.read(md).scan(/src="([^"]+)"/).flatten.each do |ref|
+      next if ref =~ %r{\A(https?:|#)}
+      target = File.expand_path(ref, File.dirname(md))
+      next if File.exist?(target)
+      puts "       #{md} -> #{ref}"
+      fail_count += 1
+    end
+  end
+  abort "ERROR: these asset references do not resolve" if fail_count > 0
+  puts "OK: every referenced asset resolves"
+
+  # 3. below 18 SVG units a label is unreadable at GitHub content width
+  Dir.glob("assets/readme/*.svg").sort.each do |svg|
+    small = File.read(svg).scan(/font-size="(\d+)"/).flatten.map(&:to_i).select { |n| n < 18 }
+    next if small.empty?
+    puts "       #{svg} uses font-size #{small.uniq.sort.join(", ")}"
+    fail_count += 1
+  end
+  abort "ERROR: these assets use font-size below 18 - unreadable at 900px" if fail_count > 0
+  puts "OK: no asset drops below font-size 18"
+'; then
+  :
+else
   fail=1
 fi
 
