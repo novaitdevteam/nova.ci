@@ -346,4 +346,10 @@ blocking a build is cheaper than leaking a credential, and the reverse is true t
 
 ---
 
+**Background:** [spec](superpowers/specs/2026-08-27-nc2-2742-secret-detection.md) — the
+decisions and the Gitleaks behaviours verified behind them ·
+[plan](superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — how it was built.
+
+---
+
 [← Tests](tests.md) · [Docs index](README.md) · [Runners →](runners.md)

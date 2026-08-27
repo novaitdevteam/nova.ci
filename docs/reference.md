@@ -49,6 +49,17 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 </details>
 
 <details>
+<summary><b>Specs and plans</b> — <a href="superpowers">docs/superpowers</a></summary>
+
+Written-up specs and completed-work records, one pair per task, so the reasoning behind a
+change is greppable from git history. They are records, not queues — the work is on `main`.
+
+- [`specs/2026-08-27-nc2-2742-secret-detection.md`](superpowers/specs/2026-08-27-nc2-2742-secret-detection.md) — decisions, verified Gitleaks behaviours, discovered constraints, acceptance-criteria mapping
+- [`plans/2026-08-27-nc2-2742-secret-detection.md`](superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — the six commits, step by step, including the two approaches abandoned along the way
+
+</details>
+
+<details>
 <summary><b>Agent context</b> — files that keep Claude Code and Codex in sync with these docs</summary>
 
 - [`CLAUDE.md`](../CLAUDE.md) — canonical agent guidance for Claude Code and Codex
