@@ -41,31 +41,16 @@ else
     REQUIRED_SIZE="small"
 fi
 
+# Size ordering, declared once: index in this list is the priority, and the matching
+# Hetzner server type is looked up from the same case below. The jq reuse filter reads
+# the same list, so "which runner is big enough" has a single definition.
+SIZE_ORDER='["small","medium","large"]'
 
-size_priority() {
-    case "$1" in
-        small) echo 1 ;;
-        medium) echo 2 ;;
-        large) echo 3 ;;
-        *) echo "::error::Unknown runner size: $1" >&2; exit 1 ;;
-    esac
-}
-
-
-size_type() {
-    case "$1" in
-        small) echo cx33 ;;
-        medium) echo cx43 ;;
-        large) echo cx53 ;;
-        *) echo "::error::Unknown runner size: $1" >&2; exit 1 ;;
-    esac
-}
-
-
-REQUIRED_PRIORITY=$(size_priority "$REQUIRED_SIZE")
-
-
-REQUIRED_TYPE=$(size_type "$REQUIRED_SIZE")
+case "$REQUIRED_SIZE" in
+    small) REQUIRED_TYPE=cx33 ;;
+    medium) REQUIRED_TYPE=cx43 ;;
+    large) REQUIRED_TYPE=cx53 ;;
+esac
 
 DELAY=$((RANDOM % 10))
 
@@ -136,7 +121,7 @@ echo "Current $REQUIRED_SIZE Hetzner servers (starting/initializing/running): $T
 # Emit wait-queue diagnostics: without them a queued job just sits on a runner label
 # with no hint in the step log or summary about why nothing was created and what will
 # (or will not) eventually pick the job up.
-report_wait_queue() {
+wait_queue() {
     local reason="$1" tone="${2:-auto}"
 
     if [ "$TOTAL_SIZE" -gt 0 ]; then
@@ -155,6 +140,9 @@ report_wait_queue() {
         echo "- Active \`$REQUIRED_SIZE\` runner VMs: $TOTAL_SIZE"
         echo "- Total \`dev-00-gh-runner-*\` servers (any status/size): $TOTAL_ALL (cap $MAX_TOTAL_RUNNERS)"
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+    echo "runner_need=false" >> "$GITHUB_OUTPUT"
+    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
 }
 
 # Fetch every runners page. The GitHub API returns 30 runners per page by default;
@@ -186,32 +174,15 @@ while true; do
     GH_PAGE=$((GH_PAGE + 1))
 done
 
-
 COUNT=$(echo "$RUNNERS" | jq 'length')
 
-
 echo "GitHub-registered dev-00-gh-runner-* runners (any status): $COUNT"
-
-
-PARSED=$(echo "$RUNNERS" | jq '
-    map({
-        name: .name,
-        status: .status,
-        busy: .busy,
-        size: (
-            [.labels[].name
-            | select(. == "small" or . == "medium" or . == "large")
-            ][0] // "unknown"
-        )
-    })
-')
-
 
 # A GitHub registration can outlive (or misrepresent) its VM: a runner may still show
 # online && idle while its Hetzner server is already deleting (idle auto-shutdown,
 # watchdog cleanup) or gone entirely (ghost registration). Reusing one queues the job
 # on a runner that will never pick it up, so only trust runners whose backing Hetzner
-# VM is actually running.
+# VM is actually running. Of those, take the largest that still meets the required size.
 ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq '
     [
         .servers[]
@@ -220,30 +191,20 @@ ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq '
         | .name
     ]')
 
-BEST=$(echo "$PARSED" | jq -r --argjson active_vms "$ACTIVE_VM_NAMES" '
-    map(select(.status=="online" and .busy==false and (.name as $n | $active_vms | index($n))))
+BEST_MATCH=$(echo "$RUNNERS" | jq -r \
+    --argjson active_vms "$ACTIVE_VM_NAMES" \
+    --argjson order "$SIZE_ORDER" \
+    --arg required "$REQUIRED_SIZE" '
+    [
+        .[]
+        | select(.status == "online" and .busy == false)
+        | select(.name as $n | $active_vms | index($n))
+        | [.labels[].name | select(. as $l | $order | index($l))][0]
+        | select(. != null and ($order | index(.)) >= ($order | index($required)))
+    ]
+    | sort_by($order | index(.))
+    | last // empty
 ')
-
-
-BEST_MATCH=""
-
-
-if [ "$(echo "$BEST" | jq 'length')" -gt 0 ]; then
-    BEST_MATCH=$(echo "$BEST" | jq -r '
-        map(. + {
-            priority:
-                (if .size=="small" then 1
-                 elif .size=="medium" then 2
-                 elif .size=="large" then 3
-                 else 0 end)
-        })
-        | sort_by(.priority)
-        | reverse
-        | map(select(.priority >= '"$REQUIRED_PRIORITY"'))
-        | .[0].size // empty
-    ')
-fi
-
 
 if [ -n "$BEST_MATCH" ]; then
     echo "Using existing runner: $BEST_MATCH"
@@ -252,16 +213,11 @@ if [ -n "$BEST_MATCH" ]; then
     exit 0
 fi
 
-
 if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
     echo "Global runner cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → wait queue"
-    report_wait_queue "global cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS dev-00-gh-runner-* servers in any status)"
-
-    echo "runner_need=false" >> "$GITHUB_OUTPUT"
-    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
+    wait_queue "global cap reached ($TOTAL_ALL/$MAX_TOTAL_RUNNERS dev-00-gh-runner-* servers in any status)"
     exit 0
 fi
-
 
 # --- Create lock --------------------------------------------------------------------
 # The create decision here and the actual VM creation in the caller are seconds apart,
@@ -358,7 +314,6 @@ acquire_create_lock() {
     return 0
 }
 
-
 if [ "$TOTAL_SIZE" -lt 2 ]; then
     if acquire_create_lock; then
         echo "Create new runner ($REQUIRED_SIZE)"
@@ -369,15 +324,9 @@ if [ "$TOTAL_SIZE" -lt 2 ]; then
         echo "runner_need=true" >> "$GITHUB_OUTPUT"
     else
         echo "Create lock held → wait queue"
-        report_wait_queue "another run took the $REQUIRED_SIZE create lock moments ago" notice
-
-        echo "runner_need=false" >> "$GITHUB_OUTPUT"
-        echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
+        wait_queue "another run took the $REQUIRED_SIZE create lock moments ago" notice
     fi
 else
     echo "Limit reached → do nothing (wait queue)"
-    report_wait_queue "per-size cap reached ($TOTAL_SIZE/2 $REQUIRED_SIZE servers)"
-
-    echo "runner_need=false" >> "$GITHUB_OUTPUT"
-    echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
+    wait_queue "per-size cap reached ($TOTAL_SIZE/2 $REQUIRED_SIZE servers)"
 fi
