@@ -1,6 +1,17 @@
 name: "Gitleaks secret scan"
 description: "Scan the commits a pull request or push adds for secrets, using the central NovaTalks Gitleaks config"
 
+outputs:
+  outcome:
+    description: "clean | leaks | error — a notifier must distinguish a committed credential from a broken gate"
+    value: ${{ steps.scan.outputs.outcome }}
+  findings:
+    description: "Number of findings (redacted; values are never exposed)"
+    value: ${{ steps.scan.outputs.findings }}
+  message:
+    description: "Ready-to-send notifier text; empty on a clean run"
+    value: ${{ steps.scan.outputs.message }}
+
 runs:
   using: composite
   steps:
@@ -42,6 +53,7 @@ runs:
         "${dest}/gitleaks" version
 
     - name: Scan added commits
+      id: scan
       shell: bash
       env:
         # No config input on purpose. Using an action from another repository makes
@@ -56,6 +68,9 @@ runs:
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         PUSH_BEFORE: ${{ github.event.before }}
+        NOTIFY_ACTOR: ${{ github.actor }}
+        NOTIFY_PR_TITLE: ${{ github.event.pull_request.title }}
+        NOTIFY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
         repo_root="$(cd "${GITLEAKS_ACTION_ROOT}/../../.." && pwd)"

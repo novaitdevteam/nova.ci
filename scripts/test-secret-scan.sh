@@ -93,8 +93,9 @@ at() { git -C "$1" rev-parse "${2:-HEAD}"; }
 # expect <name> <expected-exit> <repo> <event> [env assignments...]
 expect() {
     local name="$1" want="$2" repo="$3" event="$4"; shift 4
-    local summary="$WORK/summary.md" out
+    local summary="$WORK/summary.md" outfile="$WORK/output.txt" out
     : > "$summary"
+    : > "$outfile"
     set +e
     out="$(cd "$repo" && env \
         GITLEAKS_BIN="$GITLEAKS_BIN" \
@@ -102,6 +103,10 @@ expect() {
         GITLEAKS_VERSION="$VERSION" \
         GITLEAKS_LOG_FILE="$WORK/gitleaks.log" \
         GITHUB_STEP_SUMMARY="$summary" \
+        GITHUB_OUTPUT="$outfile" \
+        GITHUB_REF_NAME="${SCAN_REF_NAME:-development}" \
+        NOTIFY_ACTOR="someone" \
+        NOTIFY_RUN_URL="https://github.com/novaitdevteam/fixture/actions/runs/42" \
         GITHUB_REPOSITORY="novaitdevteam/fixture" \
         GITHUB_EVENT_NAME="$event" \
         GITHUB_SHA="$(at "$repo")" \
@@ -118,6 +123,7 @@ expect() {
         fail=$((fail + 1))
     fi
     LAST_SUMMARY="$summary"
+    LAST_OUTPUT="$outfile"
     LAST_OUT="$out"
 }
 
@@ -129,6 +135,19 @@ assert_summary() { # assert_summary <name> <grep-pattern> [--absent]
         fi
     elif [ "$mode" != "--absent" ]; then
         printf 'FAIL %-56s summary missing %s\n' "$name" "$pat"; fail=$((fail + 1)); return
+    fi
+    printf 'ok   %-56s\n' "$name"; pass=$((pass + 1))
+}
+
+assert_output() { # assert_output <name> <grep-pattern> [--absent]
+    local name="$1" pat="$2" mode="${3:-present}"
+    if grep -q -- "$pat" "$LAST_OUTPUT"; then
+        if [ "$mode" = "--absent" ]; then
+            printf 'FAIL %-56s output must NOT contain %s\n' "$name" "$pat"; fail=$((fail + 1)); return
+        fi
+    elif [ "$mode" != "--absent" ]; then
+        printf 'FAIL %-56s output missing %s\n' "$name" "$pat"
+        sed 's/^/       | /' "$LAST_OUTPUT"; fail=$((fail + 1)); return
     fi
     printf 'ok   %-56s\n' "$name"; pass=$((pass + 1))
 }
@@ -280,6 +299,53 @@ echo "hello" > "$r/app.js"; commit "$r" "base"
 SCAN_CONFIG="$WORK/does-not-exist.toml" \
     expect "missing central config fails closed, no silent default rules" 2 "$r" push \
     PUSH_BEFORE="$(at "$r")" GITHUB_SHA="$(at "$r")"
+
+echo
+echo "=== notifier message scenarios ==="
+# The chat alert is the compensating control for not being able to block a merge, so a
+# subtly wrong message is worse than none. It must also never carry the credential.
+
+r="$(new_repo notify-pr-leak)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+printf 'const token = "%s"\n' "$LEAK_ONE" > "$r/app.js"; commit "$r" "oops"
+expect "notify: PR leak still exits 1" 1 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")"
+assert_output "notify: PR leak sets outcome=leaks" "outcome=leaks"
+assert_output "notify: PR leak counts the finding" "findings=1"
+assert_output "notify: PR message says do not merge" "Do not merge"
+assert_output "notify: PR message names the pull request" "Pull request: #1"
+assert_output "notify: PR message links the run" "actions/runs/42"
+assert_output "notify: PR message never carries the credential" "$LEAK_ONE" --absent
+assert_output "notify: PR message leaks no rule ID to chat" "github-pat" --absent
+
+r="$(new_repo notify-push-leak)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+before="$(at "$r")"
+printf 'const token = "%s"\n' "$LEAK_ONE" > "$r/app.js"; commit "$r" "direct push"
+expect "notify: protected-branch leak still exits 1" 1 "$r" push PUSH_BEFORE="$before" GITHUB_SHA="$(at "$r")"
+assert_output "notify: push message says protected branch" "on a protected branch"
+assert_output "notify: push message names the branch" "Branch: development"
+assert_output "notify: push message tells you to rotate" "Rotate or revoke"
+assert_output "notify: push message never carries the credential" "$LEAK_ONE" --absent
+
+# A broken gate and a leaked credential need opposite reactions, so they must not
+# produce the same alert.
+r="$(new_repo notify-error)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+SCAN_CONFIG="$WORK/does-not-exist.toml" \
+    expect "notify: broken gate still exits 2" 2 "$r" push \
+    PUSH_BEFORE="$(at "$r")" GITHUB_SHA="$(at "$r")"
+assert_output "notify: broken gate sets outcome=error" "outcome=error"
+assert_output "notify: broken gate message says UNSCANNED" "UNSCANNED"
+assert_output "notify: broken gate is not reported as a leak" "SECRET DETECTED" --absent
+
+r="$(new_repo notify-clean)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+echo "clean change" > "$r/app.js"; commit "$r" "feature"
+expect "notify: clean run passes" 0 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")"
+assert_output "notify: clean run sets outcome=clean" "outcome=clean"
+assert_output "notify: clean run composes no message" "message<<" --absent
 
 echo
 echo "passed: $pass   failed: $fail"

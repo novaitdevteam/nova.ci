@@ -20,6 +20,15 @@
 #   PR_NUMBER            github.event.pull_request.number       (cosmetic)
 #   PUSH_BEFORE          github.event.before
 #   GITHUB_STEP_SUMMARY  summary file to append to              (optional)
+#   GITHUB_OUTPUT        step output file                       (optional)
+#
+# Optional, only used to compose the notifier message:
+#   NOTIFY_ACTOR / NOTIFY_PR_TITLE / NOTIFY_RUN_URL / GITHUB_REF_NAME
+#
+# Emits, before exiting, so a failed run can still be reported:
+#   outcome   clean | leaks | error
+#   findings  number of findings
+#   message   ready-to-send notifier text (never contains a credential)
 #
 # Exit status: 0 clean, 1 secrets found, 2 the scan could not be trusted.
 #
@@ -29,7 +38,65 @@ GITLEAKS_BIN="${GITLEAKS_BIN:-gitleaks}"
 GITLEAKS_CONFIG="${GITLEAKS_CONFIG:?GITLEAKS_CONFIG is required}"
 LOG_FILE="${GITLEAKS_LOG_FILE:-gitleaks.log}"
 
-die() { echo "::error::secret-scan: $*"; exit 2; }
+# Composed here rather than in the workflow so the harness covers it: the message is
+# the whole point of the notifier, and a chat alert that is subtly wrong is worse than
+# none. It distinguishes a leak ("someone committed a credential, rotate it") from a
+# scan failure ("the gate is broken, this change is unscanned") — opposite reactions,
+# and an alert that cannot tell them apart is one people learn to ignore.
+#
+# It carries no credential and not even the rule IDs: the redacted detail is in the job
+# summary, behind repository access, and a chat group is a wider audience than that.
+compose() { # compose <outcome> <findings>
+  local outcome="$1" count="${2:-0}" head advice where
+  local branch="${GITHUB_REF_NAME:-?}" pr="${PR_NUMBER:-?}"
+
+  if [ "$outcome" = leaks ]; then
+    if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
+      head="⚠️ SECRET DETECTED in a pull request — ${GITHUB_REPOSITORY:-?}"
+      advice="Do not merge. The secret is in the pull request's commits, so merging buries it in
+history. Rotate the credential, then rewrite the branch (git rebase -i or
+git commit --amend, then force-push). Deleting the line in a NEW commit will not
+clear this check."
+      where="Pull request: #${pr}${NOTIFY_PR_TITLE:+ — $NOTIFY_PR_TITLE}"
+    else
+      head="🚨 SECRET DETECTED on a protected branch — ${GITHUB_REPOSITORY:-?}"
+      advice="The credential is in ${branch} history now. Rotate or revoke it at the provider
+immediately. Deleting the line is not remediation — the secret stays in history."
+      where="Branch: ${branch}"
+    fi
+    printf '%s\n\n%s\n\n%s\nBy: %s\nCommit: %s\nFindings: %s (values redacted)\n\n%s\n%s\n' \
+      "$head" "$advice" "$where" "${NOTIFY_ACTOR:-?}" "${GITHUB_SHA:0:8}" "$count" \
+      "Details (file, line, rule, fingerprint) - no plaintext values:" "${NOTIFY_RUN_URL:-?}"
+  else
+    head="🔧 secret-scan could not run — ${GITHUB_REPOSITORY:-?}"
+    advice="The scan failed before it could report a finding, so this change is UNSCANNED.
+This is not a leak alert — it is a broken gate. Open the run and fix it."
+    if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
+      where="Pull request: #${pr}"
+    else
+      where="Branch: ${branch}"
+    fi
+    printf '%s\n\n%s\n\n%s\nBy: %s\nCommit: %s\n\n%s\n' \
+      "$head" "$advice" "$where" "${NOTIFY_ACTOR:-?}" "${GITHUB_SHA:0:8}" "${NOTIFY_RUN_URL:-?}"
+  fi
+}
+
+# Written before every exit, so a failing job can still be reported.
+emit() {
+  [ -n "${GITHUB_OUTPUT:-}" ] || return 0
+  {
+    printf 'outcome=%s\nfindings=%s\n' "$1" "${2:-0}"
+    if [ "$1" != clean ]; then
+      # Heredoc-delimited: the message is multi-line and may contain a PR title with
+      # quotes. The delimiter is one no PR title will contain.
+      echo "message<<SECRET_SCAN_MSG_EOF"
+      compose "$1" "${2:-0}"
+      echo "SECRET_SCAN_MSG_EOF"
+    fi
+  } >> "$GITHUB_OUTPUT"
+}
+
+die() { emit error 0; echo "::error::secret-scan: $*"; exit 2; }
 
 # A missing or unreadable config is not a reason to fall back to the built-in rule
 # set: that would silently drop the central allowlist and NovaTalks rules.
@@ -165,10 +232,12 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 
 if [ "$findings" -gt 0 ]; then
+  emit leaks "$findings"
   cat "$LOG_FILE"
   echo "::error::secret-scan: ${findings} secret(s) detected — see the job summary for file, line, rule and fingerprint."
   exit 1
 fi
 
+emit clean 0
 echo "secret-scan: clean"
 exit 0

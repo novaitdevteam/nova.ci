@@ -93,8 +93,13 @@ section "Gitleaks invocation"
 # The install-and-scan logic lives in .github/actions/gitleaks only. A workflow that
 # calls the binary or the upstream action itself is the copy-paste that action exists
 # to prevent, and would bypass the central config and the redaction flag.
-offenders="$(grep -n 'gitleaks' .github/workflows/*.yaml \
-  | grep -v 'actions/gitleaks' \
+# Two shapes count as invoking it: running the binary (a gitleaks subcommand in a run
+# block) or using some other gitleaks action. Referencing the step - `id: gitleaks`,
+# `steps.gitleaks.outputs.*` - is not an invocation, so match the invocation shapes
+# rather than the bare word. Both greps use -E: the allowlist needs an alternation that
+# ends in `$`, and that combination did not behave the same under BRE here.
+offenders="$(grep -nE 'gitleaks +(git|dir|detect|protect|stdin)\b|uses:.*gitleaks' .github/workflows/*.yaml \
+  | grep -vE 'uses:.*/\.github/actions/gitleaks(@|$)' \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$offenders" ]; then
   echo "OK: every workflow scans through .github/actions/gitleaks"

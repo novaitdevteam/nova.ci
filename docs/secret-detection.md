@@ -131,11 +131,42 @@ Two things reduce that exposure without changing plan:
    push scan fails on the default branch straight away, so the finding surfaces within
    a minute of the merge rather than at the next audit. Rotation is the same work; it
    just starts sooner.
-2. **A notification on that failure would close most of the remaining gap** — the
-   notifier transport already exists in [`notify/action.yml`](../.github/actions/notify/action.yml).
-   It is deliberately **not** wired up yet: it needs a decision on which channel a
-   security alert goes to, and it is the compensating control for a limitation that
-   buying a Team plan removes outright. Worth doing only if the plan is not changing.
+2. **The `secret-scan notify` job tells the team.** See below.
+
+### The `secret-scan notify` job
+
+A red check nobody looks at is not a control. When `secret-scan` fails, the
+`secret-scan-notify` job sends a message to the same Telegram and Google Chat channels
+the build notifier uses, through [`notify/action.yml`](../.github/actions/notify/action.yml)
+(`TG_NOTIFICATION_BOT_TOKEN`, `TG_NOTIFICATION_BOT_ID`, `GC_NOTIFICATION_WEBHOOK`, all
+via `secrets: inherit`; each channel is skipped when its secret is empty).
+
+It distinguishes three cases, because they need opposite reactions and an alert that
+cannot tell them apart is one people learn to ignore:
+
+| Situation | Message |
+| --- | --- |
+| secret in a pull request | `⚠️ SECRET DETECTED in a pull request` — do not merge; rotate, then rewrite the branch |
+| secret on a protected branch | `🚨 SECRET DETECTED on a protected branch` — it is in history now, rotate at the provider immediately |
+| the scan itself failed | `🔧 secret-scan could not run` — this change is **UNSCANNED**; a broken gate, not a leak |
+
+The message carries repository, branch or pull request, author, commit, finding count
+and a link to the run. It carries **no credential and not even the rule IDs** — the
+redacted detail stays in the job summary, behind repository access, because a chat group
+is a wider audience than the repository.
+
+The text is composed in [`scan.sh`](../.github/actions/gitleaks/scan.sh), not in the
+workflow, so [`test-secret-scan.sh`](../scripts/test-secret-scan.sh) covers it: a chat
+alert that is subtly wrong is worse than no alert. If the job dies before `scan.sh` runs
+at all (runner lost, download failed), the workflow falls back to a bare
+"did not complete" line — silence would look like a clean run.
+
+**On noise.** It fires on every failure, pull requests included, which is the literal
+reading of "tell people when something is wrong". A pull request with a stubborn false
+positive will therefore alert on every push until it is allowlisted — that is the
+intended pressure to allowlist it properly rather than ignore a red check. To narrow it
+to protected-branch pushes only (the case where nothing else stops the merge), add
+`&& github.event_name == 'push'` to the job's `if:`.
 
 Note that the free plan also cannot restrict who pushes directly to a default branch,
 which is a broader hole than this check — direct pushes bypass pull requests entirely,

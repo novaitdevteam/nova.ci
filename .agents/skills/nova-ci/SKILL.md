@@ -204,6 +204,14 @@ Preserve these behaviors:
   upload (it would need `security-events: write`) and no report artifact: the redacted
   job summary already carries repository, file, line, rule ID, commit and fingerprint.
 - Keep `permissions: contents: read`.
+- `secret-scan-notify` (`needs: [secret-scan]`, runs only on `failure`) is the
+  compensating control for the missing merge block. The message text is composed in
+  `scan.sh`, not in the workflow, so the harness covers it. It must stay free of
+  credentials **and rule IDs** (a chat group is wider than the repository), must keep
+  the three-way split between a pull-request leak, a protected-branch leak and a failed
+  scan, and must keep the workflow-level fallback message for a job that dies before
+  `scan.sh` runs — silence looks like a clean run. Route it through
+  `.github/actions/notify`, Docker-free, like every other notifier.
 - The central config never needs fetching: using an action from another repository
   makes GitHub check out that whole repository next to it, so
   `security/gitleaks/gitleaks.toml` is on disk at the same nova.ci ref as the action.

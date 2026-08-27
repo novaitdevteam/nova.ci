@@ -57,6 +57,10 @@ jobs:
     # else, and a leak-detection job is the last place to hold a write token.
     permissions:
       contents: read
+    # Outputs survive the job failing, which is the only case the notifier cares about.
+    outputs:
+      outcome: ${{ steps.gitleaks.outputs.outcome }}
+      message: ${{ steps.gitleaks.outputs.message }}
     steps:
       # fetch-depth: 0 because the scan needs the base commit and the pull request's
       # own commits in the clone. scan.sh fails closed if a SHA is missing rather
@@ -69,7 +73,35 @@ jobs:
           fetch-depth: 0
 
       - name: Gitleaks
+        id: gitleaks
         uses: novaitdevteam/nova.ci/.github/actions/gitleaks@main
+
+  # Compensating control for the free plan, where a red check cannot actually block a
+  # merge (docs/secret-detection.md#what-we-lose-without-enforcement). If nothing stops
+  # the credential from landing, the least we can do is make sure a human hears about it
+  # within the minute instead of at the next audit.
+  #
+  # The message is composed in scan.sh, not here, so scripts/test-secret-scan.sh covers
+  # it — a chat alert that is subtly wrong is worse than no alert. Docker-free and routed
+  # through .github/actions/notify like every other notifier here; validate.sh fails on a
+  # workflow that reaches Telegram or Google Chat itself.
+  secret-scan-notify:
+    name: secret-scan notify
+    needs: [secret-scan]
+    if: ${{ always() && needs.secret-scan.result == 'failure' }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Notify
+        uses: novaitdevteam/nova.ci/.github/actions/notify@main
+        with:
+          # Falls back to a bare line if the job died before scan.sh could compose one
+          # (runner lost, download failed) — silence would look like a clean run.
+          message: ${{ needs.secret-scan.outputs.message || format('🔧 secret-scan did not complete on {0} — this change is UNSCANNED. {1}/{0}/actions/runs/{2}', github.repository, github.server_url, github.run_id) }}
+          telegram_token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}
 
   call-external-on-push-tags:
     name: Call Builder On Push Tags
