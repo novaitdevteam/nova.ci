@@ -55,7 +55,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Tags containing `full-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: both`.
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget, botflow assets, and Playwright tests.
-- The inline `secret-scan` job runs on `pull_request` (including drafts, unlike the build routes) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 12 repositories on the NC2-2742 list. It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
+- The inline `secret-scan` job runs on `pull_request` (including drafts, unlike the build routes) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 11 repositories on the NC2-2742 list. It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
 
@@ -216,25 +216,32 @@ Preserve these behaviors:
   makes GitHub check out that whole repository next to it, so
   `security/gitleaks/gitleaks.toml` is on disk at the same nova.ci ref as the action.
   Do not add a second checkout or a `curl` for it.
-- Keep `security/gitleaks/gitleaks.toml` free of **path** exclusions (`tests/**`,
-  `config/**`). Exceptions are per finding: a `.gitleaksignore` fingerprint in the
-  product repository, or an inline `gitleaks:allow` comment. There must be no workflow
-  input that turns the scanner off.
+- `security/gitleaks/gitleaks.toml` carries exactly one path-scoped allowlist, scoped
+  by `targetRules = ["generic-api-key"]` to the heuristic entropy rule in test-fixture
+  and docs paths. The ~170 provider-specific rules still apply there at full strength;
+  `scripts/test-secret-scan.sh` asserts that a `github-pat` in a `.spec.ts` still
+  fails. Never drop `targetRules` and never widen it to a second rule - that is the
+  blanket `ignore tests/**` that hides real credentials. Any other exception is per
+  finding: a `.gitleaksignore` fingerprint in the product repository, or an inline
+  `gitleaks:allow` comment. There must be no workflow input that turns the scanner
+  off.
 - Deleting a secret in a follow-up commit is deliberately **not** remediation — it is
   still in the commits the PR would merge. The fix is rotate, then rewrite the branch.
 - Changing `scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the
   same change; `validate.sh` also fails if any workflow invokes Gitleaks directly.
 
-Repositories covered (12, all reached through their existing caller workflow, no
+Repositories covered (11, all reached through their existing caller workflow, no
 product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
-`nova.botflow`, `novatalks.dialer`, `novatalks.tests`, `novatalks.chatwidget`,
-`novatalks.geoip-api`, `novatalks.uspacy.connector`, and the telegram, whatsapp and
-signal chatsconnectors. `nova.ci` scans itself via `ci-self-validate.yaml`.
+`nova.botflow`, `novatalks.dialer`, `novatalks.chatwidget`, `novatalks.geoip-api`,
+`novatalks.uspacy.connector`, and the telegram, whatsapp and signal chatsconnectors.
+`nova.ci` scans itself via `ci-self-validate.yaml`.
 
-Out of scope by decision on NC2-2742, do not add without a request:
+Out of scope by decision on NC2-2742, do not add without a request: `novatalks.tests`,
 `nova.chatsconnector.genesys.cloud.premium.wizard.engine` (deprecated),
 `nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`. The last
 three also have no `ci-build-trigger.yaml`, so no event of theirs reaches the switcher.
+Excluded repositories get no CI coverage at all - `scripts/gitleaks-baseline.sh` is
+their only cover and has to be pointed at them by hand.
 
 Enforcement is blocked by the GitHub plan, not by CI. The org is on **free**, where
 rulesets are plan-gated for private repositories — verified: the same token gets

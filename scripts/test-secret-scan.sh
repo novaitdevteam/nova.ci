@@ -72,6 +72,14 @@ B2='Zz1Yy2Xx3Ww4Vv5Uu6Tt7Ss8Rr9Qq0PpOoNn'   # 36 chars, same as B1: github-pat i
 LEAK_ONE="${P}${B1}"
 LEAK_TWO="${P}${B2}"
 
+# generic-api-key needs a keyword next to a high-entropy value, so these halves live on
+# their own lines, away from the word "apiKey". Spelling the value out in full on one line
+# turns nova.ci's own secret-scan red - the self-scan assertion at the end of this file is
+# what notices.
+H1='8f4c2e9a1b7d'
+H2='3f6e5c0a9b8d7e6f5a4c'
+FAKE_ENTROPY="${H1}${H2}"
+
 # --- fixture builder -------------------------------------------------------------
 new_repo() {
     local dir="$WORK/$1"
@@ -299,6 +307,41 @@ echo "hello" > "$r/app.js"; commit "$r" "base"
 SCAN_CONFIG="$WORK/does-not-exist.toml" \
     expect "missing central config fails closed, no silent default rules" 2 "$r" push \
     PUSH_BEFORE="$(at "$r")" GITHUB_SHA="$(at "$r")"
+
+echo
+echo "=== central allowlist scenarios ==="
+# The config carries exactly one path-scoped allowlist, and it is scoped to the
+# heuristic generic-api-key rule. These four assertions ARE the safety argument: if a
+# future edit drops targetRules or widens the paths, a real credential in a test file
+# stops failing and this goes red.
+
+r="$(new_repo allow-fixture-generic)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+mkdir -p "$r/src"
+# High-entropy invented value, the shape a test fixture has.
+printf 'const apiKey = "%s"\n' "$FAKE_ENTROPY" > "$r/src/thing.spec.ts"
+commit "$r" "add a spec with an invented token"
+expect "allowlist: invented token in a .spec.ts passes" 0 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")"
+
+# THE safety property: relaxing the heuristic rule must not relax the provider rules.
+r="$(new_repo allow-fixture-real-provider)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+mkdir -p "$r/src"
+printf 'const gh = "%s"\n' "$LEAK_ONE" > "$r/src/thing.spec.ts"
+commit "$r" "add a spec with a real-format github token"
+expect "allowlist: provider-rule hit in a .spec.ts STILL fails" 1 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")"
+assert_summary "allowlist: it fails on the provider rule, not the heuristic" "github-pat"
+
+# The allowlist must not leak out of test paths into product code.
+r="$(new_repo allow-product-code)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+mkdir -p "$r/src"
+printf 'const apiKey = "%s"\n' "$FAKE_ENTROPY" > "$r/src/thing.ts"
+commit "$r" "same invented token, but in product code"
+expect "allowlist: same token in product code still fails" 1 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")"
 
 echo
 echo "=== notifier message scenarios ==="

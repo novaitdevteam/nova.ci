@@ -49,7 +49,7 @@ action. No second checkout, no `curl`, and no way for the two to drift apart.
 Wired through the switcher — **no change needed in these repositories**:
 
 `novatalks.core` · `novatalks.ui` · `novatalks.ui-lite` · `nova.botflow` ·
-`novatalks.dialer` · `novatalks.tests` · `novatalks.chatwidget` · `novatalks.geoip-api` ·
+`novatalks.dialer` · `novatalks.chatwidget` · `novatalks.geoip-api` ·
 `novatalks.uspacy.connector` · `nova.chatsconnector.telegram-client-api` ·
 `nova.chatsconnector.whatsapp-client-api` · `nova.chatsconnector.signal-client-api`
 
@@ -59,13 +59,16 @@ Wired through the switcher — **no change needed in these repositories**:
 
 | Repository | Why |
 | --- | --- |
+| `novatalks.tests` | test automation; also has no notifier secrets configured |
 | `nova.chatsconnector.genesys.cloud.premium.wizard.engine` | deprecated |
 | `nova.ai.marketplace` | out of scope (also has no caller workflow) |
 | `novatalks.charts` | out of scope (also has no caller workflow) |
 | `novatalks.grafana.connector` | out of scope (also has no caller workflow) |
 
-The last three have no `.github/workflows/ci-build-trigger.yaml`, so no event of theirs
-would reach this switcher even if they were listed. Bringing one in means adding the
+An excluded repository gets **no CI coverage at all** — the
+[baseline audit](#one-time-baseline-audit) is its only cover, and it has to be pointed
+at it by hand. The last three have no `.github/workflows/ci-build-trigger.yaml`, so no
+event of theirs would reach this switcher even if they were listed. Bringing one in means adding the
 caller workflow from [Quick start](quick-start.md) **in that repository**, then adding
 its name to the job's list here.
 
@@ -140,6 +143,14 @@ A red check nobody looks at is not a control. When `secret-scan` fails, the
 the build notifier uses, through [`notify/action.yml`](../.github/actions/notify/action.yml)
 (`TG_NOTIFICATION_BOT_TOKEN`, `TG_NOTIFICATION_BOT_ID`, `GC_NOTIFICATION_WEBHOOK`, all
 via `secrets: inherit`; each channel is skipped when its secret is empty).
+
+> [!NOTE]
+> These are configured **per repository** — the organization has no Actions secrets at
+> org level, so there is no inherited fallback. As audited for NC2-2742, all covered
+> repositories carry all three except `nova.chatsconnector.signal-client-api`, which has
+> the Telegram pair but no `GC_NOTIFICATION_WEBHOOK` — so its alerts reach Telegram
+> only, silently. `notify/action.yml` skips an unconfigured channel by design; it does
+> not warn.
 
 It distinguishes three cases, because they need opposite reactions and an alert that
 cannot tell them apart is one people learn to ignore:
@@ -217,9 +228,31 @@ with `--redact`, which blanks the value in stdout and in every report file.
 3. **A rule-scoped allowlist** in [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml)
    — only for a pattern that is provably never a secret in *any* repository.
 
-There is no input that turns the scanner off. `security/gitleaks/gitleaks.toml`
-carries **no path exclusions** on purpose: a broad `tests/**` or `config/**` exclusion
-is exactly where a working token gets pasted "just to check something". A false
+There is no input that turns the scanner off.
+
+`security/gitleaks/gitleaks.toml` carries exactly **one** path-scoped allowlist, and
+the way it is scoped is the point:
+
+```toml
+[[allowlists]]
+targetRules = ["generic-api-key"]     # the heuristic entropy rule, and only it
+paths = ['''\.spec\.[jt]sx?$''', '''(^|/)tests?/''', '''\.md$''', ...]
+```
+
+The baseline scan found 171 unique `generic-api-key` sites across the product
+repositories, and in `novatalks.core` 91 of 105 sat in `.spec` / `.stub` / `test` /
+`docs` files — invented tokens in fixtures, added routinely. Without this, the gate
+would fail a large share of pull requests there on made-up data, and a check that cries
+wolf is a check people route around.
+
+What it does **not** relax: all ~170 provider-specific rules (`github-pat`,
+`gcp-api-key`, `aws-*`, `stripe-*`, `mailgun-*`, `private-key`, …) still apply in those
+files at full strength. A `github-pat`-shaped token in a `.spec.ts` still fails; only a
+random high-entropy string stops failing. `test-secret-scan.sh` asserts exactly that,
+so the property cannot be lost silently.
+
+Anything wider is off the table. A blanket `tests/**` or `config/**` exclusion is
+exactly where a working token gets pasted "just to check something", and a false
 positive is cheaper to allowlist per finding than a leaked credential is to rotate.
 
 ## One-time baseline audit
