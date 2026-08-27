@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="448" viewBox="0 0 1200 448"
+     role="img" aria-labelledby="tsTitle tsDesc">
+  <title id="tsTitle">The unit build gate and the three test workflow modes</title>
+  <desc id="tsDesc">In the build workflow the linter runs first and the unit-test job follows on the same runner; both are advisory. In the test workflow a trigger tag selects test_mode: unit, integration or both. Unit runs without services, integration runs against postgres and redis, and both runs the suites sequentially on one runner.</desc>
+
+  <rect width="1200" height="448" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">TESTS</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">two places tests run</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <rect x="40" y="80" width="330" height="308" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
+    <text x="64" y="114" font-size="18" letter-spacing="1.4" fill="#1F93FF">BUILD GATE — every event</text>
+
+    <rect x="64" y="138" width="282" height="78" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="88" y="172" font-size="21" fill="#F4F6F8">linter</text>
+    <text x="88" y="200" font-size="18" fill="#8B96A2">advisory</text>
+
+    <path d="M205 216 L 205 236" fill="none" stroke="#2A3138" stroke-width="2"/>
+    <path d="M205 242 l -6 -10 h 12 z" fill="#2A3138"/>
+
+    <rect x="64" y="242" width="282" height="78" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="88" y="276" font-size="21" fill="#F4F6F8">unit-test</text>
+    <text x="88" y="304" font-size="18" fill="#8B96A2">advisory, same runner</text>
+
+    <text x="64" y="348" font-size="18" fill="#6E7A87">no plan for the repo →</text>
+    <text x="64" y="372" font-size="18" fill="#9AA6B2">reported n/a, never as passed</text>
+
+    <rect x="402" y="80" width="758" height="308" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
+    <text x="426" y="114" font-size="18" letter-spacing="1.4" fill="#6E7A87">TEST WORKFLOW — test_mode, selected by the trigger tag</text>
+
+    <rect x="426" y="132" width="710" height="76" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="450" y="164" font-size="21" fill="#F4F6F8">unit</text>
+    <text x="560" y="164" font-size="19" fill="#1F93FF">tag unit-test</text>
+    <text x="450" y="192" font-size="18" fill="#8B96A2">npm run test:unit — no database, no Redis — medium cx43</text>
+
+    <rect x="426" y="220" width="710" height="76" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="450" y="252" font-size="21" fill="#F4F6F8">integration</text>
+    <text x="620" y="252" font-size="19" fill="#1F93FF">tag int-test — default</text>
+    <text x="450" y="280" font-size="18" fill="#8B96A2">npm run test:integration — postgres + redis:8 — large cx53</text>
+
+    <rect x="426" y="308" width="710" height="76" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="450" y="340" font-size="21" fill="#F4F6F8">both</text>
+    <text x="560" y="340" font-size="19" fill="#1F93FF">tag full-test</text>
+    <text x="450" y="368" font-size="18" fill="#8B96A2">unit, then integration — sequential, one runner — large cx53</text>
+  </g>
+
+  <text x="40" y="424" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">integration-tests needs [unit-tests] with !cancelled() — it runs even when unit failed or was skipped</text>
+</svg>

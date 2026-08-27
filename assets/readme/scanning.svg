@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="400" viewBox="0 0 1200 400"
+     role="img" aria-labelledby="scTitle scDesc">
+  <title id="scTitle">How the Trivy scan runs and where the report goes</title>
+  <desc id="scDesc">The scan runs automatically when the source branch is main, master or development, and on demand for a tag starting with scan. It pulls the exact image the build pushed, runs three Trivy passes, assembles one report file, and publishes it as a release asset, an artifact and a job summary. Policy is warn-only by default.</desc>
+
+  <rect width="1200" height="400" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">CONTAINER SCANNING</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">trivy-action@v0.36.0 · needs [build-image]</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <text x="40" y="84" font-size="18" letter-spacing="1.6" fill="#6E7A87">WHEN IT RUNS</text>
+
+    <g id="sc-when">
+      <rect x="40" y="98" width="430" height="48" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="64" y="128" font-size="19" fill="#F4F6F8">branch main / master / development</text>
+
+      <rect x="490" y="98" width="290" height="48" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="514" y="128" font-size="19" fill="#F4F6F8">or a scan* trigger tag</text>
+
+      <text x="806" y="128" font-size="18" fill="#6E7A87">otherwise: built, not scanned</text>
+    </g>
+
+    <g id="sc-flow-1">
+      <rect x="40" y="176" width="250" height="112" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="64" y="212" font-size="20" fill="#F4F6F8">pull the image</text>
+      <text x="64" y="244" font-size="18" fill="#8B96A2">the exact GHCR tag</text>
+      <text x="64" y="270" font-size="18" fill="#8B96A2">build-image pushed</text>
+    </g>
+
+    <g id="sc-flow-2">
+      <rect x="326" y="176" width="250" height="112" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="350" y="212" font-size="20" fill="#F4F6F8">three passes</text>
+      <text x="350" y="244" font-size="18" fill="#8B96A2">os · library · json</text>
+      <text x="350" y="270" font-size="18" fill="#8B96A2">one Trivy install</text>
+    </g>
+
+    <g id="sc-flow-3">
+      <rect x="612" y="176" width="250" height="112" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="636" y="212" font-size="20" fill="#F4F6F8">one .report</text>
+      <text x="636" y="244" font-size="18" fill="#8B96A2">=== OS ===</text>
+      <text x="636" y="270" font-size="18" fill="#8B96A2">=== Node.js ===</text>
+    </g>
+
+    <g id="sc-flow-4">
+      <rect x="898" y="176" width="262" height="112" rx="12" fill="#14181D" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="922" y="212" font-size="20" fill="#F4F6F8">published</text>
+      <text x="922" y="244" font-size="18" fill="#8B96A2">prerelease asset</text>
+      <text x="922" y="270" font-size="18" fill="#8B96A2">artifact · summary</text>
+    </g>
+
+    <text x="40" y="339" font-size="18" letter-spacing="1.6" fill="#6E7A87">POLICY</text>
+
+    <g id="sc-policy">
+      <rect x="160" y="310" width="290" height="46" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="184" y="339" font-size="19" fill="#F4F6F8">warn-only (default)</text>
+
+      <rect x="470" y="310" width="270" height="46" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="494" y="339" font-size="19" fill="#9AA6B2">fail-on-critical</text>
+
+      <rect x="760" y="310" width="230" height="46" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="784" y="339" font-size="19" fill="#9AA6B2">fail-on-high</text>
+    </g>
+  </g>
+
+  <g id="sc-conns">
+    <g fill="none" stroke="#2A3138" stroke-width="2">
+      <path d="M290 232 L 316 232"/>
+      <path d="M576 232 L 602 232"/>
+      <path d="M862 232 L 888 232"/>
+    </g>
+    <g fill="#2A3138">
+      <path d="M326 232 l -10 -6 v 12 z"/>
+      <path d="M612 232 l -10 -6 v 12 z"/>
+    </g>
+    <path d="M898 232 l -10 -6 v 12 z" fill="#1F93FF"/>
+  </g>
+
+  <text x="40" y="384" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">the image is pushed before the scan — a failing scan signals red, it never unpublishes the image</text>
+</svg>

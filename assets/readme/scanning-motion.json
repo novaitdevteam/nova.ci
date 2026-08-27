@@ -1,0 +1,15 @@
+{
+  "width": 1200, "fps": 30, "duration": 5.4, "colors": 256, "dither": "none",
+  "clip_to_base_alpha": true, "max_size_mb": 2.0,
+  "reveals": [
+    { "id": "sc-conns", "axis": "x", "start": 1.55, "end": 3.30, "exit": {"start": 4.85, "end": 5.35} }
+  ],
+  "layers": [
+    { "id": "sc-when",   "enter": {"start": 0.25, "end": 1.00, "from": [0, -14]}, "exit": {"start": 4.85, "end": 5.35, "to": [0, -8]} },
+    { "id": "sc-flow-1", "enter": {"start": 0.90, "end": 1.65, "from": [-28, 0]}, "exit": {"start": 4.85, "end": 5.35, "to": [16, 0]} },
+    { "id": "sc-flow-2", "enter": {"start": 1.50, "end": 2.25, "from": [-28, 0]}, "exit": {"start": 4.85, "end": 5.35, "to": [16, 0]} },
+    { "id": "sc-flow-3", "enter": {"start": 2.10, "end": 2.85, "from": [-28, 0]}, "exit": {"start": 4.85, "end": 5.35, "to": [16, 0]} },
+    { "id": "sc-flow-4", "enter": {"start": 2.70, "end": 3.45, "from": [-28, 0]}, "exit": {"start": 4.85, "end": 5.35, "to": [16, 0]} },
+    { "id": "sc-policy", "enter": {"start": 3.30, "end": 4.05, "from": [0, 14]},  "exit": {"start": 4.85, "end": 5.35, "to": [0, 8]} }
+  ]
+}
