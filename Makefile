@@ -11,4 +11,5 @@ help: ## Show available targets
 
 .PHONY: claude
 claude: ## Launch Claude Code with .env exported (Outline + Jira MCP)
+	@test -f .env || { echo "no .env — copy .env.example and fill it in"; exit 1; }
 	@set -a; . ./.env; set +a; claude

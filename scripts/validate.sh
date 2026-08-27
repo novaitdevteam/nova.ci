@@ -66,7 +66,7 @@ section "Notifier transport"
 # workflow that reaches either API itself is the copy-paste that action replaced.
 # Passing the webhook to the action (gchat_webhook:) is the supported form; commented
 # out code is not a live call.
-offenders="$(grep -n 'api\.telegram\.org\|GC_NOTIFICATION_WEBHOOK' .github/workflows/*.yaml \
+offenders="$(grep -n 'api\.telegram\.org\|chat\.googleapis\.com\|telegram-action\|GC_NOTIFICATION_WEBHOOK' .github/workflows/*.yaml \
   | grep -v 'gchat_webhook:' \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$offenders" ]; then

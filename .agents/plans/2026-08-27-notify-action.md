@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub Actions composite actions, `actions/github-script@v8`, Node.js `fetch`, bash + `jq` for the validation harness.
 
-**Spec:** `docs/superpowers/specs/2026-08-27-notify-action-design.md`
+**Spec:** `.agents/specs/2026-08-27-notify-action-design.md`
 
 ## Global Constraints
 
