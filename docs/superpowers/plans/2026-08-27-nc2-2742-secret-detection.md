@@ -248,7 +248,7 @@ backslash, then BRE-vs-ERE alternation. Both greps now use `-E`.
 
 ### Task 4: Calibrate the ruleset against real history
 
-**Commit:** `2e28d80`
+**Commit:** `48fd421`
 
 **Files:**
 - Modify: `security/gitleaks/gitleaks.toml` (the one path-scoped allowlist)
@@ -321,7 +321,7 @@ Expected: 48/48.
 
 ### Task 5: Correct the allowlist guidance and verify branch coverage
 
-**Commit:** `6dbc7b1`
+**Commit:** `6985376`
 
 **Files:**
 - Modify: `docs/secret-detection.md`, `scripts/test-secret-scan.sh`
@@ -369,7 +369,7 @@ Expected: 49/49.
 
 ### Task 6: Protect the `default_branch` clause from a future "simplification"
 
-**Commit:** `6b2d608`
+**Commit:** `c5b529c`
 
 **Files:**
 - Modify: `docs/secret-detection.md`, `CLAUDE.md`, both `SKILL.md` copies
@@ -387,6 +387,74 @@ the next repository with a non-standard default. The failure mode is a scan that
 runs** rather than one that errors — the worst kind for a security gate.
 
 - [x] **Step 3: Run the harness and commit**
+
+---
+
+### Task 7: The scanner catches its own harness
+
+**Files:**
+- Modify: `scripts/test-secret-scan.sh` (halves convention extended, self-scan assertion)
+- Modify: `docs/superpowers/plans/2026-08-27-nc2-2742-secret-detection.md` (this task, and the SHAs the rewrite moved)
+
+- [x] **Step 1: Open the pull request and read the result**
+
+`secret-scan` on PR #17 — nova.ci scanning itself — went **red in 5 seconds**:
+
+```
+RuleID:      generic-api-key
+File:        scripts/test-secret-scan.sh
+Line:        315
+```
+
+Task 4 had added `const apiKey = "<32 hex chars>"` spelled out in full, on one line, next
+to the keyword. The harness header says the opposite in as many words: *"fixture credentials
+are assembled from halves at runtime, so no line of this file matches a gitleaks rule."*
+Written in Task 1, broken in Task 4, and not re-checked because the self-scan was run once
+in Task 1 and never again.
+
+Redaction held: the log shows `apiKey = "REDACTED"`.
+
+- [x] **Step 2: Fix the fixture the way the file already prescribed**
+
+```bash
+H1='8f4c2e9a1b7d'
+H2='<remaining hex>'
+FAKE_ENTROPY="${H1}${H2}"
+```
+
+- [x] **Step 3: Recognise that fixing the working tree is not enough**
+
+The gate reads the **commits**, so the check stayed red: the value was still in the commit
+that introduced it. This is exactly the Case 3 semantics from D1, applied to its own author.
+
+The finding classifies as **test fixture**, so the documented remedy is an allowlist. But a
+`.gitleaksignore` keyed to branch commit SHAs is dead the moment the PR merges — the same
+"dead config" argument used to decline a pre-emptive ignore for `novatalks.ui-lite` in
+Task 5. Consistency picked the other option: rewrite the branch.
+
+- [x] **Step 4: Rewrite the branch with an idempotent fix applied per commit**
+
+```bash
+git rebase main --exec 'python3 /tmp/fix-fixture.py && (git diff --quiet || (git add -A && git commit --amend --no-edit))'
+git log -S'<the literal>' --oneline main..HEAD   # empty
+```
+
+The first three commits kept their SHAs; the last four moved, and the SHAs quoted in this
+plan were updated to match. A plan that records SHAs has to be re-synced after any rewrite —
+worth knowing before choosing to record them.
+
+- [x] **Step 5: Add the assertion that would have caught it before the push**
+
+A final harness scenario runs `scan.sh` over `main..HEAD` — the same range and the same
+script `ci-self-validate.yaml` uses — so nova.ci tripping its own scanner now fails
+`validate.sh` locally instead of a red PR. Deliberately the commit range and not a tree
+scan: `gitleaks dir` ignores `.gitignore` and would fail on any developer's untracked local
+`.env`, which was confirmed before choosing.
+
+Run: `./scripts/test-secret-scan.sh`
+Expected: 50/50, ending in `self-scan: nova.ci's own commits are clean`.
+
+- [x] **Step 6: Commit and force-push**
 
 ---
 

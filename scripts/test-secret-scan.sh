@@ -402,5 +402,54 @@ assert_output "notify: clean run sets outcome=clean" "outcome=clean"
 assert_output "notify: clean run composes no message" "message<<" --absent
 
 echo
+echo "=== self-scan: nova.ci's own commits ==="
+# Mirrors exactly what ci-self-validate.yaml runs on a pull request, so a fixture in THIS
+# file that trips the scanner is caught before the push rather than by a red PR. That is
+# not hypothetical: the first version of the allowlist scenarios spelled a high-entropy
+# value out in full next to the word "apiKey" and turned nova.ci's own secret-scan red.
+# The halves convention near the top of this file prevents it; this notices when someone
+# forgets.
+#
+# The commit range, not the working tree: `gitleaks dir` does not honour .gitignore, so a
+# tree scan would fail on any developer's untracked local .env.
+base=""
+for ref in origin/main main; do
+    base="$(git -C "$ROOT" merge-base "$ref" HEAD 2>/dev/null)" && [ -n "$base" ] && break
+    base=""
+done
+head_sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+
+if [ -z "$base" ] || [ -z "$head_sha" ]; then
+    echo "skip: cannot resolve a range against main"
+elif [ "$base" = "$head_sha" ]; then
+    echo "skip: no commits ahead of main"
+else
+    set +e
+    self_out="$(cd "$ROOT" && env \
+        GITLEAKS_BIN="$GITLEAKS_BIN" \
+        GITLEAKS_CONFIG="$CONFIG" \
+        GITLEAKS_VERSION="$VERSION" \
+        GITLEAKS_LOG_FILE="$WORK/self.log" \
+        GITHUB_EVENT_NAME=pull_request \
+        GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+        GITHUB_SHA="$head_sha" \
+        PR_BASE_SHA="$base" PR_HEAD_SHA="$head_sha" PR_NUMBER=0 \
+        bash "$SCAN" 2>&1)"
+    self_rc=$?
+    set -e
+    if [ "$self_rc" -eq 0 ]; then
+        printf 'ok   %-56s\n' "self-scan: nova.ci's own commits are clean"
+        pass=$((pass + 1))
+    else
+        printf '%s\n' "$self_out" | sed 's/^/       | /'
+        printf 'FAIL %-56s exit=%s\n' "self-scan: nova.ci's own commits" "$self_rc"
+        echo "       nova.ci trips its own scanner - ci-self-validate.yaml will go red."
+        echo "       A fixture in this file? Split the value - see H1/H2 near the top."
+        echo "       Already committed? A later fix does not clear it; rewrite the branch."
+        fail=$((fail + 1))
+    fi
+fi
+
+echo
 echo "passed: $pass   failed: $fail"
 [ "$fail" -eq 0 ] || exit 1

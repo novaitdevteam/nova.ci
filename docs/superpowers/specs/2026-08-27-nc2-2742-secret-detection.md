@@ -45,6 +45,22 @@ Facts established empirically against Gitleaks 8.30.1, not assumed.
 | `gitleaks:allow` in `.json` | ❌ impossible — JSON has no comments |
 | Rule-scoped allowlist: `github-pat` in a `.spec.ts` | ✅ still fails, while a high-entropy string in the same file does not |
 
+## What the tool caught in its own author
+
+The `secret-scan` job on PR #17 went red on `scripts/test-secret-scan.sh`: an allowlist
+scenario added late had spelled a 32-hex value out in full next to the keyword `apiKey`,
+violating the convention documented in that same file's header. Three things worth keeping:
+
+1. **The dogfood works.** nova.ci scanning itself found a real mistake that four rounds of
+   local validation had missed, because the self-scan was run once early and not repeated.
+2. **Fixing the working tree did not clear the check** — the value was still in the commit
+   that introduced it. D1's semantics, applied to their author. The branch was rewritten
+   rather than allowlisted, because a `.gitleaksignore` keyed to branch SHAs is dead after
+   merge, which is the argument already used to decline a pre-emptive ignore for
+   `novatalks.ui-lite`.
+3. **The gap was process, not design**, so the fix is an assertion: the harness now runs
+   `scan.sh` over `main..HEAD` on every `validate.sh`, catching this class before a push.
+
 ## Constraints discovered
 
 1. **Enforcement is blocked by the GitHub plan, not by CI.** The org is on **free**, where
