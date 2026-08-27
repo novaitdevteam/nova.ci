@@ -81,12 +81,21 @@ than a hardcoded list. As verified for NC2-2742:
 | `development` | 4 — `novatalks.core`, `novatalks.ui`, `nova.botflow`, whatsapp connector |
 | `master` | 3 — `novatalks.dialer`, `novatalks.chatwidget`, telegram connector |
 | `main` | 3 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector` |
-| `NC2-1992_docker` | 1 — `nova.chatsconnector.signal-client-api` |
+| `NC2-1992_docker` | 1 — `nova.chatsconnector.signal-client-api`, **temporary**: unifies to `development`/`master` once its regression run finishes |
 
 `master` exists in all 11, `development` in 9 (not in `novatalks.geoip-api` or the signal
 connector), so both of the branches the team actually works on are covered everywhere. The
 `default_branch` clause is what covers the signal connector, whose default is a feature
-branch — a hardcoded list would silently never fire there.
+branch — a hardcoded list would silently never fire there, and it needs no edit when that
+repository unifies its branches.
+
+> [!IMPORTANT]
+> **Keep the `default_branch` clause even once every repository looks conventional.** It
+> is not a workaround for one odd repository: it is what makes the gate follow whatever a
+> repository actually treats as its trunk. Simplifying the condition down to
+> `main`/`master`/`development` would silently drop coverage for the next repository that
+> defaults to something else, and the failure mode is a scan that never runs rather than a
+> scan that errors.
 
 ## Making it a required check
 

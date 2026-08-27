@@ -55,7 +55,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Tags containing `full-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: both`.
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget, botflow assets, and Playwright tests.
-- The inline `secret-scan` job runs on `pull_request` (including drafts, unlike the build routes) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 11 repositories on the NC2-2742 list. It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
+- The inline `secret-scan` job runs on `pull_request` (including drafts, unlike the build routes) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 11 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
 
