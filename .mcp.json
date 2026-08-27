@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "outline": {
+      "type": "http",
+      "url": "${outline_host}/mcp",
+      "headers": { "Authorization": "Bearer ${outline_token}" }
+    },
+    "jira": {
+      "type": "http",
+      "url": "${jira_mcp}",
+      "headers": { "Authorization": "Bearer ${jira_token}" }
+    }
+  }
+}
