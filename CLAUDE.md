@@ -91,7 +91,10 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 - Prefer small, targeted workflow edits over broad refactors.
 - Changing `ci-build-create-runner.sh` means updating `scripts/test-create-runner.sh` in the same change. A decision branch without a scenario is untested.
 - Keep file paths in documentation relative to the repository root (`../` from inside `docs/`).
-- Assets live in `assets/readme/`. Animated pages keep the `.svg` source plus its `*-motion.json` spec next to the `.gif`; regenerate with the `beautify-github-readme` skill's `render_motion_gif.py` rather than hand-editing a GIF.
+- Assets live in `assets/readme/`. **Every page under `docs/` opens with one** — a new page needs a new asset, and `validate.sh` fails without it. Use the `beautify-github-readme` skill.
+- Static SVG is the default. A GIF only when motion explains something prose cannot; then keep the `.svg` source plus its `*-motion.json` spec next to the `.gif` and regenerate with that skill's `render_motion_gif.py` rather than hand-editing a GIF.
+- Match the house style: `1200`-unit `viewBox`, the `ui-monospace,SFMono-Regular,Menlo,monospace` stack, the existing palette (it already carries GitHub's semantic `#3FB950` / `#F85149` / `#E3862B` — do not invent new ones), and a **minimum `font-size` of 18** SVG units.
+- **Verify a new asset by rendering it, not by computing text widths.** `rsvg-convert -w 900` is GitHub's content width; also check `-w 360`. Text clipping against a panel edge does not show up in the arithmetic — it cost a rework on `secret-detection.svg`.
 
 ## Validation
 

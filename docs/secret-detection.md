@@ -1,5 +1,9 @@
 # Secret detection (Gitleaks)
 
+<p align="center">
+  <img src="../assets/readme/secret-detection.svg" width="100%" alt="pull requests are scanned from the merge base to the head and pushes from before to after; tag and feature-branch pushes are not scanned; only the commits the change adds are read, so a finding already merged never blocks a pull request; a clean range passes, a secret fails the job and sends a redacted alert" />
+</p>
+
 Every pull request and every default-branch push in a wired repository is scanned for
 credentials by [Gitleaks](https://github.com/gitleaks/gitleaks) before it can merge.
 One implementation, in this repository, for all of them — product repositories carry

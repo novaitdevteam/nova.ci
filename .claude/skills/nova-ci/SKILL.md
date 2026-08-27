@@ -279,6 +279,26 @@ Preserve these behaviors:
 - Emit a single `.report` file (`trivy-<repo>-<ref><suffix>-<sha>.report`) with `=== OS Vulnerabilities ===` and `=== Node.js Vulnerabilities ===` sections. Upload it as a workflow artifact and attach it to a GitHub prerelease tagged `TRIVY.SCAN_<release>_<ref><suffix>_<sha>` (`softprops/action-gh-release@v2`, job needs `contents: write`). Put CRITICAL/HIGH counts and the report link in the job summary.
 - `trivy_mode` policy: `warn-only` (default) always succeeds and only warns; `fail-on-critical` fails the job when CRITICAL > 0; `fail-on-high` fails when CRITICAL or HIGH > 0. The image is already built/pushed before the scan, so a failing scan signals red but does not unpublish it.
 
+## Documentation Assets
+
+Every page under `docs/` opens with a diagram from `assets/readme/`, and `validate.sh`
+fails on a page without one. A new page therefore needs a new asset — build it with the
+`beautify-github-readme` skill.
+
+- Static SVG is the default. A GIF only where motion explains something prose cannot, and
+  then the `.svg` source and its `*-motion.json` spec live next to the `.gif`; regenerate
+  with that skill's `render_motion_gif.py` instead of hand-editing the GIF.
+- Match the house style: `1200`-unit `viewBox`, the
+  `ui-monospace,SFMono-Regular,Menlo,monospace` stack, the existing palette (GitHub's
+  semantic `#3FB950` / `#F85149` / `#E3862B` are already in it — do not add new colours),
+  and a minimum `font-size` of 18 SVG units.
+- Verify by rendering, not by arithmetic: `rsvg-convert -w 900` is GitHub's content width,
+  and `-w 360` is the mobile check. Text clipping against a panel edge is invisible in a
+  width calculation and cost a rework on `secret-detection.svg`.
+- Give the diagram a job. The one on the secret detection page exists to carry the single
+  thing readers get wrong — that the scan reads the commits a change adds, not the working
+  tree.
+
 ## Documentation Sync
 
 When changing CI behavior, update all relevant agent/human documentation in the same change:

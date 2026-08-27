@@ -10,7 +10,7 @@ One harness runs every check:
 ./scripts/validate.sh   # or: make validate
 ```
 
-[`scripts/validate.sh`](../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, the [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh) and [`scan.sh`](../.github/actions/gitleaks/scan.sh) self-checks, guards that no workflow reaches the Telegram or Google Chat API directly or invokes Gitleaks itself, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
+[`scripts/validate.sh`](../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, three documentation-asset checks (every page under `docs/` opens with a diagram, every referenced asset resolves, no asset drops below `font-size` 18), the [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh) and [`scan.sh`](../.github/actions/gitleaks/scan.sh) self-checks, guards that no workflow reaches the Telegram or Google Chat API directly or invokes Gitleaks itself, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
 
 ## Runner script self-check
 
