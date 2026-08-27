@@ -14,7 +14,8 @@ Use this skill for work in `novaitdevteam/nova.ci`. The repo owns shared reusabl
 
 Primary files:
 
-- `README.md`: canonical human-facing documentation
+- `docs/`: canonical human-facing documentation, one page per topic (`docs/README.md` is the index)
+- `README.md`: landing page only — value, quick start, links into `docs/`
 - `AGENTS.md`: Codex-compatible agent instructions
 - `CLAUDE.md`: Claude Code project instructions
 - `.github/workflows/ci-build-trigger-switcher.yaml`: central dispatcher
@@ -23,7 +24,9 @@ Primary files:
 - `.github/workflows/ci-build-create-runner.sh`: runner selection helper downloaded by product repo callers
 - `.github/actions/action-cond/action.yml`: success/failure message selector used by notifier jobs
 - `.github/actions/install-docker/action.yml`: Docker prerequisite helper for Docker build jobs
-- `scripts/validate.sh`: validation harness (YAML, whitespace, skill mirror, actionlint); also `make validate`
+- `scripts/validate.sh`: validation harness (YAML, whitespace, skill mirror, create-runner self-check, actionlint); also `make validate`
+- `scripts/test-create-runner.sh`: offline scenario self-check for `ci-build-create-runner.sh` (curl stubbed); extend it when adding a decision branch
+- `.github/actions/notify/action.yml`: the only place that talks to Telegram and Google Chat
 - `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
 
 ## Workflow Model
@@ -190,12 +193,12 @@ Preserve these behaviors:
 
 When changing CI behavior, update all relevant agent/human documentation in the same change:
 
-- `README.md`
+- the relevant page under `docs/` (`README.md` only if the landing copy changes)
 - `AGENTS.md`
 - `CLAUDE.md`
 - `.agents/skills/nova-ci/SKILL.md` (and its mirror `.claude/skills/nova-ci/SKILL.md`)
 
-Keep README as the canonical broad reference. Keep this skill concise and procedural.
+Keep `docs/` as the canonical broad reference and `README.md` as a thin landing page. Keep this skill concise and procedural.
 
 ## Validation
 
@@ -212,7 +215,7 @@ The same harness runs in CI via `ci-self-validate.yaml` on pull requests and pus
 to `main`. After it passes, review diffs for the files that define behavior:
 
 ```bash
-git diff -- .github/workflows .github/actions scripts README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions scripts docs README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 ```
 
 If product repository callers were touched, verify the user explicitly requested that and check those repositories separately.

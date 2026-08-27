@@ -240,42 +240,10 @@ jobs:
             🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-apk.outputs.END_STEP_JOB_ID}}
             Repository: ${{ github.repository }}
 
-      - name: Send to Telegram
-        uses: actions/github-script@v8
-        env:
-          TELEGRAM_TO: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
-          TELEGRAM_TOKEN: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
-          TELEGRAM_MESSAGE: ${{ steps.telegram_message.outputs.value }}
+      - name: Notify
+        uses: novaitdevteam/nova.ci/.github/actions/notify@main
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const params = new URLSearchParams({
-              chat_id: process.env.TELEGRAM_TO,
-              text: process.env.TELEGRAM_MESSAGE,
-            });
-            const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
-              method: "POST",
-              headers: {"Content-Type": "application/x-www-form-urlencoded"},
-              body: params,
-            });
-            if (!response.ok) {
-              throw new Error(`Telegram sendMessage failed: ${response.status} ${await response.text()}`);
-            }
-
-      - name: Send Message To GChat
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          debug: "true"
-          script: |
-            async function webhook() {
-              const url = "${{ secrets.GC_NOTIFICATION_WEBHOOK }}"
-              const res = await fetch(url, {
-                method: "POST",
-                headers: {"Content-Type": "application/json; charset=UTF-8"},
-                body: JSON.stringify({text: `${{ steps.telegram_message.outputs.value }}`})
-              });
-              return await res.json();
-            }
-
-            webhook();
+          message: ${{ steps.telegram_message.outputs.value }}
+          telegram_token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}
