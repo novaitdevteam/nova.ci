@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="300" viewBox="0 0 1200 300"
+     role="img" aria-labelledby="qsTitle qsDesc">
+  <title id="qsTitle">Three steps to connect a repository to nova.ci</title>
+  <desc id="qsDesc">Add one thin caller workflow that calls the switcher, push a trigger tag, and shared CI runs lint, unit tests, image build, scan and notification. The trigger tag is deleted after the run.</desc>
+
+  <rect width="1200" height="300" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">QUICK START</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">one caller workflow · one tag</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <g id="qs-step-1">
+      <rect x="40" y="74" width="336" height="164" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="64" y="112" font-size="21" fill="#F4F6F8">1 · add the caller</text>
+      <text x="64" y="148" font-size="18" fill="#8B96A2">.github/workflows/</text>
+      <text x="64" y="174" font-size="18" fill="#9AA6B2">ci-build-trigger.yaml</text>
+      <text x="64" y="212" font-size="18" fill="#1F93FF">uses: …switcher.yaml@main</text>
+    </g>
+
+    <g id="qs-step-2">
+      <rect x="432" y="74" width="336" height="164" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="456" y="112" font-size="21" fill="#F4F6F8">2 · push a trigger tag</text>
+      <text x="456" y="148" font-size="18" fill="#1F93FF">git tag build-NC2-1234</text>
+      <text x="456" y="174" font-size="18" fill="#9AA6B2">git push origin build-…</text>
+      <text x="456" y="212" font-size="18" fill="#6E7A87">the tag is deleted after</text>
+    </g>
+
+    <g id="qs-step-3">
+      <rect x="824" y="74" width="336" height="164" rx="12" fill="#14181D" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="848" y="112" font-size="21" fill="#F4F6F8">3 · shared CI runs</text>
+      <text x="848" y="148" font-size="18" fill="#8B96A2">on a Hetzner runner</text>
+      <text x="848" y="174" font-size="18" fill="#9AA6B2">from novaitdevteam/nova.ci</text>
+      <text x="848" y="212" font-size="18" fill="#6E7A87">lint · unit · build · scan</text>
+    </g>
+  </g>
+
+  <g id="qs-conns">
+    <g fill="none" stroke="#2A3138" stroke-width="2">
+      <path d="M376 156 L 402 156"/>
+      <path d="M768 156 L 794 156"/>
+    </g>
+    <path d="M432 156 l -10 -6 v 12 z" fill="#2A3138"/>
+    <path d="M824 156 l -10 -6 v 12 z" fill="#1F93FF"/>
+  </g>
+
+  <text x="40" y="278" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">a non-draft pull request needs no tag — it runs lint and unit tests only, never a build</text>
+</svg>

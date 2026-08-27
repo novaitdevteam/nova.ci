@@ -8,3 +8,8 @@ validate: ## Run the full validation harness (YAML, whitespace, skill sync, acti
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
+
+.PHONY: claude
+claude: ## Launch Claude Code with .env exported (Outline + Jira MCP)
+	@test -f .env || { echo "no .env — copy .env.example and fill it in"; exit 1; }
+	@set -a; . ./.env; set +a; claude

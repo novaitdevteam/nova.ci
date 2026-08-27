@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="400" viewBox="0 0 1200 400"
+     role="img" aria-labelledby="ntTitle ntDesc">
+  <title id="ntTitle">What the build notification carries</title>
+  <desc id="ntDesc">The Telegram and Google Chat message reports the build result, the lint status, the unit test status — passed, failed, or not applicable when the repository has no unit test plan — and a Trivy line colour-coded by worst severity with CRITICAL and HIGH counts and the report link. The job summary shows a matching coloured banner. Under the default warn-only mode the build stays green.</desc>
+
+  <rect width="1200" height="400" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">NOTIFICATIONS</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">Telegram + Google Chat · github-script, no Docker</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <rect x="40" y="82" width="640" height="278" rx="14" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="64" y="116" font-size="18" fill="#6E7A87">novatalks.core · build-NC2-1234 · run #4127</text>
+    <line x1="64" y1="132" x2="656" y2="132" stroke="#1C2228" stroke-width="1.5"/>
+
+    <text x="64" y="168" font-size="21" fill="#F4F6F8">Build Status: SUCCESS</text>
+
+    <circle cx="74" cy="203" r="7" fill="#3FB950"/>
+    <text x="94" y="210" font-size="19" fill="#C9D1D9">ESLinter Check Status: passed</text>
+
+    <circle cx="74" cy="243" r="7" fill="#6E7A87"/>
+    <text x="94" y="250" font-size="19" fill="#C9D1D9">Unit Tests Status: n/a — no unit tests configured</text>
+
+    <circle cx="74" cy="283" r="7" fill="#E3862B"/>
+    <text x="94" y="290" font-size="19" fill="#C9D1D9">Trivy: HIGH found — 0 CRITICAL / 5 HIGH</text>
+
+    <text x="94" y="326" font-size="18" fill="#1F93FF">trivy-novatalks.core-main-a1b2c3d.report ↓</text>
+  </g>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <text x="716" y="112" font-size="18" letter-spacing="1.4" fill="#6E7A87">TRIVY LINE — worst severity wins</text>
+
+    <circle cx="726" cy="147" r="7" fill="#F85149"/>
+    <text x="746" y="154" font-size="19" fill="#F4F6F8">CRITICAL found</text>
+    <text x="984" y="154" font-size="18" fill="#6E7A87">CAUTION</text>
+
+    <circle cx="726" cy="187" r="7" fill="#E3862B"/>
+    <text x="746" y="194" font-size="19" fill="#F4F6F8">HIGH found</text>
+    <text x="984" y="194" font-size="18" fill="#6E7A87">WARNING</text>
+
+    <circle cx="726" cy="227" r="7" fill="#3FB950"/>
+    <text x="746" y="234" font-size="19" fill="#F4F6F8">clean</text>
+    <text x="984" y="234" font-size="18" fill="#6E7A87">NOTE</text>
+
+    <circle cx="726" cy="267" r="7" fill="#6E7A87"/>
+    <text x="746" y="274" font-size="19" fill="#9AA6B2">skipped / failed</text>
+
+    <text x="716" y="326" font-size="18" fill="#6E7A87">right column: the job summary banner</text>
+  </g>
+
+  <text x="40" y="384" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">under the default warn-only mode the build stays green — the colour is the signal, not the exit code</text>
+</svg>

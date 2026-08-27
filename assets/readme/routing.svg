@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="440" viewBox="0 0 1200 440"
+     role="img" aria-labelledby="rtTitle rtDesc">
+  <title id="rtTitle">What the switcher matches on, and what it can call</title>
+  <desc id="rtDesc">The switcher receives the original event context and matches on repository name, event name and action, ref type, ref name and commit message. It fans out to the build workflow, the test workflows, and the web and mobile publish workflows. The legacy branch-push build route is disabled.</desc>
+
+  <rect width="1200" height="440" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">ROUTING</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">ci-build-trigger-switcher.yaml</text>
+
+  <text x="40" y="82" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" letter-spacing="1.6" fill="#6E7A87">EVENT</text>
+  <text x="740" y="82" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" letter-spacing="1.6" fill="#6E7A87">CALLED WORKFLOW</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <g id="rt-events">
+      <rect x="40" y="118" width="250" height="52" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="64" y="151" font-size="20" fill="#F4F6F8">push · tag ref</text>
+
+      <rect x="40" y="196" width="250" height="52" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="64" y="229" font-size="20" fill="#9AA6B2">pull_request</text>
+
+      <rect x="40" y="274" width="250" height="52" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="64" y="307" font-size="20" fill="#9AA6B2">push · branch ref</text>
+    </g>
+
+    <g id="rt-switcher">
+      <rect x="352" y="100" width="316" height="244" rx="14" fill="#14181D" stroke="#39424B" stroke-width="1.5"/>
+      <text x="376" y="140" font-size="21" fill="#F4F6F8">switcher matches on</text>
+      <text x="376" y="180" font-size="18" fill="#8B96A2">repository name</text>
+      <text x="376" y="210" font-size="18" fill="#8B96A2">event name + action</text>
+      <text x="376" y="240" font-size="18" fill="#8B96A2">ref type · ref name</text>
+      <text x="376" y="270" font-size="18" fill="#8B96A2">commit message</text>
+      <text x="376" y="316" font-size="18" fill="#1F93FF">14 routes, one dispatcher</text>
+    </g>
+
+    <g id="rt-targets">
+      <rect x="740" y="100" width="420" height="88" rx="12" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="764" y="134" font-size="21" fill="#F4F6F8">build &amp; publish</text>
+      <text x="764" y="164" font-size="18" fill="#8B96A2">…-tags-build.yaml · and every PR</text>
+
+      <rect x="740" y="204" width="420" height="88" rx="12" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="764" y="238" font-size="21" fill="#F4F6F8">tests</text>
+      <text x="764" y="268" font-size="18" fill="#8B96A2">…-run-test · ci-e2e-tests-manual</text>
+
+      <rect x="740" y="308" width="420" height="88" rx="12" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="764" y="342" font-size="21" fill="#F4F6F8">web &amp; mobile</text>
+      <text x="764" y="372" font-size="18" fill="#8B96A2">gh-deploy · widget · apk · pwa · flows</text>
+    </g>
+  </g>
+
+  <g id="rt-conns">
+    <g fill="none" stroke-width="2">
+      <path d="M290 144 C 316 144, 326 144, 346 144" stroke="#1F93FF"/>
+      <path d="M290 222 C 316 222, 326 222, 346 222" stroke="#2A3138"/>
+      <path d="M290 300 C 316 300, 326 300, 346 300" stroke="#2A3138"/>
+
+      <path d="M668 222 C 700 222, 702 144, 734 144" stroke="#1F93FF"/>
+      <path d="M668 222 C 700 222, 702 248, 734 248" stroke="#2A3138"/>
+      <path d="M668 222 C 700 222, 702 352, 734 352" stroke="#2A3138"/>
+    </g>
+    <g fill="#2A3138">
+      <path d="M352 222 l -10 -6 v 12 z"/>
+      <path d="M352 300 l -10 -6 v 12 z"/>
+      <path d="M740 248 l -10 -6 v 12 z"/>
+      <path d="M740 352 l -10 -6 v 12 z"/>
+    </g>
+    <g fill="#1F93FF">
+      <path d="M352 144 l -10 -6 v 12 z"/>
+      <path d="M740 144 l -10 -6 v 12 z"/>
+    </g>
+  </g>
+
+  <text x="40" y="418" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">legacy branch-push build route — disabled 2026-08-12, kept commented in the switcher</text>
+</svg>

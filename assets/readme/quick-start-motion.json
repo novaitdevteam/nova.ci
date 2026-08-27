@@ -1,0 +1,12 @@
+{
+  "width": 1200, "fps": 30, "duration": 4.6, "colors": 256, "dither": "none",
+  "clip_to_base_alpha": true, "max_size_mb": 2.0,
+  "reveals": [
+    { "id": "qs-conns", "axis": "x", "start": 0.95, "end": 2.50, "exit": {"start": 4.05, "end": 4.55} }
+  ],
+  "layers": [
+    { "id": "qs-step-1", "enter": {"start": 0.25, "end": 1.05, "from": [-28, 0]}, "exit": {"start": 4.05, "end": 4.55, "to": [16, 0]} },
+    { "id": "qs-step-2", "enter": {"start": 1.05, "end": 1.85, "from": [-28, 0]}, "exit": {"start": 4.05, "end": 4.55, "to": [16, 0]} },
+    { "id": "qs-step-3", "enter": {"start": 1.85, "end": 2.65, "from": [-28, 0]}, "exit": {"start": 4.05, "end": 4.55, "to": [16, 0]} }
+  ]
+}

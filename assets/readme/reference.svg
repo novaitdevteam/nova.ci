@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="420" viewBox="0 0 1200 420"
+     role="img" aria-labelledby="rfTitle rfDesc">
+  <title id="rfTitle">Everything that lives in this repository</title>
+  <desc id="rfDesc">One dispatcher workflow routes into the build workflow, the test workflows, and the web and mobile publish workflows. Alongside them are a branch placeholder flow, the self-validation meta workflow, two internal composite actions, and the runner selection script.</desc>
+
+  <rect width="1200" height="420" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">REFERENCE</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">13 workflows · 3 actions · 1 script</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <rect x="40" y="76" width="270" height="164" rx="12" fill="#14181D" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="64" y="110" font-size="18" letter-spacing="1.4" fill="#1F93FF">DISPATCHER</text>
+    <text x="64" y="148" font-size="19" fill="#F4F6F8">trigger-switcher</text>
+    <text x="64" y="180" font-size="18" fill="#6E7A87">every event enters</text>
+    <text x="64" y="206" font-size="18" fill="#6E7A87">here first</text>
+
+    <rect x="334" y="76" width="270" height="164" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="358" y="110" font-size="18" letter-spacing="1.4" fill="#6E7A87">BUILD &amp; PUBLISH</text>
+    <text x="358" y="148" font-size="19" fill="#F4F6F8">…-tags-build</text>
+    <text x="358" y="180" font-size="18" fill="#8B96A2">lint · unit · build</text>
+    <text x="358" y="206" font-size="18" fill="#8B96A2">scan · notify</text>
+
+    <rect x="628" y="76" width="270" height="164" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="652" y="110" font-size="18" letter-spacing="1.4" fill="#6E7A87">TESTS</text>
+    <text x="652" y="148" font-size="19" fill="#F4F6F8">…-run-test</text>
+    <text x="652" y="180" font-size="19" fill="#F4F6F8">…-run-e2e</text>
+    <text x="652" y="206" font-size="19" fill="#F4F6F8">e2e-tests-manual</text>
+
+    <rect x="922" y="76" width="238" height="164" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="946" y="110" font-size="18" letter-spacing="1.4" fill="#6E7A87">BRANCH &amp; META</text>
+    <text x="946" y="148" font-size="19" fill="#F4F6F8">…-on-push-branches</text>
+    <text x="946" y="180" font-size="19" fill="#F4F6F8">ci-self-validate</text>
+    <text x="946" y="206" font-size="18" fill="#6E7A87">validates this repo</text>
+
+    <rect x="40" y="256" width="564" height="124" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="64" y="290" font-size="18" letter-spacing="1.4" fill="#6E7A87">WEB &amp; MOBILE</text>
+    <text x="64" y="326" font-size="19" fill="#F4F6F8">…-gh-deploy   …-widget-build   …-flows-to-pub</text>
+    <text x="64" y="358" font-size="19" fill="#F4F6F8">…-mob-apk-build   …-public   …-mob-pwa-build</text>
+
+    <rect x="628" y="256" width="270" height="124" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="652" y="290" font-size="18" letter-spacing="1.4" fill="#6E7A87">INTERNAL ACTIONS</text>
+    <text x="652" y="318" font-size="19" fill="#F4F6F8">action-cond</text>
+    <text x="652" y="344" font-size="19" fill="#F4F6F8">install-docker</text>
+    <text x="652" y="370" font-size="19" fill="#F4F6F8">notify</text>
+
+    <rect x="922" y="256" width="238" height="124" rx="12" fill="#14181D" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="946" y="290" font-size="18" letter-spacing="1.4" fill="#1F93FF">RUNNER SCRIPT</text>
+    <text x="946" y="326" font-size="19" fill="#F4F6F8">create-runner.sh</text>
+    <text x="946" y="358" font-size="18" fill="#6E7A87">pulled from main</text>
+  </g>
+
+  <text x="40" y="404" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">CLAUDE.md, AGENTS.md and the nova-ci skill keep agents in sync with these docs</text>
+</svg>

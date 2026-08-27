@@ -245,3 +245,11 @@ jobs:
             ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
 
             Repository: ${{ github.repository }}
+
+      - name: Notify
+        uses: novaitdevteam/nova.ci/.github/actions/notify@main
+        with:
+          message: ${{ steps.telegram_message.outputs.value }}
+          telegram_token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}

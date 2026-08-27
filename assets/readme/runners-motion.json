@@ -1,0 +1,24 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 5.2,
+  "colors": 256,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "reveals": [
+    { "id": "run-conns", "axis": "x", "start": 0.95, "end": 3.10, "exit": {"start": 4.60, "end": 5.15} }
+  ],
+  "layers": [
+    { "id": "stage-reuse", "enter": {"start": 0.25, "end": 1.05, "from": [-30, 0]},
+      "exit": {"start": 4.60, "end": 5.15, "to": [18, 0]} },
+    { "id": "stage-caps",  "enter": {"start": 0.95, "end": 1.75, "from": [-30, 0]},
+      "exit": {"start": 4.60, "end": 5.15, "to": [18, 0]} },
+    { "id": "stage-lock",  "enter": {"start": 1.65, "end": 2.45, "from": [-30, 0]},
+      "exit": {"start": 4.60, "end": 5.15, "to": [18, 0]} },
+    { "id": "out-create",  "enter": {"start": 2.35, "end": 3.10, "from": [-24, 0]},
+      "exit": {"start": 4.60, "end": 5.15, "to": [18, 0]} },
+    { "id": "out-wait",    "enter": {"start": 2.60, "end": 3.35, "from": [-24, 0]},
+      "exit": {"start": 4.60, "end": 5.15, "to": [18, 0]} }
+  ]
+}

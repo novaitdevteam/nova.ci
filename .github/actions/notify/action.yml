@@ -1,0 +1,64 @@
+name: Notify
+description: Send a build notification to Telegram and Google Chat. Each channel is skipped when its credentials are empty.
+
+inputs:
+  message:
+    description: Notification text to send, already composed by the calling workflow.
+    required: true
+  telegram_token:
+    description: Telegram bot token. Leave empty to skip Telegram.
+    required: false
+    default: ''
+  telegram_to:
+    description: Telegram chat id. Leave empty to skip Telegram.
+    required: false
+    default: ''
+  gchat_webhook:
+    description: Google Chat incoming webhook URL. Leave empty to skip Google Chat.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # Secrets and the message cross into the script through env only: an expression
+    # interpolated into a script body leaks the secret into the job's compiled script,
+    # and a message containing a backtick or ${ would break or escape a template literal.
+    - name: Send to Telegram
+      if: inputs.telegram_token != '' && inputs.telegram_to != ''
+      uses: actions/github-script@v8
+      env:
+        TELEGRAM_TO: ${{ inputs.telegram_to }}
+        TELEGRAM_TOKEN: ${{ inputs.telegram_token }}
+        TELEGRAM_MESSAGE: ${{ inputs.message }}
+      with:
+        script: |
+          const params = new URLSearchParams({
+            chat_id: process.env.TELEGRAM_TO,
+            text: process.env.TELEGRAM_MESSAGE,
+          });
+          const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: params,
+          });
+          if (!response.ok) {
+            throw new Error(`Telegram sendMessage failed: ${response.status} ${await response.text()}`);
+          }
+
+    - name: Send to Google Chat
+      if: inputs.gchat_webhook != ''
+      uses: actions/github-script@v8
+      env:
+        GCHAT_WEBHOOK: ${{ inputs.gchat_webhook }}
+        GCHAT_MESSAGE: ${{ inputs.message }}
+      with:
+        script: |
+          const response = await fetch(process.env.GCHAT_WEBHOOK, {
+            method: "POST",
+            headers: {"Content-Type": "application/json; charset=UTF-8"},
+            body: JSON.stringify({text: process.env.GCHAT_MESSAGE}),
+          });
+          if (!response.ok) {
+            throw new Error(`Google Chat webhook failed: ${response.status} ${await response.text()}`);
+          }

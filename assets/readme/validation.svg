@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="410" viewBox="0 0 1200 410"
+     role="img" aria-labelledby="vaTitle vaDesc">
+  <title id="vaTitle">One harness checks every workflow, action and doc change</title>
+  <desc id="vaDesc">scripts/validate.sh parses every workflow and action YAML, checks whitespace with git diff --check, verifies the .agents and .claude skill mirror, and runs actionlint as an advisory step. The same harness runs in CI on every pull request and push to main.</desc>
+
+  <rect width="1200" height="410" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">VALIDATION</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">scripts/validate.sh</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <rect x="40" y="76" width="300" height="272" rx="12" fill="#14181D" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="64" y="118" font-size="20" fill="#F4F6F8">./scripts/validate.sh</text>
+    <text x="64" y="150" font-size="18" fill="#8B96A2">or: make validate</text>
+    <text x="64" y="180" font-size="18" fill="#6E7A87">run it after every edit</text>
+    <text x="64" y="212" font-size="18" fill="#6E7A87">to a workflow, action</text>
+    <text x="64" y="240" font-size="18" fill="#6E7A87">or documentation</text>
+
+    <rect x="380" y="76" width="400" height="56" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="404" y="111" font-size="19" fill="#C9D1D9">YAML parse — workflows + actions</text>
+
+    <rect x="380" y="148" width="400" height="56" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="404" y="183" font-size="19" fill="#C9D1D9">git diff --check — whitespace</text>
+
+    <rect x="800" y="76" width="360" height="56" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="824" y="111" font-size="19" fill="#C9D1D9">.agents ↔ .claude mirror</text>
+
+    <rect x="800" y="148" width="360" height="56" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="824" y="183" font-size="19" fill="#9AA6B2">actionlint — advisory</text>
+
+    <rect x="380" y="220" width="780" height="56" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="404" y="255" font-size="19" fill="#C9D1D9">create-runner self-check — 16 scenarios, curl stubbed, no network</text>
+
+    <rect x="380" y="292" width="780" height="56" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="404" y="327" font-size="19" fill="#C9D1D9">notifier transport — no workflow reaches the chat APIs directly</text>
+  </g>
+
+  <text x="40" y="382" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">ci-self-validate.yaml runs the same harness on every pull request and push to main</text>
+</svg>

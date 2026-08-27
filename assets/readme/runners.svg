@@ -13,45 +13,57 @@
 
   <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
     <!-- 1 reuse -->
-    <rect x="48" y="88" width="250" height="142" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
-    <text x="72" y="130" font-size="21" fill="#F4F6F8">1 · reuse</text>
-    <text x="72" y="166" font-size="18" fill="#8B96A2">online and idle</text>
-    <text x="72" y="194" font-size="18" fill="#8B96A2">VM still running</text>
+    <g id="stage-reuse">
+      <rect x="48" y="88" width="250" height="142" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="72" y="130" font-size="21" fill="#F4F6F8">1 · reuse</text>
+      <text x="72" y="166" font-size="18" fill="#8B96A2">online and idle</text>
+      <text x="72" y="194" font-size="18" fill="#8B96A2">VM still running</text>
+    </g>
 
     <!-- 2 caps -->
-    <rect x="328" y="88" width="250" height="142" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
-    <text x="352" y="130" font-size="21" fill="#F4F6F8">2 · caps</text>
-    <text x="352" y="166" font-size="18" fill="#8B96A2">2 per size class</text>
-    <text x="352" y="194" font-size="18" fill="#8B96A2">6 servers total</text>
+    <g id="stage-caps">
+      <rect x="328" y="88" width="250" height="142" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="352" y="130" font-size="21" fill="#F4F6F8">2 · caps</text>
+      <text x="352" y="166" font-size="18" fill="#8B96A2">2 per size class</text>
+      <text x="352" y="194" font-size="18" fill="#8B96A2">6 servers total</text>
+    </g>
 
     <!-- 3 lock -->
-    <rect x="608" y="88" width="250" height="142" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
-    <text x="632" y="130" font-size="21" fill="#F4F6F8">3 · create lock</text>
-    <text x="632" y="166" font-size="18" fill="#8B96A2">hetzner placement</text>
-    <text x="632" y="194" font-size="18" fill="#8B96A2">group, TTL 60s</text>
+    <g id="stage-lock">
+      <rect x="608" y="88" width="250" height="142" rx="12" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="632" y="130" font-size="21" fill="#F4F6F8">3 · create lock</text>
+      <text x="632" y="166" font-size="18" fill="#8B96A2">hetzner placement</text>
+      <text x="632" y="194" font-size="18" fill="#8B96A2">group, TTL 60s</text>
+    </g>
 
     <!-- outcomes -->
-    <rect x="888" y="88" width="250" height="62" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
-    <text x="912" y="114" font-size="21" fill="#F4F6F8">create runner</text>
-    <text x="912" y="138" font-size="18" fill="#6E7A87">runner_need=true</text>
+    <g id="out-create">
+      <rect x="888" y="88" width="250" height="62" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="912" y="114" font-size="21" fill="#F4F6F8">create runner</text>
+      <text x="912" y="138" font-size="18" fill="#6E7A87">runner_need=true</text>
+    </g>
 
-    <rect x="888" y="168" width="250" height="62" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
-    <text x="912" y="194" font-size="21" fill="#9AA6B2">wait queue</text>
-    <text x="912" y="218" font-size="18" fill="#6E7A87">runner_need=false</text>
+    <g id="out-wait">
+      <rect x="888" y="168" width="250" height="62" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="912" y="194" font-size="21" fill="#9AA6B2">wait queue</text>
+      <text x="912" y="218" font-size="18" fill="#6E7A87">runner_need=false</text>
+    </g>
   </g>
 
-  <g fill="none" stroke="#2A3138" stroke-width="2">
-    <path d="M298 159 L 322 159"/>
-    <path d="M578 159 L 602 159"/>
-    <path d="M858 159 C 872 159, 872 119, 886 119" stroke="#1F93FF"/>
-    <path d="M858 159 C 872 159, 872 199, 886 199"/>
+  <g id="run-conns">
+    <g fill="none" stroke="#2A3138" stroke-width="2">
+      <path d="M298 159 L 322 159"/>
+      <path d="M578 159 L 602 159"/>
+      <path d="M858 159 C 872 159, 872 119, 886 119" stroke="#1F93FF"/>
+      <path d="M858 159 C 872 159, 872 199, 886 199"/>
+    </g>
+    <g fill="#2A3138">
+      <path d="M328 159 l -10 -6 v 12 z"/>
+      <path d="M608 159 l -10 -6 v 12 z"/>
+      <path d="M888 199 l -10 -6 v 12 z"/>
+    </g>
+    <path d="M888 119 l -10 -6 v 12 z" fill="#1F93FF"/>
   </g>
-  <g fill="#2A3138">
-    <path d="M328 159 l -10 -6 v 12 z"/>
-    <path d="M608 159 l -10 -6 v 12 z"/>
-    <path d="M888 199 l -10 -6 v 12 z"/>
-  </g>
-  <path d="M888 119 l -10 -6 v 12 z" fill="#1F93FF"/>
 
   <line x1="48" y1="266" x2="1152" y2="266" stroke="#1C2228" stroke-width="1.5"/>
 

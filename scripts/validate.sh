@@ -6,6 +6,8 @@
 #   - YAML parse of all reusable workflows and composite actions
 #   - whitespace check (git diff --check)
 #   - .agents <-> .claude skill mirror sync
+#   - ci-build-create-runner.sh scenario self-check (offline, curl stubbed)
+#   - notifier transport guard (no workflow may call the chat APIs directly)
 #   - actionlint (when installed)
 #
 # Usage: ./scripts/validate.sh   (works from any cwd; resolves repo root itself)
@@ -19,11 +21,9 @@ cd "$ROOT"
 fail=0
 section() { printf '\n=== %s ===\n' "$1"; }
 
-section "YAML: reusable workflows"
-ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/workflows/*.yaml
-
-section "YAML: composite actions"
-ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' .github/actions/*/action.yml
+section "YAML: reusable workflows and composite actions"
+ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "OK #{f}" }' \
+  .github/workflows/*.yaml .github/actions/*/action.yml
 
 section "Whitespace (git diff --check)"
 if git rev-parse --git-dir >/dev/null 2>&1; then
@@ -43,6 +43,37 @@ if diff -q .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md >/dev
 else
   echo "ERROR: .agents/skills/nova-ci/SKILL.md and .claude/skills/nova-ci/SKILL.md differ"
   echo "       keep the canonical .agents copy and its .claude mirror in sync"
+  fail=1
+fi
+
+section "Runner script self-check"
+# ci-build-create-runner.sh decides whether CI provisions a VM, so its branches get a
+# real regression net: the harness stubs curl and asserts the emitted $GITHUB_OUTPUT.
+if command -v jq >/dev/null 2>&1; then
+  if out="$(./scripts/test-create-runner.sh 2>&1)"; then
+    echo "OK: all ci-build-create-runner.sh scenarios passed"
+  else
+    printf '%s\n' "$out"
+    echo "ERROR: ci-build-create-runner.sh self-check failed"
+    fail=1
+  fi
+else
+  echo "skip: jq not installed"
+fi
+
+section "Notifier transport"
+# The Telegram and Google Chat transport lives in .github/actions/notify only. A
+# workflow that reaches either API itself is the copy-paste that action replaced.
+# Passing the webhook to the action (gchat_webhook:) is the supported form; commented
+# out code is not a live call.
+offenders="$(grep -n 'api\.telegram\.org\|chat\.googleapis\.com\|telegram-action\|GC_NOTIFICATION_WEBHOOK' .github/workflows/*.yaml \
+  | grep -v 'gchat_webhook:' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$offenders" ]; then
+  echo "OK: no workflow reaches the chat APIs directly"
+else
+  printf '%s\n' "$offenders" | sed 's/^/       /'
+  echo "ERROR: these lines reach Telegram or Google Chat directly; use .github/actions/notify"
   fail=1
 fi
 

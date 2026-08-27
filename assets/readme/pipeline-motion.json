@@ -1,0 +1,25 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 5.6,
+  "colors": 256,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "reveals": [
+    { "id": "conn-lint-unit", "axis": "y", "start": 0.95, "end": 1.30, "exit": {"start": 4.95, "end": 5.55} },
+    { "id": "conn-flow", "axis": "x", "start": 1.70, "end": 3.40, "exit": {"start": 4.95, "end": 5.55} }
+  ],
+  "layers": [
+    { "id": "job-linter", "enter": {"start": 0.25, "end": 1.05, "from": [0, -18]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [0, -10]} },
+    { "id": "job-unit",   "enter": {"start": 1.05, "end": 1.85, "from": [0, -18]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [0, -10]} },
+    { "id": "job-build",  "enter": {"start": 1.85, "end": 2.65, "from": [-30, 0]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
+    { "id": "job-trivy",  "enter": {"start": 2.30, "end": 3.10, "from": [-30, 0]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
+    { "id": "job-notify", "enter": {"start": 2.75, "end": 3.55, "from": [-30, 0]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} }
+  ]
+}
