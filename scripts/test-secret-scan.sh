@@ -27,6 +27,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 pass=0
 fail=0
+skip_note=""
 
 # --- gitleaks binary -------------------------------------------------------------
 # Take the pin straight from the action, so a bump there is what gets tested here.
@@ -412,6 +413,11 @@ echo "=== self-scan: nova.ci's own commits ==="
 #
 # The commit range, not the working tree: `gitleaks dir` does not honour .gitignore, so a
 # tree scan would fail on any developer's untracked local .env.
+#
+# This is a pre-push guard. In CI it skips, because ci-self-validate.yaml checks out the
+# validate job shallow and there is no `main` ref to diff against — no coverage is lost
+# there, since that workflow's own secret-scan job does the same scan properly with
+# fetch-depth: 0. The skip lands in the tally line so the count never differs unexplained.
 base=""
 for ref in origin/main main; do
     base="$(git -C "$ROOT" merge-base "$ref" HEAD 2>/dev/null)" && [ -n "$base" ] && break
@@ -420,9 +426,11 @@ done
 head_sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 
 if [ -z "$base" ] || [ -z "$head_sha" ]; then
-    echo "skip: cannot resolve a range against main"
+    skip_note="no main ref to diff against (shallow clone?)"
+    echo "skip: $skip_note"
 elif [ "$base" = "$head_sha" ]; then
-    echo "skip: no commits ahead of main"
+    skip_note="no commits ahead of main"
+    echo "skip: $skip_note"
 else
     set +e
     self_out="$(cd "$ROOT" && env \
@@ -451,5 +459,12 @@ else
 fi
 
 echo
-echo "passed: $pass   failed: $fail"
+# The skip is named on the tally line on purpose: validate.sh surfaces only this line, and
+# a count that quietly drops from 50 to 49 between a laptop and CI is the kind of silent
+# difference that gets rationalised instead of read.
+if [ -n "$skip_note" ]; then
+    echo "passed: $pass   failed: $fail   skipped: 1 (self-scan - $skip_note)"
+else
+    echo "passed: $pass   failed: $fail"
+fi
 [ "$fail" -eq 0 ] || exit 1
