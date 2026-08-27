@@ -72,11 +72,21 @@ event of theirs would reach this switcher even if they were listed. Bringing one
 caller workflow from [Quick start](quick-start.md) **in that repository**, then adding
 its name to the job's list here.
 
-Note that four repositories default to `development` and three to `master`, and
-`nova.chatsconnector.signal-client-api` currently defaults to `NC2-1992_docker`. The
-push gate therefore matches `github.event.repository.default_branch` **plus**
-`main`/`master`/`development`, rather than a hardcoded list that would silently never
-fire.
+Branch conventions vary, which is why the push gate matches
+`github.event.repository.default_branch` **plus** `main`/`master`/`development` rather
+than a hardcoded list. As verified for NC2-2742:
+
+| Default branch | Repositories |
+| --- | --- |
+| `development` | 4 — `novatalks.core`, `novatalks.ui`, `nova.botflow`, whatsapp connector |
+| `master` | 3 — `novatalks.dialer`, `novatalks.chatwidget`, telegram connector |
+| `main` | 3 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector` |
+| `NC2-1992_docker` | 1 — `nova.chatsconnector.signal-client-api` |
+
+`master` exists in all 11, `development` in 9 (not in `novatalks.geoip-api` or the signal
+connector), so both of the branches the team actually works on are covered everywhere. The
+`default_branch` clause is what covers the signal connector, whose default is a feature
+branch — a hardcoded list would silently never fire there.
 
 ## Making it a required check
 
@@ -215,8 +225,17 @@ with `--redact`, which blanks the value in stdout and in every report file.
    3f2a9c1e8b7d4a5f6091c2d3e4f5a6b7c8d9e0f1:src/config.ts:generic-api-key:42
    ```
 
-   Exact secret, exact file, exact commit. Note that the fingerprint contains the
-   commit SHA, so it stops matching if the branch is later rebased.
+   Exact secret, exact file, exact commit. The commit SHA in it means the entry stops
+   matching once the branch is rebased — so for a branch still in flight, strip the
+   commit and keep the rest:
+
+   ```text
+   src/config.ts:generic-api-key:42
+   ```
+
+   That form is rebase-proof but pinned to the line number, so it breaks when lines
+   shift above it. Use the short form while a pull request is in flight, the full one
+   for a permanent exception. Both are covered by `test-secret-scan.sh`.
 
 2. **An inline `gitleaks:allow` comment** on the offending line — scoped to the line,
    survives rebases, and visible to everyone reading the code:
@@ -227,6 +246,16 @@ with `--redact`, which blanks the value in stdout and in every report file.
 
 3. **A rule-scoped allowlist** in [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml)
    — only for a pattern that is provably never a secret in *any* repository.
+
+> [!NOTE]
+> A product repository **cannot** carry its own `gitleaks.toml`. Gitleaks reads
+> `(target path)/.gitleaks.toml` only when no `--config` is passed, and the action always
+> passes the central one. Repo-local options are therefore `.gitleaksignore` and
+> `gitleaks:allow` only — which is the point of centralizing the rules, but worth knowing
+> before someone adds a config file and wonders why it does nothing.
+>
+> Note also that `gitleaks:allow` needs a comment syntax, so it is unavailable in `.json`
+> files (`google-services.json`, fixtures). There, `.gitleaksignore` is the only option.
 
 There is no input that turns the scanner off.
 

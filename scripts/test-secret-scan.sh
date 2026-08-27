@@ -212,6 +212,17 @@ sha="$(at "$r")"
 printf '%s:fixture.js:github-pat:1\n' "$sha" > "$r/.gitleaksignore"
 expect "case 4: .gitleaksignore fingerprint allowlists it" 0 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$sha"
 
+# Case 4 variant - a fingerprint with the commit stripped. Pins to file:rule:line only,
+# so it survives a rebase (the commit-qualified form does not). The trade is that it
+# breaks when the line number shifts, so it is the right form for a branch still in
+# flight and the wrong one for a permanent exception.
+r="$(new_repo pr-ignored-commitless)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+printf 'const token = "%s"\n' "$LEAK_TWO" > "$r/fixture.js"; commit "$r" "add fixture"
+printf 'fixture.js:github-pat:1\n' > "$r/.gitleaksignore"
+expect "case 4: commitless fingerprint also allowlists it" 0 "$r" pull_request PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")"
+
 # Case 4 variant - inline gitleaks:allow, which survives a rebase.
 r="$(new_repo pr-inline-allow)"
 echo "hello" > "$r/app.js"; commit "$r" "base"
