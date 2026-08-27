@@ -50,6 +50,7 @@ case "$REQUIRED_SIZE" in
     small) REQUIRED_TYPE=cx33 ;;
     medium) REQUIRED_TYPE=cx43 ;;
     large) REQUIRED_TYPE=cx53 ;;
+    *) echo "::error::Unknown runner size: $REQUIRED_SIZE" >&2; exit 1 ;;
 esac
 
 DELAY=$((RANDOM % 10))
@@ -200,9 +201,10 @@ BEST_MATCH=$(echo "$RUNNERS" | jq -r \
         | select(.status == "online" and .busy == false)
         | select(.name as $n | $active_vms | index($n))
         | [.labels[].name | select(. as $l | $order | index($l))][0]
-        | select(. != null and ($order | index(.)) >= ($order | index($required)))
+        | select(. != null)
+        | select(. as $size | ($order | index($size)) >= ($order | index($required)))
     ]
-    | sort_by($order | index(.))
+    | sort_by(. as $size | $order | index($size))
     | last // empty
 ')
 

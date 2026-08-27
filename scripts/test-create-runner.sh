@@ -125,6 +125,29 @@ runner_name=<generated>
 runner_labels=small
 runner_need=true'
 
+SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx53:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-a:online:false:large) \
+check "reuses a large idle runner when medium is required" \
+    refs/tags/unit-test-NC2-1 novatalks.core \
+    'runner_need=false
+runner_labels=large'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-a:online:false:small) \
+check "will not reuse a small runner when medium is required" \
+    refs/tags/unit-test-NC2-1 novatalks.core \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=medium
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-big:cx53:running dev-00-gh-runner-sml:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-big:online:false:large dev-00-gh-runner-sml:online:false:small) \
+check "picks the largest idle runner regardless of API order" \
+    refs/tags/build-NC2-1 novatalks.ui \
+    'runner_need=false
+runner_labels=large'
+
 SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx33:deleting) \
 SHIM_RUNNERS=$(runners dev-00-gh-runner-a:online:false:small) \
 check "creates when the only idle runner's VM is deleting" \

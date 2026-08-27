@@ -125,8 +125,10 @@ Steps 1–3 are mechanical and run before the change is proposed for merge. Step
 real trigger and is the merge gate.
 
 **Preventing the regrowth.** Nothing stopped the copy-paste from spreading the first
-time. `scripts/validate.sh` gains one grep: a workflow that names `api.telegram.org`
-directly fails the harness, since the transport now lives only in the action.
+time. `scripts/validate.sh` gains a guard: a workflow line that names `api.telegram.org` or
+uses `GC_NOTIFICATION_WEBHOOK` outside the action's `gchat_webhook:` input fails the
+harness, since the transport now lives only in the action. Commented-out code is
+exempt; it is not a live call.
 
 ## Risks
 

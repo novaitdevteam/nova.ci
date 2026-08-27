@@ -62,14 +62,18 @@ else
 fi
 
 section "Notifier transport"
-# The Telegram/Google Chat transport lives in .github/actions/notify only. A workflow
-# that talks to those APIs directly is the copy-paste this action replaced.
-offenders="$(grep -ln 'api\.telegram\.org' .github/workflows/*.yaml | grep -v 'run-e2e' || true)"
+# The Telegram and Google Chat transport lives in .github/actions/notify only. A
+# workflow that reaches either API itself is the copy-paste that action replaced.
+# Passing the webhook to the action (gchat_webhook:) is the supported form; commented
+# out code is not a live call.
+offenders="$(grep -n 'api\.telegram\.org\|GC_NOTIFICATION_WEBHOOK' .github/workflows/*.yaml \
+  | grep -v 'gchat_webhook:' \
+  | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$offenders" ]; then
-  echo "OK: no workflow sends notifications directly"
+  echo "OK: no workflow reaches the chat APIs directly"
 else
   printf '%s\n' "$offenders" | sed 's/^/       /'
-  echo "ERROR: these workflows send notifications directly; use .github/actions/notify"
+  echo "ERROR: these lines reach Telegram or Google Chat directly; use .github/actions/notify"
   fail=1
 fi
 
