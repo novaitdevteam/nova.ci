@@ -32,3 +32,21 @@ jobs:
 
       - name: Run validation harness
         run: ./scripts/validate.sh
+
+  # nova.ci carries no caller workflow, so it cannot reach the switcher's secret-scan
+  # job — it scans itself here, through the same composite action every product repo
+  # uses. Being public, this is also the one repository where the check can be made
+  # required today (see docs/secret-detection.md on the free-plan limitation).
+  #
+  # Required-status-check name here: "secret-scan".
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: ./.github/actions/gitleaks

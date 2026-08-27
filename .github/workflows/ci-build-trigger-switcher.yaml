@@ -20,6 +20,56 @@ jobs:
           echo ${{ contains(github.ref, 'tags') }}
           echo ${{ contains(github.ref, 'build') }}
 
+  # NC2-2742. Required-status-check name, keep it stable:
+  #     "CI Build Trigger Switcher / secret-scan"
+  # A reusable-workflow job renders as "<caller job name> / <job name>", so this job
+  # is defined here inline rather than behind another `uses:` — a third hop would add
+  # a third segment to the name every branch ruleset has to match.
+  #
+  # Scans the commits the event ADDS, never full history, so a legacy finding already
+  # sitting in a default branch cannot block an unrelated pull request. That is what
+  # makes this safe to make mandatory on day one. See docs/secret-detection.md.
+  secret-scan:
+    name: secret-scan
+    # The NC2-2742 repository list, not the standard-build list: a secret does not care
+    # whether a repo publishes an image, so novatalks.tests, novatalks.chatwidget and
+    # novatalks.ui-lite are in even though they are not build repositories.
+    #
+    # Deliberately NOT in the list, tracked in docs/secret-detection.md:
+    #   nova.ci                       - scans itself via ci-self-validate.yaml
+    #   nova.ai.marketplace           - no caller workflow, never reaches this switcher
+    #   novatalks.charts              - same
+    #   novatalks.grafana.connector   - same
+    #   genesys...wizard.engine       - builds here, but was not on the NC2-2742 list
+    if:
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.dialer", "novatalks.tests", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api" ]'), github.event.repository.name)
+      && (
+        (github.event_name == 'pull_request'
+          && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action))
+        || (github.event_name == 'push'
+          && github.ref_type == 'branch'
+          && (github.ref_name == github.event.repository.default_branch
+            || contains(fromJSON('["main", "master", "development"]'), github.ref_name)))
+      ) }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    # Read-only. The scan reads commits and writes a job summary; it needs nothing
+    # else, and a leak-detection job is the last place to hold a write token.
+    permissions:
+      contents: read
+    steps:
+      # fetch-depth: 0 because the scan needs the base commit and the pull request's
+      # own commits in the clone. scan.sh fails closed if a SHA is missing rather
+      # than scanning an empty range.
+      # ponytail: full clone; narrow to the commit range if clone time on
+      #           novatalks.core ever dominates this job.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: novaitdevteam/nova.ci/.github/actions/gitleaks@main
+
   call-external-on-push-tags:
     name: Call Builder On Push Tags
     if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, 'build') || startsWith(github.ref_name, 'scan')) }}

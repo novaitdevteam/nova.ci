@@ -14,6 +14,7 @@ Human-facing documentation is canonical and lives in [`docs/`](docs/README.md). 
 | Dispatch and routing | [`docs/routing.md`](docs/routing.md) | [`ci-build-trigger-switcher.yaml`](.github/workflows/ci-build-trigger-switcher.yaml) |
 | Lint, unit gate, build, tags, cache | [`docs/build-pipeline.md`](docs/build-pipeline.md) | [`ci-build-ntk-on-push-tags-build.yaml`](.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
 | Unit and integration suites | [`docs/tests.md`](docs/tests.md) | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) |
+| Secret detection | [`docs/secret-detection.md`](docs/secret-detection.md) | the `secret-scan` job + [`gitleaks/action.yml`](.github/actions/gitleaks/action.yml) |
 | Trivy scan and policy | [`docs/container-scanning.md`](docs/container-scanning.md) | the `trivy-scan` job |
 | Runner reuse, caps, lock, sizing | [`docs/runners.md`](docs/runners.md) | [`ci-build-create-runner.sh`](.github/workflows/ci-build-create-runner.sh) |
 | Notifier message and summary | [`docs/notifications.md`](docs/notifications.md) | the notifier jobs |
@@ -46,6 +47,19 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 - Do **not** add `continue-on-error` to `unit-test` or `integration-tests`. The job must still report red when tests fail.
 - Keep the unit gate backward-compatible: repos without a test plan resolve to a no-op success, reported as `⏭️ n/a`, never `✅`.
 - Keep `npm run test:unit` and `npm run test:integration` as the canonical scripts. Do not replace them with raw `npx jest` and hand-assembled flags.
+
+**Secret detection**
+
+- Keep the check name **`CI Build Trigger Switcher / secret-scan`** (and plain `secret-scan` in `ci-self-validate.yaml`). It is the required-status-check string; renaming the job silently un-protects every repository. That is why the job is inline in the switcher rather than behind another `uses:` — a third hop adds a third name segment.
+- Keep the scan scoped to the commits an event **adds** (merge-base..head for PRs, `before..after` for pushes). Never make the blocking check read full history: legacy findings would fail every unrelated PR. Full history belongs to `scripts/gitleaks-baseline.sh`.
+- Keep `scan.sh` **failing closed** — exit `2` on an unresolvable range, a missing SHA, an unreadable config, or an unexplained Gitleaks failure. Never fall back to Gitleaks' built-in rule set: that silently drops the central allowlist. (Opposite of the runner create lock, which fails open.)
+- **Do not remove the `git rev-list --count` guard.** `gitleaks git --log-opts` exits **0** when git resolves nothing, so a bad or unfetched SHA otherwise reports a clean scan of zero commits.
+- Keep Gitleaks pinned by version **and** SHA-256 in `gitleaks/action.yml`, never `latest`, and keep `scripts/test-secret-scan.sh` reading that pin so the tests exercise the version CI runs.
+- Keep `--redact`. It blanks the value in stdout and in report files. Do not add a SARIF upload (needs `security-events: write`) or a report artifact — the redacted job summary already carries file, line, rule, commit and fingerprint.
+- Keep `permissions: contents: read` on the job.
+- Keep `security/gitleaks/gitleaks.toml` free of **path** exclusions. Exceptions go through `.gitleaksignore` fingerprints or inline `gitleaks:allow`, per finding. There must be no input that disables the scanner.
+- Changing `.github/actions/gitleaks/scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the same change.
+- The three repositories with no caller workflow (`nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`) cannot be covered from here. Do not add a caller to them unless the user asks.
 
 **Scanning**
 
@@ -85,12 +99,12 @@ Run the harness after any workflow, action or documentation change:
 ./scripts/validate.sh   # or: make validate
 ```
 
-It parses every workflow and action YAML, runs `git diff --check`, verifies the `.agents` ↔ `.claude` skill mirror, runs the offline `ci-build-create-runner.sh` self-check (`scripts/test-create-runner.sh`, 16 scenarios, `curl` stubbed), and runs `actionlint` when installed (advisory — the repo has a pre-existing backlog; set `STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI on pull requests and pushes to `main`.
+It parses every workflow and action YAML, runs `git diff --check`, verifies the `.agents` ↔ `.claude` skill mirror, runs the offline `ci-build-create-runner.sh` self-check (`scripts/test-create-runner.sh`, 16 scenarios, `curl` stubbed), runs the secret-scan self-check (`scripts/test-secret-scan.sh`, 24 assertions against real git fixtures and the pinned Gitleaks binary), guards that no workflow invokes Gitleaks directly, and runs `actionlint` when installed (advisory — the repo has a pre-existing backlog; set `STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI on pull requests and pushes to `main`.
 
 Then review the diff:
 
 ```bash
-git diff -- .github/workflows .github/actions scripts docs README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions security scripts docs README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 ```
 
 ## Documentation sync

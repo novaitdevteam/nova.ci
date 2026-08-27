@@ -50,4 +50,4 @@ Each size class has its own **max-2** cap, measured from Hetzner server state ra
 
 ---
 
-[← Tests](tests.md) · [Docs index](README.md) · [Notifications →](notifications.md)
+[← Secret detection](secret-detection.md) · [Docs index](README.md) · [Notifications →](notifications.md)

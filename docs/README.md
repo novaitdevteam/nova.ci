@@ -15,6 +15,7 @@ Start at [Quick start](quick-start.md) if you are wiring a new repository into C
 | [How a trigger is routed](routing.md) | Which workflow does my push, PR or tag actually call? |
 | [Build pipeline](build-pipeline.md) | What runs, in what order, and what gates what? |
 | [Tests](tests.md) | Unit vs integration, `test_mode`, and how failures are reported. |
+| [Secret detection](secret-detection.md) | When Gitleaks runs, what to do when it fails, and how to allowlist a false positive. |
 
 ## Operating CI
 

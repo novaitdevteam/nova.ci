@@ -1,0 +1,51 @@
+# Central Gitleaks configuration for every NovaTalks repository.
+#
+# Consumed by .github/actions/gitleaks, which every secret-scan run resolves from
+# this repository at the same commit the workflow itself ran from. One file, one
+# rule set, one allowlist — see docs/secret-detection.md.
+
+title = "NovaTalks secret detection"
+
+# Start from the upstream rule set (~170 providers) rather than hand-maintaining
+# rules. Upgrading GITLEAKS_VERSION in .github/actions/gitleaks/action.yml picks up
+# new rules automatically.
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# NovaTalks-specific rules
+# ---------------------------------------------------------------------------
+# None yet. The upstream set already covers every credential type currently in
+# use across the product repositories (GitHub PATs, GHCR tokens, Hetzner and
+# Cloudflare R2 keys, Telegram bot tokens, Google service accounts, JWTs,
+# private keys, generic high-entropy assignments).
+#
+# Add one here only for a NovaTalks-issued credential format upstream cannot
+# know about, e.g.:
+#
+#   [[rules]]
+#   id = "novatalks-internal-api-key"
+#   description = "NovaTalks internal service API key"
+#   regex = '''ntk_(live|test)_[0-9a-zA-Z]{32}'''
+#   keywords = ["ntk_live_", "ntk_test_"]
+
+# ---------------------------------------------------------------------------
+# Global allowlist
+# ---------------------------------------------------------------------------
+# Deliberately empty of path exclusions.
+#
+# A broad path exclusion (tests/**, config/**, *.example) is how a real
+# credential hides: those are exactly the files people paste a working token
+# into "just to check something". A false positive is cheaper to allowlist per
+# finding than a leaked credential is to rotate.
+#
+# The supported ways to silence a finding, most specific first:
+#
+#   1. .gitleaksignore in the product repository — one line per finding
+#      fingerprint. Scoped to that exact secret in that exact commit and file.
+#   2. a `# gitleaks:allow` comment on the offending line — scoped to the line,
+#      survives rebases, visible to every reader of the code.
+#   3. a rule-scoped allowlist here — only for a pattern that is provably never
+#      a secret across all repositories.
+#
+# Anything wider than that needs a reviewed reason in the pull request.

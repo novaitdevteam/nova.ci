@@ -7,7 +7,7 @@
   <a href="./docs/README.md"><img src="https://img.shields.io/badge/docs-nova.ci-1F93FF" alt="documentation" /></a>
 </p>
 
-`nova.ci` holds the GitHub Actions workflows that every NovaTalks product repository shares. A product repo keeps one thin caller workflow; everything else — lint, unit tests, image build, vulnerability scan, test suites, notifications and self-hosted runner provisioning — lives here and is called from `main`.
+`nova.ci` holds the GitHub Actions workflows that every NovaTalks product repository shares. A product repo keeps one thin caller workflow; everything else — lint, unit tests, secret detection, image build, vulnerability scan, test suites, notifications and self-hosted runner provisioning — lives here and is called from `main`.
 
 **📚 [Read the documentation →](./docs/README.md)**
 
@@ -34,7 +34,7 @@ git tag scan-NC2-1234       && git push origin scan-NC2-1234        # build + sc
 git tag full-test-NC2-1234  && git push origin full-test-NC2-1234   # unit + integration tests
 ```
 
-Opening a non-draft pull request runs lint and unit tests only — no image, no scan, no notification.
+Opening a non-draft pull request runs lint and unit tests only — no image, no CVE scan, no notification. Every pull request, draft included, is also scanned for committed credentials by [secret detection](./docs/secret-detection.md).
 
 → Full caller workflow, every trigger and the routing rules: **[Quick start](./docs/quick-start.md)** and **[How a trigger is routed](./docs/routing.md)**.
 
@@ -56,6 +56,7 @@ Opening a non-draft pull request runs lint and unit tests only — no image, no 
 | [How a trigger is routed](./docs/routing.md) | [Runners](./docs/runners.md) | [Reference](./docs/reference.md) |
 | [Build pipeline](./docs/build-pipeline.md) | [Notifications](./docs/notifications.md) | [`CLAUDE.md`](CLAUDE.md) · [`AGENTS.md`](AGENTS.md) |
 | [Tests](./docs/tests.md) | | |
+| [Secret detection](./docs/secret-detection.md) | | |
 
 ## Validation
 
