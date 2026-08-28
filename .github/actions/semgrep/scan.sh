@@ -82,8 +82,12 @@ scanned=$(jq '.paths.scanned | length' "$json")
 canary_hits=$(jq '[.results[] | select(.check_id | test("nova-ci-semgrep-canary"))] | length' "$json")
 [ "$canary_hits" -gt 0 ] || finish_error "the canary rule did not fire — the rule engine did not run"
 
+# The canary's severity is a fixed INFO in canary.yaml, but SEMGREP_SEVERITY is a
+# caller-configurable input with no enum restriction — if it is ever set to INFO,
+# the canary hit must still never be countable as a finding, so it is excluded by
+# check_id here independent of severity, not just by the severity happening to differ.
 findings=$(jq --arg sev "$SEMGREP_SEVERITY" \
-    '[.results[] | select(.extra.severity == $sev)] | length' "$json")
+    '[.results[] | select(.extra.severity == $sev and (.check_id | test("nova-ci-semgrep-canary") | not))] | length' "$json")
 
 {
     echo "=============================="
@@ -96,7 +100,7 @@ findings=$(jq --arg sev "$SEMGREP_SEVERITY" \
     echo "=== ${SEMGREP_SEVERITY} findings: ${findings} ==="
     echo ""
     jq -r --arg sev "$SEMGREP_SEVERITY" \
-        '.results[] | select(.extra.severity == $sev)
+        '.results[] | select(.extra.severity == $sev and (.check_id | test("nova-ci-semgrep-canary") | not))
          | "\(.path):\(.start.line)  [\(.check_id)]\n    \(.extra.message)\n"' "$json"
 } > "$SEMGREP_REPORT_FILE"
 

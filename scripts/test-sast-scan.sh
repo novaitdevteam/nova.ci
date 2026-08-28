@@ -26,7 +26,11 @@ fail=0
 # docker shim: emit $SHIM_JSON to the file semgrep would write, exit $SHIM_RC.
 cat > "$WORK/bin/docker" <<'SHIM'
 #!/usr/bin/env bash
-printf '%s' "${SHIM_JSON:-{\}}" > "${SHIM_OUT:?SHIM_OUT unset}"
+# SHIM_SKIP_WRITE simulates a container that dies before writing anything —
+# e.g. it never got as far as producing output.
+if [ -z "${SHIM_SKIP_WRITE:-}" ]; then
+    printf '%s' "${SHIM_JSON:-{\}}" > "${SHIM_OUT:?SHIM_OUT unset}"
+fi
 exit "${SHIM_RC:-0}"
 SHIM
 chmod +x "$WORK/bin/docker"
@@ -51,12 +55,13 @@ expect() { # expect <name> <expected-outcome> <expected-findings>
     local name="$1" want_outcome="$2" want_findings="$3"
     local out="$WORK/output" summary="$WORK/summary" report="$WORK/report"
     : >"$out"; : >"$summary"; : >"$report"
+    rm -f "$WORK/semgrep.json"
 
     set +e
     PATH="$WORK/bin:$PATH" \
     SEMGREP_IMAGE="semgrep/semgrep@sha256:deadbeef" \
     SEMGREP_CONFIGS="p/typescript" \
-    SEMGREP_SEVERITY="ERROR" \
+    SEMGREP_SEVERITY="${SEMGREP_SEVERITY:-ERROR}" \
     SEMGREP_SRC="$WORK/src" \
     SEMGREP_REPORT_FILE="$report" \
     SEMGREP_ACTION_ROOT="$ACTION_DIR" \
@@ -110,6 +115,9 @@ SHIM_JSON="$(semgrep_json no)" SHIM_RC=0 \
 SHIM_JSON="$(semgrep_json yes)" SHIM_RC=2 \
     expect "a semgrep crash is an error" error 0
 
+SHIM_SKIP_WRITE=1 SHIM_RC=1 \
+    expect "docker writes no output file at all is an error" error 0
+
 SHIM_JSON='{"results":[],"errors":[],"paths":{"scanned":[]}}' SHIM_RC=0 \
     expect "scanning zero files is an error, never a clean run" error 0
 
@@ -120,6 +128,13 @@ SHIM_JSON="$(semgrep_json yes ERROR)" SHIM_RC=1 \
     expect "single finding" findings 1
 assert_report "report names the rule" "rule.x"
 assert_report "report never contains the canary" "nova-ci-semgrep-canary" --absent
+
+# severity is a caller-configurable input with no enum restriction. If it is ever set
+# to the canary's own hardcoded INFO severity, the canary hit must still be excluded by
+# check_id, never counted as a finding and never leaked into the report.
+SEMGREP_SEVERITY=INFO SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 \
+    expect "canary is never a finding even at its own INFO severity" clean 0
+assert_report "report never contains the canary at INFO severity" "nova-ci-semgrep-canary" --absent
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
