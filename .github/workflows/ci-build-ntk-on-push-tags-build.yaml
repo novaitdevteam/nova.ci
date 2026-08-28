@@ -417,7 +417,20 @@ jobs:
         id: set_dockerfile
         env:
           BUILD_TARGET: ${{ inputs.build_target || github.ref_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
+          # A scan* tag names a trigger, not a build target, so it falls through to the
+          # else branch and server.Dockerfile — which novatalks.core does not have: it
+          # ships engine, reporting, restore-historical and message-source-id instead, so
+          # a scan tag there failed the build outright. The engine is the representative
+          # image for that repository — the other components build from the same shared
+          # libraries, so scanning it covers them. Every other repository has a single
+          # server.Dockerfile and is untouched by this, as is any explicit build target.
+          if [[ "$REPO_NAME" == "novatalks.core" && "$BUILD_TARGET" == scan* ]]; then
+            echo "scan tag on novatalks.core: building the engine as the representative image"
+            BUILD_TARGET="build-engine"
+          fi
+
           if [[ "$BUILD_TARGET" == "build-engine" ]]; then
             echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_engine" >> $GITHUB_ENV

@@ -230,6 +230,13 @@ that already earns `large` for `int-test`. So on **`novatalks.core` only**,
 | `*build*` | `main` / `master` / `development` | `medium` |
 | `*build*` | any other branch | `small` |
 
+**A `scan*` tag on `novatalks.core` builds the engine.** A scan tag names a trigger, not a
+build target, so it would otherwise resolve to `server.Dockerfile` — which that repository
+does not have, since it ships `engine`, `reporting`, `restore-historical` and
+`message-source-id`. The engine is the representative image there: the other components
+build from the same shared libraries, so scanning it covers them. Every other repository
+has a single `server.Dockerfile` and is unaffected, as is any explicit `build_target`.
+
 The condition mirrors the DAST gate exactly rather than approximating it — a `scan*` tag
 runs DAST on any branch, and used to fall through the matrix to `small`. `base_ref` is
 read from the event payload with `jq` inside the script, because a tag push carries no
