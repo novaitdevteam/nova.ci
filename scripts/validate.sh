@@ -9,7 +9,8 @@
 #   - docs assets (every page has a diagram; every referenced asset exists)
 #   - ci-build-create-runner.sh scenario self-check (offline, curl stubbed)
 #   - secret-scan scan.sh scenario self-check (git fixtures, pinned gitleaks)
-#   - Gitleaks invocation guard (no workflow may run the scanner itself)
+#   - SAST scan.sh scenario self-check (docker stubbed)
+#   - scanner invocation guard (no workflow may run Gitleaks or Semgrep itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
 #   - actionlint (when installed)
 #
@@ -139,7 +140,24 @@ case "$scan_rc" in
     ;;
 esac
 
-section "Gitleaks invocation"
+section "SAST scan self-check"
+# Semgrep's scan.sh decides whether a build reports findings, a clean scan or a broken
+# scanner, and conflating the last two is the failure this guard exists to prevent.
+# The harness stubs docker, so it needs no image and no network.
+if command -v jq >/dev/null 2>&1; then
+  if out="$(./scripts/test-sast-scan.sh 2>&1)"; then
+    printf '%s\n' "$out" | tail -1
+    echo "OK: all semgrep scan.sh scenarios passed"
+  else
+    printf '%s\n' "$out"
+    echo "ERROR: semgrep scan.sh self-check failed"
+    fail=1
+  fi
+else
+  echo "skip: jq not installed"
+fi
+
+section "Scanner invocation"
 # The install-and-scan logic lives in .github/actions/gitleaks only. A workflow that
 # calls the binary or the upstream action itself is the copy-paste that action exists
 # to prevent, and would bypass the central config and the redaction flag.
@@ -156,6 +174,19 @@ if [ -z "$offenders" ]; then
 else
   printf '%s\n' "$offenders" | sed 's/^/       /'
   echo "ERROR: these lines invoke Gitleaks directly; use .github/actions/gitleaks"
+  fail=1
+fi
+
+# Same argument as Gitleaks: the pin, the canary guard and the harness all live in
+# .github/actions/semgrep, and an inline `docker run semgrep` bypasses all three at once.
+semgrep_offenders="$(grep -nE 'semgrep +scan\b|uses:.*semgrep' .github/workflows/*.yaml \
+  | grep -vE 'uses:.*/\.github/actions/semgrep(@|$)' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$semgrep_offenders" ]; then
+  echo "OK: every workflow scans through .github/actions/semgrep"
+else
+  printf '%s\n' "$semgrep_offenders" | sed 's/^/       /'
+  echo "ERROR: these lines invoke Semgrep directly; use .github/actions/semgrep"
   fail=1
 fi
 
