@@ -71,12 +71,19 @@ no-database run never starts postgres or redis.
 
 ## Scanner invocation guard
 
-`validate.sh` fails when a workflow invokes **Gitleaks, Semgrep or ZAP directly** —
-a `gitleaks git` line, a `semgrep scan`/`semgrep ci` line, a `docker run` of a Semgrep
-or `zaproxy` image, `zap-baseline.py`, or a third-party action for any of them. Each
-tool's pin, its guard logic and its harness live in its composite action, and one
-inline step bypasses all three at once. Commented-out lines and references to a step's
-own `id`/outputs are not invocations and do not trip it.
+`validate.sh` fails when a workflow invokes **Gitleaks, Semgrep or ZAP directly** — a
+`gitleaks git` line, a `semgrep scan`/`semgrep ci` line, a `docker run` of a Semgrep
+image, `zap-baseline.py` or `zap-full-scan.py`, or a third-party action for any of the
+three. Each tool's pin, its guard logic and its harness live in its composite action,
+and one inline step bypasses all three at once. Commented-out lines and references to a
+step's own `id`/outputs are not invocations and do not trip it.
+
+> [!NOTE]
+> **The ZAP half is narrower than the other two**: it matches the two ZAP scripts and a
+> third-party `zaproxy` action, but **not** a bare `docker run ghcr.io/zaproxy/zaproxy`,
+> which the Semgrep pattern does catch for its own images. All three are per-line greps,
+> so none of them catches an invocation split across a line-broken YAML block scalar.
+> They stop careless copy-paste, not a determined bypass.
 
 [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed) on every pull request and push to `main`.
 

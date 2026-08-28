@@ -212,8 +212,12 @@ else
 fi
 
 # Same argument again: the pin and the harness live in .github/actions/dast, and a
-# workflow that shells out to zap-baseline.py or zap-full-scan.py directly, or pulls
-# the zaproxy image itself, bypasses the digest pin and the not-run/error distinction.
+# workflow that shells out to zap-baseline.py or zap-full-scan.py directly, or uses a
+# third-party zaproxy action, bypasses the digest pin and the not-run/error distinction.
+# Narrower than the Semgrep guard above on purpose-not-yet-done: it does NOT match a bare
+# `docker run ghcr.io/zaproxy/zaproxy`, because ZAP is normally driven through one of the
+# two scripts above. Say so rather than claim coverage this pattern does not have - a
+# guard described as stronger than it is, is worse than an honestly narrow one.
 zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$zap_offenders" ]; then

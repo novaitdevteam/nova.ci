@@ -348,8 +348,10 @@ Preserve these behaviors:
   scans an error page and reports it clean.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
   `scripts/test-dast-scan.sh` in the same change. `validate.sh` also fails if any
-  workflow runs `semgrep scan`/`semgrep ci`, `docker run` of a Semgrep or `zaproxy`
-  image, `zap-baseline.py`, or a third-party action for either.
+  workflow runs `semgrep scan`/`semgrep ci`, a `docker run` of a Semgrep image,
+  `zap-baseline.py`/`zap-full-scan.py`, or a third-party action for either. The ZAP
+  half is narrower than the Semgrep half on purpose-not-yet-done: it does **not** match
+  a bare `docker run ghcr.io/zaproxy/zaproxy`. Do not describe it as if it does.
 - Be honest about reach in any documentation: the unauthenticated ZAP baseline finds
   header and cookie hygiene, not logic flaws. It is not a penetration test.
 

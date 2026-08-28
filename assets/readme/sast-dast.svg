@@ -67,7 +67,7 @@
       <text x="446" y="504" font-size="18" fill="#8B96A2">our own source</text>
 
       <rect x="804" y="446" width="356" height="72" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
-      <text x="828" y="478" font-size="20" fill="#F4F6F8">dast-….report</text>
+      <text x="828" y="478" font-size="20" fill="#F4F6F8">zap-….report</text>
       <text x="828" y="504" font-size="18" fill="#8B96A2">the running app</text>
     </g>
 

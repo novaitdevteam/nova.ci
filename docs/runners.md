@@ -31,7 +31,7 @@ The create decision (this script) and the actual VM creation (the caller's next 
 
 Different tag types have very different resource needs, so `novatalks.core` uses a differentiated matrix:
 
-| Tag | `base_ref` | `test_mode` | Size | Hetzner type | Why |
+| Tag substring | `base_ref` | `test_mode` | Size | Hetzner type | Why |
 | --- | --- | --- | --- | --- | --- |
 | `scan*` | any branch | — | `medium` | cx43 | runs [DAST](sast-dast.md): postgres + redis + app + ZAP |
 | `build` | `main` / `master` / `development` | — | `medium` | cx43 | trunk builds run DAST |
