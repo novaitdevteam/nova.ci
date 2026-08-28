@@ -823,7 +823,11 @@ jobs:
       RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
     steps:
       - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which has already finished by the time this job runs.
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -880,7 +884,11 @@ jobs:
       RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
     steps:
       - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which has already finished by the time this job runs.
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
