@@ -11,7 +11,7 @@ inputs:
   health-path:
     description: "Path polled to decide the application is up"
     required: false
-    default: "/"
+    default: "/livez"
   boot-timeout:
     description: "Seconds to wait for the first HTTP response before giving up"
     required: false
@@ -24,6 +24,10 @@ inputs:
     description: "Postgres image, when needs-db is true"
     required: false
     default: "postgres:16"
+  env-file:
+    description: "A .env.example-style file, relative to the workspace unless absolute, whose non-comment lines are passed to the application container via --env-file. Absent files are not an error — most repositories will not have one."
+    required: false
+    default: ".env.example"
   report-file:
     description: "Path the .report is written to"
     required: true
@@ -58,6 +62,7 @@ runs:
         DAST_BOOT_TIMEOUT: ${{ inputs.boot-timeout }}
         DAST_NEEDS_DB: ${{ inputs.needs-db }}
         DAST_PG_IMAGE: ${{ inputs.pg-image }}
+        DAST_ENV_FILE: ${{ inputs.env-file }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}
         REPORT_URL: ${{ inputs.report-url }}

@@ -10,6 +10,14 @@
 # it comes from .env drift or a missing migration, not from a vulnerability. ZAP itself
 # failing is different again, and reds the job.
 #
+# Some engines (novatalks.core, S3 config among other things) will not boot on
+# DATABASE_*/REDIS_* alone. Rather than hardcode product-specific env vars here — or
+# worse, a credential — this reads the product repo's own .env.example, the same file
+# ci-build-ntk-on-push-tags-run-test.yaml already trusts for integration tests, and
+# hands it to the app container via --env-file. That file may carry credentials, so the
+# stripped copy lives only under RUNNER_TEMP, is never echoed, and never reaches the
+# report or the job summary.
+#
 set -euo pipefail
 
 : "${DAST_IMAGE:?}" "${DAST_PORT:?}" "${DAST_HEALTH_PATH:?}" "${DAST_BOOT_TIMEOUT:?}"
@@ -17,8 +25,11 @@ set -euo pipefail
 
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
+DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
 target="http://127.0.0.1:${DAST_PORT}${DAST_HEALTH_PATH}"
 zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
+app_env_args=()
+app_tmp_env=""
 
 emit() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
@@ -84,8 +95,25 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
         -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null 2>&1 || true
 fi
 
+# .env.example is resolved relative to the workspace, not to this action's own
+# checkout, since it belongs to the product repo whose image is being scanned.
+case "$DAST_ENV_FILE" in
+    /*) env_file_path="$DAST_ENV_FILE" ;;
+    *)  env_file_path="${GITHUB_WORKSPACE:-.}/${DAST_ENV_FILE}" ;;
+esac
+
+if [ -f "$env_file_path" ]; then
+    app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
+    # Only comments are stripped here; --env-file parses KEY=value natively, including
+    # values containing `=` or spaces, so lines are handed through rather than
+    # re-parsed into -e flags.
+    grep -v '^[[:space:]]*#' "$env_file_path" > "$app_tmp_env"
+    app_env_args=(--env-file "$app_tmp_env")
+fi
+
 docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
+    ${app_env_args[@]+"${app_env_args[@]}"} \
     -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
     -e DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}" \
     -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}" \

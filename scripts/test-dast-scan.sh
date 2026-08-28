@@ -19,6 +19,19 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
 
+# Two workspace fixtures for the --env-file scenarios: one carries a .env.example (with
+# a comment line that must never survive into the container), the other has none. Kept
+# apart from $WORK's own root so the six pre-existing scenarios, which default
+# GITHUB_WORKSPACE to $WORK, never see either.
+WS_WITH_ENV="$WORK/ws-with-envfile"
+WS_WITHOUT_ENV="$WORK/ws-without-envfile"
+mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV"
+cat > "$WS_WITH_ENV/.env.example" <<'ENVEX'
+# leaked secrets would live below this line — must never reach the container
+FILE_DRIVER=s3
+AWS_S3_BUCKET=example-bucket
+ENVEX
+
 pass=0
 fail=0
 
@@ -56,7 +69,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     local name="$1" want_outcome="$2" want_rc="$3"
     local out="$WORK/output" summary="$WORK/summary"
     : >"$out"; : >"$summary"; : >"$WORK/log"; : >"$WORK/dockerlog"
-    : >"$WORK/zap.md"
+    : >"$WORK/zap.md"; : >"$WORK/dast.env"
 
     set +e
     PATH="$WORK/bin:$PATH" \
@@ -67,6 +80,8 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_BOOT_TIMEOUT="6" \
     DAST_NEEDS_DB="${DAST_NEEDS_DB:-true}" \
     DAST_PG_IMAGE="postgres:16" \
+    DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}" \
+    GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$WORK}" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
     DAST_REPORT_FILE="$WORK/report" \
     RUNNER_TEMP="$WORK" \
@@ -138,6 +153,38 @@ DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: nothing 
     expect "no-database app still boots and scans clean" clean 0
 assert_cleanup "no-db run still tears containers down"
 assert_no_db_containers "no-db run never starts postgres or redis"
+
+# novatalks.core's production path: FILE_DRIVER=s3 and friends live in .env.example,
+# not in this repo, so they must reach the app container without ever being typed here.
+GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: everything" \
+    expect "an existing .env.example is passed via --env-file" clean 0
+assert_cleanup "env-file run tears containers down"
+if grep -qE -- '--name nova-app.*--env-file [^ ]*dast\.env.* -e DATABASE_HOST=127\.0\.0\.1' "$WORK/dockerlog"; then
+    echo "ok   --env-file is present and precedes the -e overrides"; pass=$((pass + 1))
+else
+    echo "FAIL --env-file missing, or not ahead of the explicit -e overrides"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+
+GITHUB_WORKSPACE="$WS_WITHOUT_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: everything" \
+    expect "no .env.example — scan proceeds exactly as before" clean 0
+assert_cleanup "no-env-file run still tears containers down"
+if grep -qE -- '--name nova-app.*--env-file' "$WORK/dockerlog"; then
+    echo "FAIL --env-file flag present despite no .env.example existing"; fail=$((fail + 1))
+else
+    echo "ok   no --env-file flag when there is no .env.example"; pass=$((pass + 1))
+fi
+
+GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: everything" \
+    expect "comment lines are stripped before reaching the app container" clean 0
+if [ -f "$WORK/dast.env" ] && ! grep -q '^#' "$WORK/dast.env" && grep -q '^FILE_DRIVER=s3$' "$WORK/dast.env"; then
+    echo "ok   comment stripped, KEY=value lines survive"; pass=$((pass + 1))
+else
+    echo "FAIL comment line leaked into the temporary env file, or content missing"
+    sed 's/^/     /' "$WORK/dast.env" 2>/dev/null || echo "     (no temp env file written)"
+    fail=$((fail + 1))
+fi
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
