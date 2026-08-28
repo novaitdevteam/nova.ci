@@ -319,6 +319,7 @@ jobs:
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
+      IS_TRUNK: ${{ steps.prep.outputs.IS_TRUNK }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -348,10 +349,18 @@ jobs:
 
           short_ref_name="$(printf '%s' "$short_ref_name" | sed 's#[^A-Za-z0-9_.-]#-#g')"
 
+          # Trunk drives every scan gate. Resolved once here, where SHORT_REF_NAME is
+          # already known, because a job-level `if` cannot reach into another job's step.
+          case "$short_ref_name" in
+            main|master|development) is_trunk=true ;;
+            *)                       is_trunk=false ;;
+          esac
+
           echo "REP_NAME=${rep_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_SHA=${short_sha}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "RELEASE=${release}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "IS_TRUNK=${is_trunk}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
         if: ${{ github.ref_type == 'tag' && inputs.build_target == '' }}
@@ -789,11 +798,67 @@ jobs:
             echo "::warning::Trivy found $crit CRITICAL and $high HIGH vulnerabilities. See $REPORT_FILE."
           fi
 
+  sast-scan:
+    name: SAST Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Same gate as the image scan: a report is only useful where there is a release to
+    # attach it to, and pull requests never build one. Sequential after trivy-scan —
+    # three parallel scan jobs would only queue against the per-size cap of 2.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-image.result == 'success'
+      && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')) }}
+    needs: [build-image, trivy-scan]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.semgrep.outputs.outcome }}
+      FINDINGS: ${{ steps.semgrep.outputs.findings }}
+      MESSAGE: ${{ steps.semgrep.outputs.message }}
+    env:
+      REPORT_FILE: semgrep-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Semgrep
+        id: semgrep
+        uses: novaitdevteam/nova.ci/.github/actions/semgrep@main
+        with:
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      # Upsert into the release trivy-scan already created for this build: one release
+      # per build carrying every scanner's report. The TRIVY.SCAN_ prefix is historical
+      # — see docs/container-scanning.md.
+      - name: Publish report release
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter, trivy-scan, unit-test]
+    needs: [build-image, linter, trivy-scan, unit-test, sast-scan]
     steps:
       - name: Compose Trivy line
         id: trivy_line
@@ -833,6 +898,31 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Compose SAST line
+        id: sast_line
+        env:
+          RESULT: ${{ needs.sast-scan.result }}
+          SCANNED: ${{ needs.sast-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.sast-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # A job that died before scan.sh ran leaves MESSAGE empty. Silence there would
+          # read as a clean scan, so say so explicitly instead.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="🔍 SAST (Semgrep): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -855,6 +945,8 @@ jobs:
             Unit Tests Status: ${{ needs.unit-test.outputs.UNIT_CHECK }}
 
             ${{ steps.trivy_line.outputs.value }}
+
+            ${{ steps.sast_line.outputs.value }}
 
             Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
