@@ -854,11 +854,88 @@ jobs:
           prerelease: true
           files: ${{ env.REPORT_FILE }}
 
+  dast-scan:
+    name: DAST Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Same gate as SAST, narrowed to the two repositories whose images are known to boot
+    # in CI (spec D4). Everything else reaches DAST only by explicit request.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-image.result == 'success'
+      && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan'))
+      && contains(fromJSON('["novatalks.ui","novatalks.core"]'), github.event.repository.name) }}
+    needs: [build-image, sast-scan]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.dast.outputs.outcome }}
+      FINDINGS: ${{ steps.dast.outputs.findings }}
+      MESSAGE: ${{ steps.dast.outputs.message }}
+    env:
+      DAST_TARGET_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+      REPORT_FILE: zap-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull built image
+        run: docker pull --platform linux/amd64 "$DAST_TARGET_IMAGE"
+
+      - name: ZAP baseline
+        id: dast
+        uses: novaitdevteam/nova.ci/.github/actions/dast@main
+        with:
+          image: ${{ env.DAST_TARGET_IMAGE }}
+          # novatalks.ui (nginx, static Vue app) and novatalks.core (NestJS engine) ports
+          # and health path, from the production Helm charts (novatalks.charts,
+          # novatalks_v5/values.yaml) — authoritative because it is what runs in prod.
+          port: ${{ github.event.repository.name == 'novatalks.ui' && '8000' || '3000' }}
+          health-path: /livez
+          # Derived from the engine chart's startupProbe: initialDelaySeconds 5 +
+          # failureThreshold 15 * periodSeconds 30 ≈ 455s before k8s gives up on startup.
+          # 300 sits between that and the action's 180 default, which risks a false
+          # "not run" on a cold start.
+          boot-timeout: 300
+          needs-db: ${{ github.event.repository.name == 'novatalks.core' }}
+          pg-image: postgres:17.9-trixie
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      - name: Publish report release
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter, trivy-scan, unit-test, sast-scan]
+    needs: [build-image, linter, trivy-scan, unit-test, sast-scan, dast-scan]
     steps:
       - name: Compose Trivy line
         id: trivy_line
@@ -923,6 +1000,32 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Compose DAST line
+        id: dast_line
+        env:
+          RESULT: ${{ needs.dast-scan.result }}
+          SCANNED: ${{ needs.dast-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.dast-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # Four states reach here and none of them may be silent: not scanned at all,
+          # scanned with a verdict scan.sh already worded, or a job that died before
+          # scan.sh could word anything.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="🕷 DAST (ZAP): ⏭️ skipped (not enabled for this repository)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="🕷 DAST (ZAP): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -947,6 +1050,8 @@ jobs:
             ${{ steps.trivy_line.outputs.value }}
 
             ${{ steps.sast_line.outputs.value }}
+
+            ${{ steps.dast_line.outputs.value }}
 
             Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
