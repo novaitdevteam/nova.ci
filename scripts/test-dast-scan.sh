@@ -25,12 +25,20 @@ mkdir -p "$WORK/bin"
 # GITHUB_WORKSPACE to $WORK, never see either.
 WS_WITH_ENV="$WORK/ws-with-envfile"
 WS_WITHOUT_ENV="$WORK/ws-without-envfile"
-mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV"
+WS_ALL_FILTERED="$WORK/ws-all-filtered-envfile"
+mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV" "$WS_ALL_FILTERED"
 cat > "$WS_WITH_ENV/.env.example" <<'ENVEX'
 # leaked secrets would live below this line — must never reach the container
 FILE_DRIVER=s3
 AWS_S3_BUCKET=example-bucket
 MESSAGE_EXTERNAL_SOURCE_LAST_ID
+ENVEX
+# A file that exists but leaves nothing after both filters — only comments and bare
+# keys, no KEY=value line at all.
+cat > "$WS_ALL_FILTERED/.env.example" <<'ENVEX'
+# nothing usable below this line
+SOME_BARE_KEY
+ANOTHER_BARE_KEY
 ENVEX
 
 pass=0
@@ -179,6 +187,17 @@ else
     sed 's/^/     /' "$WORK/dockerlog"
     fail=$((fail + 1))
 fi
+# Real regression coverage for cleanup()'s rm -f, not just a passing trap call: this
+# line has already been deleted once on this branch, so assert what it's actually for
+# — the file that may carry credentials must not survive the process. Content was
+# already captured into the snapshot above, at invocation time, so checking existence
+# of the real path here (after the process has exited and cleanup() has run) doesn't
+# need the file to still hold anything.
+if [ ! -f "$WORK/dast.env" ]; then
+    echo "ok   the temporary env file is deleted once the process exits"; pass=$((pass + 1))
+else
+    echo "FAIL the temporary env file was left behind after the process exited"; fail=$((fail + 1))
+fi
 
 GITHUB_WORKSPACE="$WS_WITHOUT_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: everything" \
     expect "no .env.example — scan proceeds exactly as before" clean 0
@@ -207,6 +226,20 @@ if grep -q '^MESSAGE_EXTERNAL_SOURCE_LAST_ID$' "$WORK/envfile-snapshot" 2>/dev/n
     fail=$((fail + 1))
 else
     echo "ok   bare-key line without '=' is dropped, not passed through from our own env"; pass=$((pass + 1))
+fi
+
+# .env.example exists but both filters leave nothing (only comments and bare keys):
+# scan.sh's `|| true` guard on the filter pipeline covers exactly this — the run must
+# still succeed, and whatever --env-file ends up pointing at must carry nothing.
+GITHUB_WORKSPACE="$WS_ALL_FILTERED" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: everything" \
+    expect "an .env.example with only comments/bare keys leaves nothing to pass through" clean 0
+assert_cleanup "all-filtered run tears containers down"
+if [ -s "$WORK/envfile-snapshot" ]; then
+    echo "FAIL all-filtered .env.example should leave an empty --env-file target"
+    sed 's/^/     /' "$WORK/envfile-snapshot"
+    fail=$((fail + 1))
+else
+    echo "ok   all-filtered .env.example leaves nothing for --env-file to pass through"; pass=$((pass + 1))
 fi
 
 echo "--- $pass passed, $fail failed"
