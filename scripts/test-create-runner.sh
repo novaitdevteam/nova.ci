@@ -70,14 +70,20 @@ runners() { # runners <name:status:busy:size>...
 
 pass=0 failed=0
 
-check() { # check <name> <ref> <repo> <expected-output-lines>
-    local name="$1" ref="$2" repo="$3" expected="$4"
-    local out summary actual
-    out="$WORK/output" summary="$WORK/summary"
+check() { # check <name> <ref> <repo> <expected-output-lines> [base-ref]
+    local name="$1" ref="$2" repo="$3" expected="$4" base_ref="${5:-}"
+    local out summary actual event
+    out="$WORK/output" summary="$WORK/summary" event="$WORK/event.json"
     : >"$out"; : >"$summary"
+    if [ -n "$base_ref" ]; then
+        jq -nc --arg b "$base_ref" '{base_ref: $b}' > "$event"
+    else
+        echo '{}' > "$event"
+    fi
 
     if ! PATH="$WORK/bin:$PATH" \
         GITHUB_REPOSITORY="novaitdevteam/$repo" GITHUB_REF="$ref" \
+        GITHUB_EVENT_PATH="$event" \
         ORG=novaitdevteam GH_TOKEN=t HCLOUD_TOKEN=t \
         GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="$summary" \
         bash "$SCRIPT" >"$WORK/log" 2>&1
@@ -228,6 +234,42 @@ check "fails open when the lock API breaks" \
 runner_name=<generated>
 runner_labels=small
 runner_need=true'
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "core trunk build gets medium: DAST brings up pg, redis and the app" \
+    refs/tags/build-NC2-1 novatalks.core \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=medium
+runner_need=true' \
+    refs/heads/development
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "core feature-branch build stays small: no DAST, no medium-pool contention" \
+    refs/tags/build-NC2-1 novatalks.core \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    refs/heads/NC2-123-some-feature
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "core scan tag gets medium on any branch: a scan tag always runs DAST" \
+    refs/tags/scan-NC2-1 novatalks.core \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=medium
+runner_need=true' \
+    refs/heads/NC2-123-some-feature
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "ui trunk build stays small: static assets need no database" \
+    refs/tags/build-NC2-1 novatalks.ui \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    refs/heads/development
 
 echo
 if [ "$failed" -ne 0 ]; then
