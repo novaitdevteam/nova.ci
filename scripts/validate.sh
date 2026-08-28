@@ -179,7 +179,14 @@ fi
 
 # Same argument as Gitleaks: the pin, the canary guard and the harness all live in
 # .github/actions/semgrep, and an inline `docker run semgrep` bypasses all three at once.
-semgrep_offenders="$(grep -nE 'semgrep +scan\b|uses:.*semgrep' .github/workflows/*.yaml \
+# `ci` is as real a subcommand as `scan` for gating purposes, so both are covered.
+# The docker-image pattern names the actual images rather than the bare word
+# "semgrep", so the sanctioned `uses: .../.github/actions/semgrep@main` line, which
+# also contains that word, does not trip it.
+# Residual gap (shared with the Gitleaks guard above, not fixed here): this is a
+# per-line grep, so a `docker run` invocation split across a line-broken YAML block
+# scalar is not caught. It stops careless copy-paste, not a determined bypass.
+semgrep_offenders="$(grep -nE 'semgrep +(scan|ci)\b|uses:.*semgrep|docker +run.*(semgrep/semgrep|returntocorp/semgrep)' .github/workflows/*.yaml \
   | grep -vE 'uses:.*/\.github/actions/semgrep(@|$)' \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$semgrep_offenders" ]; then
