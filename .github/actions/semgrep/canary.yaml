@@ -1,0 +1,11 @@
+# Proves the rule engine actually executed. Semgrep reporting "clean" is
+# indistinguishable from Semgrep having loaded zero rules — the same trap as
+# `gitleaks git --log-opts` exiting 0 on an unresolvable range. scan.sh writes a
+# fixture containing the marker below into a temp dir it adds to the scan target,
+# and treats a missing canary hit as an error, never as a clean run.
+rules:
+  - id: nova-ci-semgrep-canary
+    languages: [generic]
+    severity: INFO
+    message: nova.ci Semgrep canary
+    pattern-regex: NOVA_CI_SEMGREP_CANARY_MARKER

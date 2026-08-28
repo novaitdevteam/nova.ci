@@ -1,0 +1,52 @@
+name: "Semgrep SAST scan"
+description: "Static security analysis of the checked-out source with Semgrep OSS and the central rule packs"
+
+inputs:
+  configs:
+    description: "Space-separated Semgrep configs"
+    required: false
+    default: "p/typescript p/nodejs p/owasp-top-ten"
+  severity:
+    description: "Severity counted as a finding"
+    required: false
+    default: "ERROR"
+  report-file:
+    description: "Path the .report is written to"
+    required: true
+  report-url:
+    description: "Public URL the report will be published at, for the notifier line"
+    required: false
+    default: ""
+
+outputs:
+  outcome:
+    description: "clean | findings | error — a notifier must distinguish findings from a broken scanner"
+    value: ${{ steps.scan.outputs.outcome }}
+  findings:
+    description: "Number of findings at the configured severity"
+    value: ${{ steps.scan.outputs.findings }}
+  message:
+    description: "Ready-to-send notifier text"
+    value: ${{ steps.scan.outputs.message }}
+
+runs:
+  using: composite
+  steps:
+    # Pinned by version AND digest, for the same reason Gitleaks is: a tag can be
+    # moved, and `latest` would let an upstream change silently alter what a security
+    # gate reports. To upgrade: bump the tag, then re-read the digest with
+    #   docker buildx imagetools inspect semgrep/semgrep:<tag>
+    - name: Scan source
+      id: scan
+      shell: bash
+      env:
+        SEMGREP_IMAGE: "semgrep/semgrep:1.99.0@sha256:ae27024c16f7848cdbfd49c24ed0b78b13f13b85fcd7b87c679aaa8b0c0dce98"
+        SEMGREP_CONFIGS: ${{ inputs.configs }}
+        SEMGREP_SEVERITY: ${{ inputs.severity }}
+        SEMGREP_SRC: ${{ github.workspace }}
+        SEMGREP_REPORT_FILE: ${{ inputs.report-file }}
+        SEMGREP_ACTION_ROOT: ${{ github.action_path }}
+        REPORT_URL: ${{ inputs.report-url }}
+      run: |
+        set -euo pipefail
+        bash "${SEMGREP_ACTION_ROOT}/scan.sh"
