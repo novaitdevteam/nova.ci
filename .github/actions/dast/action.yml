@@ -1,0 +1,67 @@
+name: "OWASP ZAP baseline DAST scan"
+description: "Boot the built image with its dependencies and run an OWASP ZAP baseline scan against it"
+
+inputs:
+  image:
+    description: "Full image reference to boot and scan"
+    required: true
+  port:
+    description: "Port the application listens on"
+    required: true
+  health-path:
+    description: "Path polled to decide the application is up"
+    required: false
+    default: "/"
+  boot-timeout:
+    description: "Seconds to wait for the first HTTP response before giving up"
+    required: false
+    default: "180"
+  needs-db:
+    description: "Bring up postgres and redis alongside the application"
+    required: false
+    default: "false"
+  pg-image:
+    description: "Postgres image, when needs-db is true"
+    required: false
+    default: "postgres:16"
+  report-file:
+    description: "Path the .report is written to"
+    required: true
+  report-url:
+    description: "Public URL the report will be published at, for the notifier line"
+    required: false
+    default: ""
+
+outputs:
+  outcome:
+    description: "clean | findings | not-run | error — a failed boot is not a clean scan"
+    value: ${{ steps.scan.outputs.outcome }}
+  findings:
+    description: "Number of ZAP baseline warnings"
+    value: ${{ steps.scan.outputs.findings }}
+  message:
+    description: "Ready-to-send notifier text"
+    value: ${{ steps.scan.outputs.message }}
+
+runs:
+  using: composite
+  steps:
+    # Pinned by digest for the same reason Gitleaks and Semgrep are.
+    # To upgrade: docker buildx imagetools inspect ghcr.io/zaproxy/zaproxy:stable --format '{{.Manifest.Digest}}'
+    - name: Boot and scan
+      id: scan
+      shell: bash
+      env:
+        DAST_IMAGE: ${{ inputs.image }}
+        DAST_PORT: ${{ inputs.port }}
+        DAST_HEALTH_PATH: ${{ inputs.health-path }}
+        DAST_BOOT_TIMEOUT: ${{ inputs.boot-timeout }}
+        DAST_NEEDS_DB: ${{ inputs.needs-db }}
+        DAST_PG_IMAGE: ${{ inputs.pg-image }}
+        ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
+        DAST_REPORT_FILE: ${{ inputs.report-file }}
+        REPORT_URL: ${{ inputs.report-url }}
+        DAST_ACTION_ROOT: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        bash "${DAST_ACTION_ROOT}/scan.sh"
