@@ -133,6 +133,32 @@ ZAP itself failing — a non-zero exit that is not "warnings present", or no rep
 at all — is the opposite case. Nothing about the application explains it, so it is
 broken tooling and the job goes red, exactly like a Semgrep failure.
 
+### Seeding the app container from `.env.example`
+
+Some engines need more than `DATABASE_*`/`REDIS_*` to boot (`novatalks.core`'s S3 file
+storage, among others). Rather than hardcode product-specific env vars in `scan.sh` — or
+worse, a credential — the action reads the product repository's own `.env.example`, the
+same file `ci-build-ntk-on-push-tags-run-test.yaml` already trusts for integration
+tests, strips it down, and hands the survivors to `docker run --env-file`.
+
+`.env.example` is a human-facing file, not a strict `KEY=value` format: on
+`novatalks.core` it carries `NODE_ENV=production // production, development, test`.
+Docker's `--env-file` strips whole-line comments only, never a trailing one, so the
+literal comment text became part of `NODE_ENV`, Sequelize CLI found no config section by
+that name, and the engine never booted — reported correctly as `not-run`, but for the
+wrong reason. Two rules fix it, applied before the file ever reaches `docker run`:
+
+- any line whose value carries a trailing ` //` or ` #` comment is **dropped outright**,
+  not trimmed — guessing where the value ends is how a password containing ` #` gets
+  corrupted instead of dropped. The drop is anchored on the whitespace before the marker,
+  so a URL value (`https://…`, no space before its own `//`) survives.
+- `NODE_ENV` is **never seeded**, comment or not: it selects the application's own code
+  paths and config sections, and the image already sets it correctly
+  (`ENV NODE_ENV=production`) — seeding it from documentation can only make it wrong.
+
+`scan.sh` logs how many variables were seeded and how many lines were dropped, by which
+rule — names and counts only, never values, since the file may carry credentials.
+
 ### Where the ZAP warning count comes from
 
 `zap-baseline.py` has two output channels and they do not carry the same information.
@@ -167,7 +193,7 @@ until six things hold:
 2. Semgrep exited `0` or `1` (`1` is "findings present"), not higher;
 3. that output parses as JSON;
 4. at least one file appears in `.paths.scanned`;
-5. `.errors[]` is empty;
+5. `.errors[]` carries no error without a `path`;
 6. **the canary rule fired.**
 
 The canary is a one-rule config in the action directory
@@ -180,8 +206,18 @@ canary config is mounted from the action's own directory, so it resolves even in
 where all three registry packs failed to fetch: files get scanned, the canary fires, and
 zero real rules produce zero findings. Semgrep records a failed `--config` resolution in
 `.errors[]`, which is what closes that gap. So: the canary proves the **rule engine
-executed**, and the empty `.errors[]` proves the **configs it executed with actually
-loaded**. Together they mean a clean result is a real one.
+executed**, and `.errors[]` proves the **configs it executed with actually loaded**.
+Together they mean a clean result is a real one.
+
+`.errors[]` is not one kind of problem, though. Semgrep files a config/rule-resolution
+failure there with no `path` — the error is about the run itself — and a per-file
+problem such as a parse error or a scan timeout there too, with the offending file's
+`path` attached. The second kind is routine on a large TypeScript monorepo and proves
+nothing about whether the configs loaded: `novatalks.core`'s first real run hit twelve
+of them, all per-file, on the same pinned image and configs `novatalks.ui` had scanned
+clean forty minutes earlier. So `scan.sh` prints every error — level, type, path,
+message — and only fails closed on the ones with no `path`; per-file errors are logged
+as a warning with their count and the scan proceeds, findings and all.
 
 The canary hit is excluded from the finding count **by rule ID, not by severity**. Its
 own severity is a fixed `INFO`, but the counted severity is a caller-configurable input

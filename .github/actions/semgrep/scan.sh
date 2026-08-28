@@ -79,13 +79,29 @@ jq -e . "$json" >/dev/null 2>&1 || finish_error "Semgrep output is not valid JSO
 scanned=$(jq '.paths.scanned | length' "$json")
 [ "$scanned" -gt 0 ] || finish_error "Semgrep scanned zero files"
 
-# The canary is mounted from this action's own directory, so it resolves even when every
-# registry pack fails to fetch — a run with zero real rules still scans files and still
-# fires the canary. Semgrep records a failed --config resolution in .errors[], so the two
-# guards only close the trap together: the canary proves the engine executed, this proves
-# the configs it executed with actually loaded.
+# Semgrep puts two different kinds of problem in .errors[]: a config/rule resolution
+# failure — no `path`, the error is about the run itself, e.g. a registry pack that
+# could not be fetched — and a per-file problem such as a parse error or a timeout,
+# which carries the `path` of the offending file. The second kind is routine on a large
+# TypeScript monorepo and is not evidence the configs failed to load; novatalks.core hit
+# 12 of them and none was a resolution failure. Print every one before deciding anything
+# — the detail below is the ground truth a bare count never gave us, the same defect
+# this repository keeps legislating against (see gitleaks git --log-opts and the ZAP
+# report vs. console split). The canary and this guard only close the trap together:
+# the canary proves the engine executed, this proves the configs it executed with
+# actually loaded; a canary that still fires despite every registry pack failing to
+# fetch is exactly the gap this guard exists to close.
 err_count=$(jq '.errors | length' "$json")
-[ "$err_count" -eq 0 ] || finish_error "Semgrep reported ${err_count} error(s) — rules may not have loaded"
+if [ "$err_count" -gt 0 ]; then
+    echo "Semgrep reported ${err_count} error(s):"
+    jq -r '.errors[] | "  [\(.level // "?")] type=\(.type // "?") path=\(.path // "-"): \((.message // "") | .[0:200])"' "$json"
+fi
+
+config_err_count=$(jq '[.errors[] | select(.path == null or .path == "")] | length' "$json")
+[ "$config_err_count" -eq 0 ] || finish_error "Semgrep reported ${config_err_count} configuration/rule error(s) — rules may not have loaded"
+
+file_err_count=$(( err_count - config_err_count ))
+[ "$file_err_count" -eq 0 ] || echo "::warning::Semgrep reported ${file_err_count} per-file error(s) (parse errors, timeouts) — configs resolved (canary fired), treating as non-blocking."
 
 canary_hits=$(jq '[.results[] | select(.check_id | test("nova-ci-semgrep-canary"))] | length' "$json")
 [ "$canary_hits" -gt 0 ] || finish_error "the canary rule did not fire — the rule engine did not run"

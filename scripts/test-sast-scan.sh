@@ -76,6 +76,7 @@ expect() { # expect <name> <expected-outcome> <expected-findings>
     local got_outcome got_findings
     got_outcome=$(sed -n 's/^outcome=//p' "$out")
     got_findings=$(sed -n 's/^findings=//p' "$out")
+    LAST_RC="$rc"
 
     if [ "$got_outcome" = "$want_outcome" ] && [ "$got_findings" = "$want_findings" ]; then
         echo "ok   $name"; pass=$((pass + 1))
@@ -130,6 +131,36 @@ SHIM_JSON='not json at all' SHIM_RC=0 \
 # findings — the exact shape of a clean run — must still come out `error`.
 SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}}],"errors":[{"code":7,"level":"error","message":"Invalid rule schema / config p/typescript could not be fetched"}],"paths":{"scanned":["src/a.ts"]}}' SHIM_RC=0 \
     expect "a config-resolution error is an error even with a firing canary" error 0
+if [ "$LAST_RC" = "2" ]; then
+    echo "ok   a config-resolution error (no path) exits 2"; pass=$((pass + 1))
+else
+    echo "FAIL a config-resolution error exited $LAST_RC, expected 2"; fail=$((fail + 1))
+fi
+if grep -q 'could not be fetched' "$WORK/log"; then
+    echo "ok   the config-resolution error detail is printed"; pass=$((pass + 1))
+else
+    echo "FAIL the config-resolution error detail is missing from the output"; fail=$((fail + 1))
+fi
+
+# novatalks.core regression: 12 errors, all per-file (parse errors, timeouts — every
+# one carries a `path`), on a run whose configs are known-good (novatalks.ui ran the
+# same three registry packs with the same pinned image 40 minutes earlier: zero errors,
+# three findings). Errors that all name a file must not fail the job — the scan
+# completes and findings are still counted normally.
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}},{"check_id":"rule.x","path":"src/a.ts","start":{"line":3},"extra":{"severity":"ERROR","message":"m"}}],"errors":[{"level":"warn","type":"timeout","path":"src/b.ts","message":"Timeout scanning a large generated file"},{"level":"warn","type":"parse","path":"src/c.ts","message":"Could not parse src/c.ts"}],"paths":{"scanned":["src/a.ts","src/b.ts","src/c.ts"]}}' SHIM_RC=1 \
+    expect "errors that all carry a path do not fail the scan" findings 1
+if [ "$LAST_RC" = "0" ]; then
+    echo "ok   per-file-only errors still exit 0"; pass=$((pass + 1))
+else
+    echo "FAIL per-file-only errors exited $LAST_RC, expected 0"; fail=$((fail + 1))
+fi
+if grep -q 'Timeout scanning a large generated file' "$WORK/log" && grep -q 'Could not parse src/c.ts' "$WORK/log"; then
+    echo "ok   per-file error detail is printed even though the scan completes"; pass=$((pass + 1))
+else
+    echo "FAIL per-file error detail is missing from the output"
+    sed 's/^/     /' "$WORK/log"
+    fail=$((fail + 1))
+fi
 
 SHIM_JSON="$(semgrep_json yes ERROR)" SHIM_RC=1 \
     expect "single finding" findings 1

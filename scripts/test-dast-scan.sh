@@ -26,7 +26,8 @@ mkdir -p "$WORK/bin"
 WS_WITH_ENV="$WORK/ws-with-envfile"
 WS_WITHOUT_ENV="$WORK/ws-without-envfile"
 WS_ALL_FILTERED="$WORK/ws-all-filtered-envfile"
-mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV" "$WS_ALL_FILTERED"
+WS_TRAILING_COMMENT="$WORK/ws-trailing-comment-envfile"
+mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV" "$WS_ALL_FILTERED" "$WS_TRAILING_COMMENT"
 cat > "$WS_WITH_ENV/.env.example" <<'ENVEX'
 # leaked secrets would live below this line — must never reach the container
 FILE_DRIVER=s3
@@ -39,6 +40,18 @@ cat > "$WS_ALL_FILTERED/.env.example" <<'ENVEX'
 # nothing usable below this line
 SOME_BARE_KEY
 ANOTHER_BARE_KEY
+ENVEX
+# The novatalks.core regression fixture: a clean NODE_ENV (must be dropped by name, not
+# by the comment filter), one value with a trailing ` //` comment, one with a trailing
+# ` #` comment, a URL whose own `//` has no preceding whitespace (must survive), and one
+# plain value (must survive) — so seeded/dropped counts land on 2 seeded, 2
+# comment-dropped, 1 NODE_ENV-dropped.
+cat > "$WS_TRAILING_COMMENT/.env.example" <<'ENVEX'
+NODE_ENV=production
+LOG_LEVEL=debug // change to info in prod
+RATE_LIMIT=100 # requests per minute
+EXTERNAL_URL=https://example.com
+DATABASE_POOL=5
 ENVEX
 
 pass=0
@@ -328,6 +341,48 @@ if [ -s "$WORK/envfile-snapshot" ]; then
     fail=$((fail + 1))
 else
     echo "ok   all-filtered .env.example leaves nothing for --env-file to pass through"; pass=$((pass + 1))
+fi
+
+# Defect regression: novatalks.core's .env.example carries `NODE_ENV=production //
+# production, development, test`. Docker's --env-file strips whole-line comments only,
+# never a trailing one, so the literal comment text became part of NODE_ENV and
+# Sequelize CLI found no config section by that name — the engine never booted. Two
+# rules, checked independently: any line with a trailing ` //` or ` #` comment is
+# dropped outright, and NODE_ENV is dropped by name regardless of its own formatting.
+GITHUB_WORKSPACE="$WS_TRAILING_COMMENT" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "an env file with trailing comments and NODE_ENV still boots clean" clean 0
+assert_cleanup "trailing-comment run tears containers down"
+if grep -q '^LOG_LEVEL=' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "FAIL a value with a trailing // comment leaked into the temporary env file"
+    fail=$((fail + 1))
+else
+    echo "ok   a value with a trailing // comment is dropped"; pass=$((pass + 1))
+fi
+if grep -q '^RATE_LIMIT=' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "FAIL a value with a trailing # comment leaked into the temporary env file"
+    fail=$((fail + 1))
+else
+    echo "ok   a value with a trailing # comment is dropped"; pass=$((pass + 1))
+fi
+if grep -q '^EXTERNAL_URL=https://example.com$' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   a URL value whose // has no preceding space survives"; pass=$((pass + 1))
+else
+    echo "FAIL a URL value survived filtering incorrectly, or is missing"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+if grep -q '^NODE_ENV=' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "FAIL NODE_ENV reached the temporary env file, and so would have reached the container"
+    fail=$((fail + 1))
+else
+    echo "ok   NODE_ENV never reaches the container regardless of its own formatting"; pass=$((pass + 1))
+fi
+if grep -q 'seeded 2 variable(s); dropped 2 line(s) with a trailing comment, 1 NODE_ENV line(s)' "$WORK/log"; then
+    echo "ok   seeded/dropped counts are logged, by rule"; pass=$((pass + 1))
+else
+    echo "FAIL seeded/dropped counts are missing from the output"
+    sed 's/^/     /' "$WORK/log"
+    fail=$((fail + 1))
 fi
 
 echo "--- $pass passed, $fail failed"

@@ -118,6 +118,8 @@ esac
 
 if [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
+    stage="${app_tmp_env}.stage"
+
     # Two filters, mirroring ci-build-ntk-on-push-tags-run-test.yaml's own
     # `sed '/^#/d'` + `grep -E '^[A-Za-z_][A-Za-z0-9_]*='`: comments are dropped, and so
     # is any bare-key line with no `=`. Docker's --env-file treats a bare key as "pass
@@ -127,7 +129,40 @@ if [ -f "$env_file_path" ]; then
     # surviving KEY=value lines natively, including values containing `=` or spaces, so
     # they are handed through rather than re-parsed into -e flags.
     grep -v '^[[:space:]]*#' "$env_file_path" \
-        | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' > "$app_tmp_env" || true
+        | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' > "$stage" || true
+    candidate_count=$(grep -c . "$stage" || true)
+    candidate_count="${candidate_count:-0}"
+
+    # .env.example is a human-facing file, and a value written `production // comment`
+    # is documentation, not a value with a suffix. Docker's --env-file strips whole-line
+    # comments only, never a trailing one, so the comment text became part of the value
+    # — this is exactly what broke novatalks.core's boot (NODE_ENV picked up the literal
+    # string "production // production, development, test", and Sequelize CLI found no
+    # config section by that name). Anchor the drop on the whitespace before `//` or `#`
+    # so a URL value (`https://…`, no space before its own `//`) survives. A line with a
+    # trailing comment is dropped outright, never trimmed — guessing where the value
+    # ends is how a password containing ` #` gets corrupted instead of dropped.
+    grep -vE '[[:space:]](//|#)' "$stage" > "$app_tmp_env" || true
+    kept_count=$(grep -c . "$app_tmp_env" || true)
+    kept_count="${kept_count:-0}"
+    comment_dropped=$(( candidate_count - kept_count ))
+
+    # NODE_ENV selects the application's own code paths and config sections, and the
+    # image already sets it correctly (`ENV NODE_ENV=production`). Seeding it from the
+    # product repo's own documentation file can only override a correct value with a
+    # wrong one, comment or not — so it is filtered out by name, independent of whether
+    # this particular line also tripped the comment filter above.
+    grep -vE '^NODE_ENV=' "$app_tmp_env" > "$stage" || true
+    mv "$stage" "$app_tmp_env"
+    seeded_count=$(grep -c . "$app_tmp_env" || true)
+    seeded_count="${seeded_count:-0}"
+    node_env_dropped=$(( kept_count - seeded_count ))
+
+    # Names and counts only, never values: this file may carry credentials. The absence
+    # of exactly this line is why diagnosing the novatalks.core boot failure took as
+    # many steps as it did.
+    echo "DAST env file (${DAST_ENV_FILE}): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s)."
+
     app_env_args=(--env-file "$app_tmp_env")
 fi
 
