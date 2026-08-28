@@ -49,4 +49,4 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 
 ---
 
-[← Container scanning (Trivy)](container-scanning.md) · [Docs index](README.md) · [Secret detection →](secret-detection.md)
+[← SAST and DAST](sast-dast.md) · [Docs index](README.md) · [Secret detection →](secret-detection.md)

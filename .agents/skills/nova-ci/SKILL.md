@@ -28,6 +28,9 @@ Primary files:
 - `scripts/test-create-runner.sh`: offline scenario self-check for `ci-build-create-runner.sh` (curl stubbed); extend it when adding a decision branch
 - `.github/actions/gitleaks/action.yml` + `scan.sh`: the only place any workflow may invoke Gitleaks; `security/gitleaks/gitleaks.toml` is the central rule set and allowlist
 - `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
+- `.github/actions/semgrep/action.yml` + `scan.sh` + `canary.yaml`: the only place any workflow may invoke Semgrep (SAST)
+- `.github/actions/dast/action.yml` + `scan.sh`: the only place any workflow may invoke OWASP ZAP (DAST)
+- `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`: offline scenario self-checks for those two (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
 - `scripts/gitleaks-baseline.sh`: one-time full-history secret audit across product repositories; deliberately not a CI job
 - `.github/actions/notify/action.yml`: the only place that talks to Telegram and Google Chat
 - `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
@@ -143,14 +146,16 @@ Integration test sharding (jest `--shard` + matrix) is intentionally not enabled
 
 Runner sizing is resolved in `ci-build-create-runner.sh` (downloaded from `nova.ci@main` by product-repo callers). For **`novatalks.core` only**, sizing is differentiated by tag substring:
 
-| Tag substring | `test_mode` | Runner size | Hetzner type | Why |
-| --- | --- | --- | --- | --- |
-| `build` | — | `small` | cx33 | lint + build only |
-| `unit-test` | `unit` | `medium` | cx43 | unit tests, no DB services |
-| `int-test` / `full-test` | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
-| anything else | — | `small` | cx33 | default |
+| Tag | `base_ref` | `test_mode` | Runner size | Hetzner type | Why |
+| --- | --- | --- | --- | --- | --- |
+| `scan*` | any | — | `medium` | cx43 | runs DAST: postgres + redis + app + ZAP |
+| `*build*` | `main`/`master`/`development` | — | `medium` | cx43 | trunk builds run DAST |
+| `*build*` | anything else | — | `small` | cx33 | lint + build only |
+| `*unit-test*` | — | `unit` | `medium` | cx43 | unit tests, no DB services |
+| `*test*` | — | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
+| anything else | — | — | `small` | cx33 | default |
 
-`unit-test` is matched before the generic `test` check so unit-only runs get `medium` while `int-test`/`full-test` get `large`. The matrix applies only to real tag pushes (`refs/tags/*`); branch and PR refs always resolve to `small`, so a branch name containing `test` does not provision a large VM. A `full-test` tag runs both unit and integration tests sequentially on a single `large` runner (one tag push = one runner size; `integration-tests` needs `unit-tests`). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools. All other repositories always resolve to `small`, regardless of tag.
+`scan*` is matched first and `unit-test` before the generic `test` check, so unit-only runs get `medium` while `int-test`/`full-test` get `large`. `base_ref` is read from `$GITHUB_EVENT_PATH` with `jq` (a tag push carries no branch in `GITHUB_REF`, and a new input would mean editing every product-repo caller); a missing or unreadable payload degrades to `small`, never to a bigger VM. **The `medium` branch exists for the DAST stack, not for faster builds** — narrowing it to feature branches brings back the OOM, widening it to every core build puts ordinary builds into the medium pool where they contend with unit tests. The matrix applies only to real tag pushes (`refs/tags/*`); branch and PR refs always resolve to `small`, so a branch name containing `test` does not provision a large VM. A `full-test` tag runs both unit and integration tests sequentially on a single `large` runner (one tag push = one runner size; `integration-tests` needs `unit-tests`). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools. All other repositories always resolve to `small`, regardless of tag.
 
 The reuse check only picks GitHub-registered runners (online, idle, size priority ≥ required) whose backing Hetzner VM is in `running` status — registrations whose VM is deleting or gone (ghosts) are skipped, since a job queued on them would never start. Per-size counts are computed directly from the Hetzner API response (servers named `dev-00-gh-runner-*` with a matching `server_type` in `starting`, `initializing`, or `running` status), not from GitHub-registered runners, so in-flight VM creations are counted and offline "ghost" GitHub registrations (left over from failed creates) don't block new ones. A global `MAX_TOTAL_RUNNERS` guard (env-overridable, default `6`) counts every `dev-00-gh-runner-*` Hetzner server in any status across all sizes; once that total is reached, new triggers go to the wait queue regardless of per-size counts. The race-jitter sleep before these lookups is 0-9 seconds.
 
@@ -260,7 +265,7 @@ Notifier jobs use `.github/actions/action-cond/action.yml` to select message tex
 
 Telegram and Google Chat notifications should use `actions/github-script@v8` with Node.js `fetch`. Do not reintroduce Docker-based Telegram actions such as `appleboy/telegram-action`; notifier jobs should not require Docker.
 
-In `ci-build-ntk-on-push-tags-build.yaml` the notifier `needs: [build-image, linter, unit-test, trivy-scan]` and a `Compose Trivy line` step builds a scan line color-coded by worst severity (`🔴 CRITICAL found!` / `🟠 HIGH found` / `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped`), with CRITICAL/HIGH counts and the report link, from `trivy-scan` outputs, injected into the same message sent to Telegram and Google Chat. The message also includes a `Unit Tests Status:` line (✅ / ❌ / `⏭️ n/a (no unit tests configured)`) from the `unit-test` job output. The job summary uses a matching colored alert banner (CAUTION/WARNING/NOTE).
+In `ci-build-ntk-on-push-tags-build.yaml` the notifier `needs: [build-image, linter, unit-test, trivy-scan, sast-scan, dast-scan]` and a `Compose Trivy line` step builds a scan line color-coded by worst severity (`🔴 CRITICAL found!` / `🟠 HIGH found` / `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped`), with CRITICAL/HIGH counts and the report link, from `trivy-scan` outputs, injected into the same message sent to Telegram and Google Chat. The message also includes a `Unit Tests Status:` line (✅ / ❌ / `⏭️ n/a (no unit tests configured)`) from the `unit-test` job output. `Compose SAST line` and `Compose DAST line` steps add one line per scanner, taken from the `MESSAGE` output each `scan.sh` composes (so the harnesses cover the wording), with a workflow-level fallback for a job that died before `scan.sh` ran — silence reads as a clean scan. Keep `⚠️ not run` distinct from `🟢 clean`. The job summary uses a matching colored alert banner (CAUTION/WARNING/NOTE).
 
 ## Trivy Image Scan Semantics
 
@@ -279,6 +284,74 @@ Preserve these behaviors:
 - Cache the Trivy DB with `actions/cache` over `${{ github.workspace }}/.cache/trivy` (action cache disabled via `cache: false`); the key embeds a 5-hour bucket (`trivy-db-5h-<floor(epoch/18000)>`).
 - Emit a single `.report` file (`trivy-<repo>-<ref><suffix>-<sha>.report`) with `=== OS Vulnerabilities ===` and `=== Node.js Vulnerabilities ===` sections. Upload it as a workflow artifact and attach it to a GitHub prerelease tagged `TRIVY.SCAN_<release>_<ref><suffix>_<sha>` (`softprops/action-gh-release@v2`, job needs `contents: write`). Put CRITICAL/HIGH counts and the report link in the job summary.
 - `trivy_mode` policy: `warn-only` (default) always succeeds and only warns; `fail-on-critical` fails the job when CRITICAL > 0; `fail-on-high` fails when CRITICAL or HIGH > 0. The image is already built/pushed before the scan, so a failing scan signals red but does not unpublish it.
+
+## SAST and DAST Semantics
+
+`ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
+repositories) and `dast-scan` (OWASP ZAP baseline, `novatalks.ui` and `novatalks.core`
+only) after `trivy-scan`, both delegating to a composite action. Three scanners, three
+questions: Semgrep reads our source, Trivy reads the image, ZAP probes the running app.
+Gitleaks covers secrets; ESLint answers none of them. See `docs/sast-dast.md`.
+
+Preserve these behaviors:
+
+- **A scanner that could not run is not a clean scan.** This is the spine of both
+  actions. Semgrep exits 0 with an empty result set when no rules load, and a ZAP
+  baseline against an app that crashed on boot produces the same empty report as a
+  healthy one — so each scanner has to *prove* it ran.
+- **Do not remove the Semgrep canary guard.** `.github/actions/semgrep/canary.yaml` is a
+  one-rule config plus a generated file it must match, mounted next to the source. If
+  that hit is absent the outcome is `error` (exit 2), never `clean`. `scan.sh` also
+  fails closed on: no output file, exit > 1, unparseable JSON, and an empty
+  `.paths.scanned`. Same class of trap as `gitleaks git --log-opts` exiting 0 on an
+  unresolvable range.
+- The canary hit is excluded from the finding count **by rule ID, not by severity**. The
+  counted severity is a caller input with no enum behind it, so an `INFO` setting must
+  still not count the canary.
+- **`warn-only` governs findings only.** Findings warn and the build stays green; a
+  broken scanner reds the job. Never collapse the two — Semgrep has no environmental
+  reason to fail (no database, no running app), so its failure means broken tooling.
+- **DAST has four outcomes and they must stay distinct**: `clean`, `findings`,
+  `not-run`, `error`. `not-run` means the application never booted — `.env.example`
+  drift, a missing migration, a changed port; none of them security events, and the
+  image is already in GHCR. It is a **loud skip**: green build, `=== DAST: not run ===`
+  in the report, a `WARNING` summary banner, and `⚠️ not run — <reason>` in the
+  notification. Never silence it and never red it. ZAP itself failing (a non-zero exit
+  that is not "warnings present", or no report file) is `error` and reds the job.
+- **Gate:** `always() && github.event_name != 'pull_request' && needs.build-image.result
+  == 'success' && (needs.build-image.outputs.IS_TRUNK == 'true' ||
+  startsWith(github.ref_name, 'scan'))`. No Semgrep on `pull_request`: `build-image` is
+  gated off there, so there is no release and no stable report URL, and the evidence
+  pack is the point. `build-image` resolves `IS_TRUNK` once as a job output because a
+  job-level `if` cannot reach a step in another job. `trivy-scan` deliberately keeps its
+  own `Resolve scan policy` step — two sources of truth for one predicate, accepted, and
+  not to be "simplified" without reading spec D6.
+- **Jobs are sequential** (`build-image → trivy-scan → sast-scan → dast-scan → notify`):
+  both need `RELEASE`/`SHORT_REF_NAME`/`SHORT_SHA` from `build-image`, and parallel scans
+  would only queue against the per-size cap of 2. Each carries `if: always() && …` so one
+  failure swallows neither the next scan nor the notifier.
+- **Three reports, one release.** Each job upserts its own `.report` onto the existing
+  `TRIVY.SCAN_<release>_<ref><suffix>_<sha>` prerelease (`softprops/action-gh-release@v2`
+  appends by tag; job needs `contents: write`), plus a run-scoped artifact and a job
+  summary. The `TRIVY.SCAN_` prefix is **historical** and stays — renaming breaks the
+  stable URLs documented in `docs/container-scanning.md`, and one release per scanner
+  triples the walk for the quarterly evidence aggregation.
+- **Pin both images by tag and digest**, never `latest`, for the reason the Gitleaks pin
+  exists. Upgrade with `docker buildx imagetools inspect`.
+- **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
+  vendored into `security/`. `ERROR` severity only on this rollout; `WARNING` once the
+  real count is known.
+- **DAST scope is `novatalks.ui` and `novatalks.core`**, gated on
+  `github.event.repository.name` like the `postgres:17.9-trixie` and R2 exceptions.
+  Adding a repository needs an explicit request **and a boot probe first**: port, health
+  path, boot timeout and database needs are per-repository inputs, and a wrong path
+  scans an error page and reports it clean.
+- Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
+  `scripts/test-dast-scan.sh` in the same change. `validate.sh` also fails if any
+  workflow runs `semgrep scan`/`semgrep ci`, `docker run` of a Semgrep or `zaproxy`
+  image, `zap-baseline.py`, or a third-party action for either.
+- Be honest about reach in any documentation: the unauthenticated ZAP baseline finds
+  header and cookie hygiene, not logic flaws. It is not a penetration test.
 
 ## Documentation Assets
 
@@ -315,8 +388,8 @@ Keep `docs/` as the canonical broad reference and `README.md` as a thin landing 
 
 Run the validation harness; it bundles every check (YAML parse of workflows and
 actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, the
-`ci-build-create-runner.sh` and `scan.sh` scenario self-checks, the Gitleaks and
-notifier transport guards, and `actionlint` when installed — advisory by default given the repo's pre-existing
+`ci-build-create-runner.sh`, Gitleaks, Semgrep and DAST `scan.sh` scenario self-checks,
+the scanner-invocation and notifier transport guards, and `actionlint` when installed — advisory by default given the repo's pre-existing
 backlog; `STRICT_ACTIONLINT=1` enforces):
 
 ```bash
