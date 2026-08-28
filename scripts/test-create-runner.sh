@@ -70,12 +70,16 @@ runners() { # runners <name:status:busy:size>...
 
 pass=0 failed=0
 
-check() { # check <name> <ref> <repo> <expected-output-lines> [base-ref]
-    local name="$1" ref="$2" repo="$3" expected="$4" base_ref="${5:-}"
+check() { # check <name> <ref> <repo> <expected-output-lines> [base-ref] [event-path-override]
+    local name="$1" ref="$2" repo="$3" expected="$4" base_ref="${5:-}" event_override="${6:-}"
     local out summary actual event
     out="$WORK/output" summary="$WORK/summary" event="$WORK/event.json"
     : >"$out"; : >"$summary"
-    if [ -n "$base_ref" ]; then
+    if [ -n "$event_override" ]; then
+        # A scenario that needs a missing or malformed event file supplies its own
+        # path instead of a base-ref for the helper to encode.
+        event="$event_override"
+    elif [ -n "$base_ref" ]; then
         jq -nc --arg b "$base_ref" '{base_ref: $b}' > "$event"
     else
         echo '{}' > "$event"
@@ -270,6 +274,25 @@ runner_name=<generated>
 runner_labels=small
 runner_need=true' \
     refs/heads/development
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "core build tag degrades to small when GITHUB_EVENT_PATH is missing" \
+    refs/tags/build-NC2-1 novatalks.core \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    "" "$WORK/nonexistent-event.json"
+
+echo '{ this is not json' > "$WORK/malformed-event.json"
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "core build tag degrades to small when GITHUB_EVENT_PATH is malformed JSON" \
+    refs/tags/build-NC2-1 novatalks.core \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    "" "$WORK/malformed-event.json"
 
 echo
 if [ "$failed" -ne 0 ]; then
