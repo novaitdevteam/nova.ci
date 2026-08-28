@@ -148,8 +148,10 @@ exit code carries no signal either; counting the wrong stream leaves **both** ch
 dead and every run reports `🟢 clean` with `findings=0`, including one where ZAP found
 twenty warnings. It is precisely the failure this page is built around, so the harness
 carries a scenario whose markdown report is full of alert text and free of `WARN-NEW`.
-`${PIPESTATUS[0]}` matters for the same reason: plain `$?` after the pipe is `tee`'s
-status, which is `0` whatever ZAP did.
+`${PIPESTATUS[0]}` matters for the same reason: it is ZAP's own exit status,
+unambiguously. Plain `$?` after the pipe happens to give the same answer today only
+because `pipefail` is set — it would silently become `tee`'s status the moment that
+changed, and it reports `tee`'s status whenever `tee` itself fails.
 
 The console log lives under `RUNNER_TEMP`, is deleted by the same `EXIT` trap that
 removes the temporary env file, and is never uploaded — it is raw output about a
@@ -159,7 +161,7 @@ container booted with the product repository's own environment.
 
 Semgrep exits `0` and reports an empty result set when no rules load, so
 [`scan.sh`](../.github/actions/semgrep/scan.sh) refuses to call an empty result clean
-until five things hold:
+until six things hold:
 
 1. the container wrote an output file at all;
 2. Semgrep exited `0` or `1` (`1` is "findings present"), not higher;

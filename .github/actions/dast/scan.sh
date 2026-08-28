@@ -164,7 +164,9 @@ docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
     "$ZAP_IMAGE" zap-baseline.py -t "$target" \
     -I -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
-# PIPESTATUS[0], not $?: $? here is tee's status, which is 0 whatever ZAP did.
+# PIPESTATUS[0], not $?: it is ZAP's own exit status, unambiguously. $? happens to
+# agree only because pipefail is set above; it would silently become tee's status the
+# moment that changed, and it is tee's status whenever tee itself fails.
 zap_rc=${PIPESTATUS[0]}
 set -e
 

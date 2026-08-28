@@ -345,7 +345,9 @@ Preserve these behaviors:
 - **ZAP warnings are counted from stdout, never from the `-w` report.** `-w` writes the
   markdown "ZAP Scanning Report"; `WARN-NEW` is printed only to stdout, so counting the
   file is a permanent zero and every run goes out `🟢 clean`. Keep the `tee` capture and
-  `${PIPESTATUS[0]}` (plain `$?` is `tee`'s), the `^WARN-NEW: ` anchor (the tally line
+  `${PIPESTATUS[0]}` — ZAP's own exit status, unambiguously; plain `$?` only agrees
+  because `pipefail` is set and would become `tee`'s status the moment that changed, or
+  whenever `tee` itself fails — the `^WARN-NEW: ` anchor (the tally line
   starts `FAIL-NEW:`), and the console log deleted on exit and never uploaded. `-I`
   means the exit code carries no signal, so the count is the only channel.
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
