@@ -911,7 +911,7 @@ jobs:
           # "not run" on a cold start.
           boot-timeout: 300
           needs-db: ${{ github.event.repository.name == 'novatalks.core' }}
-          pg-image: postgres:17.9-trixie
+          pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
 
@@ -1013,7 +1013,7 @@ jobs:
           # scanned with a verdict scan.sh already worded, or a job that died before
           # scan.sh could word anything.
           if [[ "$SCANNED" != "true" ]]; then
-            line="🕷 DAST (ZAP): ⏭️ skipped (not enabled for this repository)"
+            line="🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)"
           elif [[ -n "$MESSAGE" ]]; then
             line="$MESSAGE"
           else

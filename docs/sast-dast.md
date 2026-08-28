@@ -259,7 +259,7 @@ build already sends — see [Notifications](notifications.md).
 | `🕷 DAST (ZAP): 🟡 <n> warnings` | baseline warnings |
 | `🕷 DAST (ZAP): ⚠️ not run — <reason>` | the app never came up |
 | `🕷 DAST (ZAP): ❌ scanner failed — <reason>` | broken scanner |
-| `🕷 DAST (ZAP): ⏭️ skipped (no scan trigger)` | not a trunk build or `scan*` tag, or not a DAST repository |
+| `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |
 
 The text is composed inside each `scan.sh`, not in the workflow, so the harnesses cover
 it — the same reason the [secret-scan alert](secret-detection.md#the-secret-scan-notify-job)
