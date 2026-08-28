@@ -244,6 +244,30 @@ else
   fail=1
 fi
 
+section "Self-reference pins"
+# Every uses: that points back into nova.ci must pin @main. A branch ref here is a
+# TEMPORARY testing state: it lets a product repo's test branch exercise unmerged CI,
+# and it must never reach main, where it would make the pipeline reference a branch
+# that no longer exists — or, worse, one that still does and has since moved.
+#
+# This check failing is not a bug. While a test ref is in place validate.sh is red on
+# purpose, and that red is what makes the temporary state impossible to merge by
+# accident. Restore the refs to @main and it goes green.
+#
+# Commented lines are skipped: the legacy branch-push route is kept commented, not
+# deleted, and its ref is inert.
+selfrefs="$(grep -nE 'uses: *novaitdevteam/nova\.ci/[^@]+@' .github/workflows/*.yaml \
+  | grep -vE '@main([[:space:]]|$)' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$selfrefs" ]; then
+  echo "OK: every nova.ci self-reference pins @main"
+else
+  printf '%s\n' "$selfrefs" | sed 's/^/       /'
+  echo "ERROR: these lines pin a non-main nova.ci ref."
+  echo "       If this is a deliberate test state, restore them to @main before merging."
+  fail=1
+fi
+
 section "actionlint"
 # actionlint is advisory by default: the repo's workflows carry a large pre-existing
 # backlog of shellcheck-info / expression findings. We surface them but do not fail the
