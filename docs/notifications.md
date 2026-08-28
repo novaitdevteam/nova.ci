@@ -12,7 +12,7 @@ The build message carries:
 - `Unit Tests Status:` — ✅ passed, ❌ failed, or `⏭️ n/a (no unit tests configured)` when the repository has no unit test plan, so a repo without tests is never reported as if its tests passed
 - a **Trivy line** color-coded by worst severity — `🔴 CRITICAL found!`, `🟠 HIGH found`, `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped` when no scan ran — with CRITICAL/HIGH counts and the report download link
 - a **SAST line** — `🔍 SAST (Semgrep): 🟢 clean`, `🟡 <n> ERROR`, `❌ scan failed — <reason>`, or `⏭️ skipped (no scan trigger)` — with the report download link
-- a **DAST line** — `🕷 DAST (ZAP): 🟢 clean`, `🟡 <n> warnings`, `❌ scanner failed — <reason>`, `⏭️ skipped (no scan trigger)`, or **`⚠️ not run — <reason>`**
+- a **DAST line** — `🕷 DAST (ZAP): 🟢 clean`, `🟡 <n> warnings`, `❌ scanner failed — <reason>`, `⏭️ skipped (not a DAST trigger or repository)`, or **`⚠️ not run — <reason>`**
 
 > [!IMPORTANT]
 > **`⚠️ not run` is not a colour variant of clean.** It means the application never came

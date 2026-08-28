@@ -79,6 +79,14 @@ jq -e . "$json" >/dev/null 2>&1 || finish_error "Semgrep output is not valid JSO
 scanned=$(jq '.paths.scanned | length' "$json")
 [ "$scanned" -gt 0 ] || finish_error "Semgrep scanned zero files"
 
+# The canary is mounted from this action's own directory, so it resolves even when every
+# registry pack fails to fetch — a run with zero real rules still scans files and still
+# fires the canary. Semgrep records a failed --config resolution in .errors[], so the two
+# guards only close the trap together: the canary proves the engine executed, this proves
+# the configs it executed with actually loaded.
+err_count=$(jq '.errors | length' "$json")
+[ "$err_count" -eq 0 ] || finish_error "Semgrep reported ${err_count} error(s) — rules may not have loaded"
+
 canary_hits=$(jq '[.results[] | select(.check_id | test("nova-ci-semgrep-canary"))] | length' "$json")
 [ "$canary_hits" -gt 0 ] || finish_error "the canary rule did not fire — the rule engine did not run"
 

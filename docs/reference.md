@@ -1,7 +1,7 @@
 # Reference
 
 <p align="center">
-  <img src="../assets/readme/reference.svg" width="100%" alt="one dispatcher workflow, the build and test workflows, the web and mobile workflows, the branch and meta workflows, two internal actions and the runner script" />
+  <img src="../assets/readme/reference.svg" width="100%" alt="one dispatcher workflow, the build and test workflows, the web and mobile workflows, the branch and meta workflows, six internal actions and the runner script" />
 </p>
 
 <details>
@@ -34,7 +34,7 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 - [`action-cond/action.yml`](../.github/actions/action-cond/action.yml) — composite replacement for the deprecated `haya14busa/action-cond`. Preserves the original interface: inputs `cond`, `if_true`, `if_false`; output `value`. Notifier workflows use it to select success or failure text.
 - [`install-docker/action.yml`](../.github/actions/install-docker/action.yml) — ensures the Docker CLI and daemon are available before Docker-based actions or Buildx steps run on self-hosted runners.
 - [`gitleaks/action.yml`](../.github/actions/gitleaks/action.yml) — installs a version- and checksum-pinned Gitleaks and runs [`scan.sh`](../.github/actions/gitleaks/scan.sh) over the commits a pull request or push adds, with the central config from [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml). The only place any workflow may invoke Gitleaks; `validate.sh` fails on a direct call.
-- [`semgrep/action.yml`](../.github/actions/semgrep/action.yml) — runs SAST over the checkout with a tag- and digest-pinned Semgrep OSS image and the registry rule packs, via [`scan.sh`](../.github/actions/semgrep/scan.sh). Emits `clean` / `findings` / `error`, never treating an empty result as clean unless the [`canary.yaml`](../.github/actions/semgrep/canary.yaml) rule fired. The only place any workflow may invoke Semgrep. See [SAST and DAST](sast-dast.md).
+- [`semgrep/action.yml`](../.github/actions/semgrep/action.yml) — runs SAST over the checkout with a tag- and digest-pinned Semgrep OSS image and the registry rule packs, via [`scan.sh`](../.github/actions/semgrep/scan.sh). Emits `clean` / `findings` / `error`, never treating an empty result as clean unless the [`canary.yaml`](../.github/actions/semgrep/canary.yaml) rule fired and Semgrep reported no config errors. The only place any workflow may invoke Semgrep. See [SAST and DAST](sast-dast.md).
 - [`dast/action.yml`](../.github/actions/dast/action.yml) — boots the built image with its dependencies, runs an OWASP ZAP baseline against it and tears everything down, via [`scan.sh`](../.github/actions/dast/scan.sh). Emits `clean` / `findings` / `not-run` / `error`: an application that failed to boot is a loud skip, not a clean scan. Port, health path, boot timeout and database needs are per-repository inputs. The only place any workflow may invoke ZAP.
 - [`notify/action.yml`](../.github/actions/notify/action.yml) — sends a composed notification to Telegram and Google Chat. Optional per channel; secrets and message text cross into the script through step `env:`, never through expression interpolation.
 

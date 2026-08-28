@@ -14,7 +14,7 @@ One harness runs every check:
 
 ## Runner script self-check
 
-[`scripts/test-create-runner.sh`](../scripts/test-create-runner.sh) runs `ci-build-create-runner.sh` offline against 22 scenarios: a `curl` shim on `PATH` answers the Hetzner and GitHub calls from canned JSON, `sleep` is stubbed out, and each scenario asserts the emitted `$GITHUB_OUTPUT`. It touches no network, no credentials and no Hetzner project, and covers reuse, ghost registrations, both caps, the sizing matrix (including the `base_ref`-scoped DAST branch and a missing or unreadable event payload), and all four create-lock outcomes (free, held, stale, API failure).
+[`scripts/test-create-runner.sh`](../scripts/test-create-runner.sh) runs `ci-build-create-runner.sh` offline against 22 checks: a `curl` shim on `PATH` answers the Hetzner and GitHub calls from canned JSON, `sleep` is stubbed out, and each scenario asserts the emitted `$GITHUB_OUTPUT`. It touches no network, no credentials and no Hetzner project, and covers reuse, ghost registrations, both caps, the sizing matrix (including the `base_ref`-scoped DAST branch and a missing or unreadable event payload), and all four create-lock outcomes (free, held, stale, API failure).
 
 Run it alone against any copy of the script:
 
@@ -27,7 +27,7 @@ Run it alone against any copy of the script:
 [`scripts/test-secret-scan.sh`](../scripts/test-secret-scan.sh) gives
 [`scan.sh`](../.github/actions/gitleaks/scan.sh) the same treatment, for the same
 reason: it decides whether a pull request may merge. It builds throwaway git repos and
-runs the real, pinned Gitleaks binary over them — 24 assertions covering clean and
+runs the real, pinned Gitleaks binary over them — 24 checks covering clean and
 dirty pull requests, follow-up deletion versus branch rewrite, both allowlist
 mechanisms, merge-base scoping, push ranges, a legacy finding outside the range, new
 branches and rewritten history, that findings stay redacted in both stdout and the
@@ -50,19 +50,24 @@ that page is built around: the difference between "found nothing" and "never ran
 invisible in the tools' own output, so it has to be asserted.
 
 [`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh) runs the Semgrep
-[`scan.sh`](../.github/actions/semgrep/scan.sh) against 13 scenarios with `docker`
+[`scan.sh`](../.github/actions/semgrep/scan.sh) against 14 checks with `docker`
 stubbed by a shim on `PATH`, so it needs no image and no network. It covers a clean
-run, findings at the counted severity, and every fail-closed case the canary guard
-exists for: no output file, a non-zero exit, unparseable JSON, zero files scanned, and
-a result set in which the canary rule did not fire. It also asserts the canary is never
-counted as a finding — including when the counted severity is set to the canary's own
-`INFO`.
+run, findings at the counted severity, and every fail-closed case the rule-load guard
+exists for: no output file, a non-zero exit, unparseable JSON, zero files scanned, a
+result set in which the canary rule did not fire, and a non-empty `.errors[]` *with* a
+firing canary — the shape of a run whose registry packs never loaded. It also asserts
+the canary is never counted as a finding, including when the counted severity is set to
+the canary's own `INFO`.
 
 [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh) does the same for the ZAP
-[`scan.sh`](../.github/actions/dast/scan.sh) across 13 scenarios, with `docker` and
+[`scan.sh`](../.github/actions/dast/scan.sh) across 36 checks, with `docker` and
 `curl` stubbed. It asserts the four outcomes stay distinct — `clean`, `findings`,
 `not-run` and `error` — plus the boot wait loop, teardown on every path, and that a
-no-database run never starts postgres or redis.
+no-database run never starts postgres or redis. Its ZAP shim writes the `-w` markdown
+report and the console stream **separately**, because the real `zap-baseline.py` does:
+`WARN-NEW` lines exist only on stdout, so a scenario whose markdown report is full of
+alert text but carries no `WARN-NEW` proves the count comes from the stream ZAP actually
+prints it on.
 
 ```bash
 ./scripts/test-sast-scan.sh

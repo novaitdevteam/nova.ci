@@ -26,8 +26,15 @@ set -euo pipefail
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
 DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
-target="http://127.0.0.1:${DAST_PORT}${DAST_HEALTH_PATH}"
+# Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
+# not interchangeable — on novatalks.ui the health path 404s — so the summary and the
+# report header name the URL that was actually scanned, not the one that was polled.
+target="http://127.0.0.1:${DAST_PORT}"
+health_url="${target}${DAST_HEALTH_PATH}"
 zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
+# zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
+# the finding count comes from are printed to stdout only, never into that file.
+zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
 app_env_args=()
 app_tmp_env=""
 
@@ -47,6 +54,9 @@ cleanup() {
     # temp file that may carry S3/database credentials must not outlive this process —
     # RUNNER_TEMP is not guaranteed wiped before the next job lands on the same VM.
     [ -n "$app_tmp_env" ] && rm -f "$app_tmp_env" >/dev/null 2>&1 || true
+    # The console log is a counting artefact, never an artifact: it holds raw ZAP
+    # output about a container that was booted with the product repo's own env.
+    rm -f "$zap_console" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -135,7 +145,7 @@ booted=no
 attempts=$(( DAST_BOOT_TIMEOUT / 2 ))
 [ "$attempts" -ge 1 ] || attempts=1
 for _ in $(seq 1 "$attempts"); do
-    code="$(curl -s -o /dev/null -w '%{http_code}' "$target" || true)"
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$health_url" || true)"
     if [ -n "$code" ] && [ "$code" != "000" ]; then booted=yes; break; fi
     sleep 2
 done
@@ -145,11 +155,17 @@ if [ "$booted" != "yes" ]; then
     not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
 fi
 
+# --user: the zaproxy image runs as uid 1000, and /zap/wrk is a bind mount of
+# RUNNER_TEMP on a pooled self-hosted runner. If that directory is owned by another uid
+# without group write, write_report raises IOError and ZAP exits 3 — a red build from a
+# permission bit. Running as the runner's own uid sidesteps it.
 set +e
-docker run --rm --network host -v "$(dirname "$zap_out"):/zap/wrk:rw" \
-    "$ZAP_IMAGE" zap-baseline.py -t "http://127.0.0.1:${DAST_PORT}" \
-    -I -w "$(basename "$zap_out")"
-zap_rc=$?
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+    -v "$(dirname "$zap_out"):/zap/wrk:rw" \
+    "$ZAP_IMAGE" zap-baseline.py -t "$target" \
+    -I -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
+# PIPESTATUS[0], not $?: $? here is tee's status, which is 0 whatever ZAP did.
+zap_rc=${PIPESTATUS[0]}
 set -e
 
 # zap-baseline.py: 0 = nothing, 2 = warnings present (with -I it never returns 1),
@@ -161,7 +177,12 @@ esac
 
 [ -s "$zap_out" ] || scanner_error "ZAP produced no report"
 
-findings=$(grep -c 'WARN-NEW' "$zap_out" || true)
+# Counted from stdout, not from the -w report: that report is the traditional
+# "ZAP Scanning Report" markdown (## Summary of Alerts + per-risk sections) and contains
+# no WARN-NEW at all, so counting it there is a permanent zero — every run green,
+# including one with twenty warnings. `^WARN-NEW: ` matches the per-rule lines only; the
+# trailing tally line starts with FAIL-NEW:.
+findings=$(grep -cE '^WARN-NEW: ' "$zap_console" || true)
 findings="${findings:-0}"
 
 {

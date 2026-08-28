@@ -1,7 +1,7 @@
 # SAST and DAST (Semgrep and OWASP ZAP)
 
 <p align="center">
-  <img src="../assets/readme/sast-dast.svg" width="100%" alt="Semgrep reads our own source and an OWASP ZAP baseline probes the running application, alongside Trivy on the container image; each reports clean, findings, not run or error, and a scanner that could not run is never reported clean; all three reports land on the one release the build already creates and each adds a line to the notification" />
+  <img src="../assets/readme/sast-dast.svg" width="100%" alt="Semgrep reads our own source and an OWASP ZAP baseline probes the running application, alongside Trivy on the container image; each reports clean, findings or error, with a fourth not-run outcome for DAST alone, and a scanner that could not run is never reported clean; all three reports land on the one release the build already creates and each adds a line to the notification" />
 </p>
 
 Two scanners join `trivy-scan` after a trunk build: **Semgrep** reads our own source
@@ -133,6 +133,28 @@ ZAP itself failing — a non-zero exit that is not "warnings present", or no rep
 at all — is the opposite case. Nothing about the application explains it, so it is
 broken tooling and the job goes red, exactly like a Semgrep failure.
 
+### Where the ZAP warning count comes from
+
+`zap-baseline.py` has two output channels and they do not carry the same information.
+`-w` writes the traditional **"ZAP Scanning Report" markdown** — `## Summary of Alerts`
+and a section per risk level. That file is the human-readable artifact, and it is what
+the `.report` is assembled from. But the **`WARN-NEW:` lines are printed to stdout
+only** and never appear in it, so the count is taken from a `tee` of the console stream,
+anchored on `^WARN-NEW: ` — the trailing tally line begins `FAIL-NEW:` and must not be
+counted as a rule.
+
+This is not a detail. `-I` makes the script exit `0` even with warnings present, so the
+exit code carries no signal either; counting the wrong stream leaves **both** channels
+dead and every run reports `🟢 clean` with `findings=0`, including one where ZAP found
+twenty warnings. It is precisely the failure this page is built around, so the harness
+carries a scenario whose markdown report is full of alert text and free of `WARN-NEW`.
+`${PIPESTATUS[0]}` matters for the same reason: plain `$?` after the pipe is `tee`'s
+status, which is `0` whatever ZAP did.
+
+The console log lives under `RUNNER_TEMP`, is deleted by the same `EXIT` trap that
+removes the temporary env file, and is never uploaded — it is raw output about a
+container booted with the product repository's own environment.
+
 ### The Semgrep canary guard
 
 Semgrep exits `0` and reports an empty result set when no rules load, so
@@ -143,13 +165,21 @@ until five things hold:
 2. Semgrep exited `0` or `1` (`1` is "findings present"), not higher;
 3. that output parses as JSON;
 4. at least one file appears in `.paths.scanned`;
-5. **the canary rule fired.**
+5. `.errors[]` is empty;
+6. **the canary rule fired.**
 
 The canary is a one-rule config in the action directory
 ([`canary.yaml`](../.github/actions/semgrep/canary.yaml)) plus a generated file it is
-guaranteed to match, mounted alongside the real source. If the engine ran with rules
-loaded, that hit is in the results. If it is missing, no amount of "zero findings"
-proves anything, and the outcome is `error` with exit `2`.
+guaranteed to match, mounted alongside the real source. If it is missing, no amount of
+"zero findings" proves anything, and the outcome is `error` with exit `2`.
+
+The last two are **one guard in two halves, and neither half is sufficient alone.** The
+canary config is mounted from the action's own directory, so it resolves even in a run
+where all three registry packs failed to fetch: files get scanned, the canary fires, and
+zero real rules produce zero findings. Semgrep records a failed `--config` resolution in
+`.errors[]`, which is what closes that gap. So: the canary proves the **rule engine
+executed**, and the empty `.errors[]` proves the **configs it executed with actually
+loaded**. Together they mean a clean result is a real one.
 
 The canary hit is excluded from the finding count **by rule ID, not by severity**. Its
 own severity is a fixed `INFO`, but the counted severity is a caller-configurable input
@@ -205,11 +235,13 @@ branch in `GITHUB_REF` and a new input would mean editing every product-reposito
 caller.
 
 > [!IMPORTANT]
-> **This branch exists for the DAST stack, not for faster builds.** Narrowing it back
-> to feature branches brings back the out-of-memory failure it was added to prevent.
-> Widening it to every `novatalks.core` build puts ordinary feature builds into the
-> `medium` pool, where they start contending with unit-test runs — the pools are
-> disjoint today, deliberately. See [Runners](runners.md#sizing-novatalkscore-only).
+> **This branch exists for the DAST stack, not for faster builds.** `medium` is sized
+> for postgres, redis, the application and ZAP on one VM — the same load `int-test`
+> already earns `large` for — so narrowing it back to feature-branch builds would leave
+> trunk builds, the ones that actually run DAST, on `small`. Widening it to every
+> `novatalks.core` build puts ordinary feature builds into the `medium` pool, where they
+> start contending with unit-test runs. See
+> [Runners](runners.md#sizing-novatalkscore-only).
 
 `cx43` is the agreed starting point, measured on the first real run; the documented
 fallback for the same stack is `large`.

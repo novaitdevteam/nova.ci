@@ -124,6 +124,13 @@ SHIM_JSON='{"results":[],"errors":[],"paths":{"scanned":[]}}' SHIM_RC=0 \
 SHIM_JSON='not json at all' SHIM_RC=0 \
     expect "unparseable output is an error" error 0
 
+# The canary alone does not prove the rule packs loaded: it is mounted from the action's
+# own directory, so it resolves and fires even when every registry --config fails to
+# fetch. Semgrep records those failures in .errors[]. Files scanned, canary firing, zero
+# findings — the exact shape of a clean run — must still come out `error`.
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}}],"errors":[{"code":7,"level":"error","message":"Invalid rule schema / config p/typescript could not be fetched"}],"paths":{"scanned":["src/a.ts"]}}' SHIM_RC=0 \
+    expect "a config-resolution error is an error even with a firing canary" error 0
+
 SHIM_JSON="$(semgrep_json yes ERROR)" SHIM_RC=1 \
     expect "single finding" findings 1
 assert_report "report names the rule" "rule.x"

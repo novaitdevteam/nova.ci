@@ -155,7 +155,7 @@ Runner sizing is resolved in `ci-build-create-runner.sh` (downloaded from `nova.
 | `*test*` | — | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
 | anything else | — | — | `small` | cx33 | default |
 
-`scan*` is matched first and `unit-test` before the generic `test` check, so unit-only runs get `medium` while `int-test`/`full-test` get `large`. `base_ref` is read from `$GITHUB_EVENT_PATH` with `jq` (a tag push carries no branch in `GITHUB_REF`, and a new input would mean editing every product-repo caller); a missing or unreadable payload degrades to `small`, never to a bigger VM. **The `medium` branch exists for the DAST stack, not for faster builds** — narrowing it to feature branches brings back the OOM, widening it to every core build puts ordinary builds into the medium pool where they contend with unit tests. The matrix applies only to real tag pushes (`refs/tags/*`); branch and PR refs always resolve to `small`, so a branch name containing `test` does not provision a large VM. A `full-test` tag runs both unit and integration tests sequentially on a single `large` runner (one tag push = one runner size; `integration-tests` needs `unit-tests`). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools. All other repositories always resolve to `small`, regardless of tag.
+`scan*` is matched first and `unit-test` before the generic `test` check, so unit-only runs get `medium` while `int-test`/`full-test` get `large`. `base_ref` is read from `$GITHUB_EVENT_PATH` with `jq` (a tag push carries no branch in `GITHUB_REF`, and a new input would mean editing every product-repo caller); a missing or unreadable payload degrades to `small`, never to a bigger VM. **The `medium` branch exists for the DAST stack, not for faster builds** — `medium` is sized for postgres + redis + app + ZAP on one VM, the load `int-test` gets `large` for, so narrowing it to feature-branch builds would leave trunk builds (the ones that run DAST) on `small`; widening it to every core build puts ordinary builds into the medium pool where they contend with unit tests. The matrix applies only to real tag pushes (`refs/tags/*`); branch and PR refs always resolve to `small`, so a branch name containing `test` does not provision a large VM. A `full-test` tag runs both unit and integration tests sequentially on a single `large` runner (one tag push = one runner size; `integration-tests` needs `unit-tests`). Each size class has its own **max-2** concurrency cap; `medium` and `large` are independent pools, so unit-test and integration-test runs never contend — but trunk and `scan*` builds do share the `medium` pool with unit-test runs, which is the cost of the DAST sizing branch. All other repositories always resolve to `small`, regardless of tag.
 
 The reuse check only picks GitHub-registered runners (online, idle, size priority ≥ required) whose backing Hetzner VM is in `running` status — registrations whose VM is deleting or gone (ghosts) are skipped, since a job queued on them would never start. Per-size counts are computed directly from the Hetzner API response (servers named `dev-00-gh-runner-*` with a matching `server_type` in `starting`, `initializing`, or `running` status), not from GitHub-registered runners, so in-flight VM creations are counted and offline "ghost" GitHub registrations (left over from failed creates) don't block new ones. A global `MAX_TOTAL_RUNNERS` guard (env-overridable, default `6`) counts every `dev-00-gh-runner-*` Hetzner server in any status across all sizes; once that total is reached, new triggers go to the wait queue regardless of per-size counts. The race-jitter sleep before these lookups is 0-9 seconds.
 
@@ -338,6 +338,16 @@ Preserve these behaviors:
   triples the walk for the quarterly evidence aggregation.
 - **Pin both images by tag and digest**, never `latest`, for the reason the Gitleaks pin
   exists. Upgrade with `docker buildx imagetools inspect`.
+- **The Semgrep canary and the `.errors[]` check are one guard in two halves.** The
+  canary config is mounted from the action's own directory, so it fires even when every
+  registry pack failed to fetch — canary proves the engine ran, empty `.errors[]` proves
+  the configs resolved. Removing either re-opens "zero rules, reported clean".
+- **ZAP warnings are counted from stdout, never from the `-w` report.** `-w` writes the
+  markdown "ZAP Scanning Report"; `WARN-NEW` is printed only to stdout, so counting the
+  file is a permanent zero and every run goes out `🟢 clean`. Keep the `tee` capture and
+  `${PIPESTATUS[0]}` (plain `$?` is `tee`'s), the `^WARN-NEW: ` anchor (the tally line
+  starts `FAIL-NEW:`), and the console log deleted on exit and never uploaded. `-I`
+  means the exit code carries no signal, so the count is the only channel.
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
   vendored into `security/`. `ERROR` severity only on this rollout; `WARNING` once the
   real count is known.

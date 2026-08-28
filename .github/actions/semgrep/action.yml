@@ -1,5 +1,5 @@
 name: "Semgrep SAST scan"
-description: "Static security analysis of the checked-out source with Semgrep OSS and the central rule packs"
+description: "Static security analysis of the checked-out source with Semgrep OSS and the default Semgrep Registry rule packs"
 
 inputs:
   configs:
