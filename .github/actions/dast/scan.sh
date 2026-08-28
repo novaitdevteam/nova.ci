@@ -43,6 +43,10 @@ emit_message() {
 
 cleanup() {
     docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
+    # Self-hosted runners are pooled and reused, not thrown away after one job, so a
+    # temp file that may carry S3/database credentials must not outlive this process —
+    # RUNNER_TEMP is not guaranteed wiped before the next job lands on the same VM.
+    [ -n "$app_tmp_env" ] && rm -f "$app_tmp_env" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -104,10 +108,16 @@ esac
 
 if [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
-    # Only comments are stripped here; --env-file parses KEY=value natively, including
-    # values containing `=` or spaces, so lines are handed through rather than
-    # re-parsed into -e flags.
-    grep -v '^[[:space:]]*#' "$env_file_path" > "$app_tmp_env"
+    # Two filters, mirroring ci-build-ntk-on-push-tags-run-test.yaml's own
+    # `sed '/^#/d'` + `grep -E '^[A-Za-z_][A-Za-z0-9_]*='`: comments are dropped, and so
+    # is any bare-key line with no `=`. Docker's --env-file treats a bare key as "pass
+    # through this process's own value of that variable" — a bare key in the product
+    # repo's .env.example that happens to match a name in scan.sh's own environment
+    # would otherwise leak it into the scanned container. --env-file still parses the
+    # surviving KEY=value lines natively, including values containing `=` or spaces, so
+    # they are handed through rather than re-parsed into -e flags.
+    grep -v '^[[:space:]]*#' "$env_file_path" \
+        | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' > "$app_tmp_env" || true
     app_env_args=(--env-file "$app_tmp_env")
 fi
 

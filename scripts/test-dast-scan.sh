@@ -30,13 +30,18 @@ cat > "$WS_WITH_ENV/.env.example" <<'ENVEX'
 # leaked secrets would live below this line — must never reach the container
 FILE_DRIVER=s3
 AWS_S3_BUCKET=example-bucket
+MESSAGE_EXTERNAL_SOURCE_LAST_ID
 ENVEX
 
 pass=0
 fail=0
 
 # docker shim. Records every invocation so cleanup can be asserted, and dispatches on
-# the subcommand so "run the app" and "run ZAP" can fail independently.
+# the subcommand so "run the app" and "run ZAP" can fail independently. For the app
+# container specifically, it also snapshots whatever file --env-file points at, at
+# invocation time — scan.sh's own EXIT trap deletes that file as soon as the process
+# exits, before the harness's own post-run assertions ever get to look at it, so
+# anything that wants to inspect its content has to capture it here instead.
 cat > "$WORK/bin/docker" <<'SHIM'
 #!/usr/bin/env bash
 echo "$*" >> "${SHIM_LOG:?}"
@@ -46,7 +51,15 @@ case "$1" in
             *zaproxy*)
                 printf '%s' "${SHIM_ZAP_REPORT:-WARN-NEW: nothing}" > "${SHIM_ZAP_OUT:?}"
                 exit "${SHIM_ZAP_RC:-0}" ;;
-            *) exit "${SHIM_APP_RC:-0}" ;;
+            *)
+                if [ -n "${SHIM_ENVFILE_SNAPSHOT:-}" ]; then
+                    prev=""
+                    for arg in "$@"; do
+                        [ "$prev" = "--env-file" ] && cp "$arg" "$SHIM_ENVFILE_SNAPSHOT" 2>/dev/null
+                        prev="$arg"
+                    done
+                fi
+                exit "${SHIM_APP_RC:-0}" ;;
         esac ;;
     rm|exec|pull|logs) exit 0 ;;
     *) exit 0 ;;
@@ -69,11 +82,11 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     local name="$1" want_outcome="$2" want_rc="$3"
     local out="$WORK/output" summary="$WORK/summary"
     : >"$out"; : >"$summary"; : >"$WORK/log"; : >"$WORK/dockerlog"
-    : >"$WORK/zap.md"; : >"$WORK/dast.env"
+    : >"$WORK/zap.md"; : >"$WORK/dast.env"; : >"$WORK/envfile-snapshot"
 
     set +e
     PATH="$WORK/bin:$PATH" \
-    SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap.md" \
+    SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap.md" SHIM_ENVFILE_SNAPSHOT="$WORK/envfile-snapshot" \
     DAST_IMAGE="ghcr.io/x/y:z" \
     DAST_PORT="3000" \
     DAST_HEALTH_PATH="/" \
@@ -176,14 +189,24 @@ else
     echo "ok   no --env-file flag when there is no .env.example"; pass=$((pass + 1))
 fi
 
+# scan.sh's own cleanup() deletes the temp env file the instant the process exits (it
+# may carry credentials, and self-hosted runners are pooled/reused, not thrown away
+# between jobs), so these two assertions read the docker shim's snapshot — taken at
+# `docker run` invocation time, before that trap ever fires — rather than $WORK/dast.env.
 GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: everything" \
-    expect "comment lines are stripped before reaching the app container" clean 0
-if [ -f "$WORK/dast.env" ] && ! grep -q '^#' "$WORK/dast.env" && grep -q '^FILE_DRIVER=s3$' "$WORK/dast.env"; then
+    expect "comment and bare-key lines are stripped before reaching the app container" clean 0
+if [ -f "$WORK/envfile-snapshot" ] && ! grep -q '^#' "$WORK/envfile-snapshot" && grep -q '^FILE_DRIVER=s3$' "$WORK/envfile-snapshot"; then
     echo "ok   comment stripped, KEY=value lines survive"; pass=$((pass + 1))
 else
     echo "FAIL comment line leaked into the temporary env file, or content missing"
-    sed 's/^/     /' "$WORK/dast.env" 2>/dev/null || echo "     (no temp env file written)"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
     fail=$((fail + 1))
+fi
+if grep -q '^MESSAGE_EXTERNAL_SOURCE_LAST_ID$' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "FAIL bare-key line (no '=') leaked into the temporary env file"
+    fail=$((fail + 1))
+else
+    echo "ok   bare-key line without '=' is dropped, not passed through from our own env"; pass=$((pass + 1))
 fi
 
 echo "--- $pass passed, $fail failed"
