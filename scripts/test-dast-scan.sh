@@ -65,7 +65,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_PORT="3000" \
     DAST_HEALTH_PATH="/" \
     DAST_BOOT_TIMEOUT="6" \
-    DAST_NEEDS_DB="true" \
+    DAST_NEEDS_DB="${DAST_NEEDS_DB:-true}" \
     DAST_PG_IMAGE="postgres:16" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
     DAST_REPORT_FILE="$WORK/report" \
@@ -90,10 +90,22 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
 }
 
 assert_cleanup() { # assert_cleanup <name>
-    if grep -q 'rm -f nova-app' "$WORK/dockerlog"; then
+    # Only cleanup() removes all three containers in one call; the pre-flight `docker rm
+    # -f` calls earlier in scan.sh remove them separately (nova-pg/nova-redis together,
+    # nova-app on its own). Matching the exact three-name line proves the EXIT trap ran,
+    # rather than just proving a pre-flight removal happened before anything started.
+    if grep -qx 'rm -f nova-app nova-pg nova-redis' "$WORK/dockerlog"; then
         echo "ok   $1"; pass=$((pass + 1))
     else
         echo "FAIL $1 — containers were not torn down"; fail=$((fail + 1))
+    fi
+}
+
+assert_no_db_containers() { # assert_no_db_containers <name>
+    if grep -qE '^run .*--name nova-(pg|redis)\b' "$WORK/dockerlog"; then
+        echo "FAIL $1 — postgres/redis were started"; fail=$((fail + 1))
+    else
+        echo "ok   $1"; pass=$((pass + 1))
     fi
 }
 
@@ -119,6 +131,13 @@ assert_cleanup "errored run still tears containers down"
 
 SHIM_CURL_RC=0 SHIM_APP_RC=1 \
     expect "the app container refusing to start is a loud skip" not-run 0
+assert_cleanup "app-refuses-to-start run still tears containers down"
+
+# novatalks.ui's production path: static assets behind nginx, no database at all.
+DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_REPORT="PASS: nothing to see" \
+    expect "no-database app still boots and scans clean" clean 0
+assert_cleanup "no-db run still tears containers down"
+assert_no_db_containers "no-db run never starts postgres or redis"
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

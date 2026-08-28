@@ -159,18 +159,16 @@ fi
 
 section "DAST scan self-check"
 # The four DAST outcomes must stay distinct: a build that could not boot its own image
-# is not a clean scan. The harness stubs docker and curl, so no image is pulled.
-if command -v jq >/dev/null 2>&1; then
-  if out="$(./scripts/test-dast-scan.sh 2>&1)"; then
-    printf '%s\n' "$out" | tail -1
-    echo "OK: all dast scan.sh scenarios passed"
-  else
-    printf '%s\n' "$out"
-    echo "ERROR: dast scan.sh self-check failed"
-    fail=1
-  fi
+# is not a clean scan. The harness stubs docker and curl, so no image is pulled. Unlike
+# the SAST self-check above, nothing here parses JSON, so there is no jq dependency to
+# gate on — gating it anyway would silently skip a check that has no reason to skip.
+if out="$(./scripts/test-dast-scan.sh 2>&1)"; then
+  printf '%s\n' "$out" | tail -1
+  echo "OK: all dast scan.sh scenarios passed"
 else
-  echo "skip: jq not installed"
+  printf '%s\n' "$out"
+  echo "ERROR: dast scan.sh self-check failed"
+  fail=1
 fi
 
 section "Scanner invocation"

@@ -52,7 +52,7 @@ not_run() { # not_run <reason>
     echo "::warning::DAST did not run: $1"
     emit outcome not-run
     emit findings 0
-    emit_message "🕷 DAST (ZAP): ⚠️ не виконано — $1"
+    emit_message "🕷 DAST (ZAP): ⚠️ not run — $1"
     summary WARNING "Scan did not run: $1. This is not a clean result."
     { echo "=== DAST: not run ==="; echo "$1"; } > "$DAST_REPORT_FILE"
     exit 0
@@ -62,7 +62,7 @@ scanner_error() { # scanner_error <reason>
     echo "::error::DAST scanner failed: $1"
     emit outcome error
     emit findings 0
-    emit_message "🕷 DAST (ZAP): ❌ сканер впав — $1"
+    emit_message "🕷 DAST (ZAP): ❌ scanner failed — $1"
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
 }
@@ -104,7 +104,7 @@ done
 
 if [ "$booted" != "yes" ]; then
     docker logs --tail 40 nova-app 2>&1 | sed 's/^/    /' || true
-    not_run "образ не піднявся за ${DAST_BOOT_TIMEOUT} с"
+    not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
 fi
 
 set +e
