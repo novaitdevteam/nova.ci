@@ -1,0 +1,118 @@
+name: DAST Boot Probe (temporary)
+
+# Throwaway. Settles spec assumptions A1/A2/A3 — whether the built images boot against
+# an empty postgres, on which port, and whether cx43 is enough — before any DAST code is
+# written against a guess. Delete once the answers are recorded in the spec.
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Full GHCR image reference to boot"
+        required: true
+      port:
+        description: "Port the app is expected to listen on"
+        required: false
+        default: "3000"
+      health_path:
+        description: "Path to probe"
+        required: false
+        default: "/"
+      needs_db:
+        description: "Bring up postgres and redis"
+        required: false
+        default: "true"
+
+jobs:
+  probe:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+    env:
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: password
+      DATABASE_NAME: db_name
+    steps:
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Mirrors ci-build-ntk-on-push-tags-run-test.yaml:173-193 so the probe measures the
+      # same stack DAST would use, not a different one.
+      - name: Start postgres and redis
+        if: ${{ inputs.needs_db == 'true' }}
+        run: |
+          set -euo pipefail
+          docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+          docker run -d --name nova-pg -p 5432:5432 \
+            -e POSTGRES_PASSWORD="$DATABASE_PASSWORD" \
+            -e POSTGRES_USER="$DATABASE_USERNAME" \
+            -e POSTGRES_DB="$DATABASE_NAME" \
+            postgres:17.9-trixie
+          docker run -d --name nova-redis -p 6379:6379 redis:8
+          for i in $(seq 1 60); do
+            docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec -e PGPASSWORD="$DATABASE_PASSWORD" nova-pg \
+            psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+      - name: Boot the image and report what happens
+        env:
+          IMAGE: ${{ inputs.image }}
+          PORT: ${{ inputs.port }}
+          HEALTH_PATH: ${{ inputs.health_path }}
+        run: |
+          set -uo pipefail
+          docker pull --platform linux/amd64 "$IMAGE"
+          docker run -d --name nova-app --network host \
+            -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
+            -e DATABASE_USERNAME="$DATABASE_USERNAME" \
+            -e DATABASE_PASSWORD="$DATABASE_PASSWORD" \
+            -e DATABASE_NAME="$DATABASE_NAME" \
+            -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
+            "$IMAGE"
+
+          ok=no
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}${HEALTH_PATH}" || true)
+            if [ -n "$code" ] && [ "$code" != "000" ]; then
+              echo "responded after $((i * 2))s with HTTP $code"; ok=yes; break
+            fi
+            sleep 2
+          done
+
+          {
+            echo "## DAST boot probe"
+            echo ""
+            echo "- Image: \`${IMAGE}\`"
+            echo "- Target: \`http://127.0.0.1:${PORT}${HEALTH_PATH}\`"
+            echo "- Responded: **${ok}**"
+            echo ""
+            echo '### Listening ports inside the container'
+            echo '```'
+            docker exec nova-app sh -c 'netstat -tlnp 2>/dev/null || ss -tlnp 2>/dev/null' || echo "(no netstat/ss in image)"
+            echo '```'
+            echo '### Last 80 log lines'
+            echo '```'
+            docker logs --tail 80 nova-app 2>&1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report memory headroom
+        if: always()
+        run: |
+          free -m || true
+          docker stats --no-stream || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
