@@ -18,6 +18,7 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
+      IS_TRUNK: ${{ steps.prep.outputs.IS_TRUNK }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -29,10 +30,20 @@ jobs:
           echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           if [[ ${{ github.ref_type }} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            short_ref_name="${{ github.ref_name }}"
           else
-            echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            short_ref_name="`echo ${{ github.event.base_ref }} | cut -d "/" -f3`"
           fi
+          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+
+          # Same trunk gate as build-image's in the main workflow, resolved here rather
+          # than re-expressed in a job-level `if`, because a job-level `if` cannot reach
+          # into another job's step.
+          case "$short_ref_name" in
+            main|master|development) is_trunk=true ;;
+            *)                       is_trunk=false ;;
+          esac
+          echo "IS_TRUNK=${is_trunk}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
         uses: dev-drprasad/delete-tag-and-release@v1.1
@@ -76,12 +87,98 @@ jobs:
         id: end_step
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
+  sast-scan:
+    name: SAST Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Same gate as the main workflow's sast-scan. No Trivy and no DAST job in this
+    # workflow — it zips `dist` and publishes it as a release asset, it produces no
+    # container image, so neither has anything to scan or boot. Semgrep reads source, so
+    # it applies exactly as it does everywhere else.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-widget.result == 'success'
+      && (needs.build-widget.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')) }}
+    needs: [build-widget]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.semgrep.outputs.outcome }}
+      FINDINGS: ${{ steps.semgrep.outputs.findings }}
+      MESSAGE: ${{ steps.semgrep.outputs.message }}
+    env:
+      REPORT_FILE: semgrep-${{ needs.build-widget.outputs.REP_NAME }}-${{ needs.build-widget.outputs.SHORT_REF_NAME }}-${{ needs.build-widget.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: NTK.CHATWIDGET_${{ needs.build-widget.outputs.RELEASE }}_${{ needs.build-widget.outputs.SHORT_REF_NAME }}_${{ needs.build-widget.outputs.SHORT_SHA }}
+    steps:
+      - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-widget, which has already finished by the time this job runs.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Semgrep
+        id: semgrep
+        uses: novaitdevteam/nova.ci/.github/actions/semgrep@feat/dast-more-repos
+        with:
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      # Upsert into the release build-widget already created for this build: the same
+      # tag_name expression as the "Create a Release" step above, so this appends the
+      # report to that release instead of creating a second one.
+      - name: Publish report release
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: false
+          files: ${{ env.REPORT_FILE }}
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
-    needs: [build-widget]
+    needs: [build-widget, sast-scan]
     steps:
+      - name: Compose SAST line
+        id: sast_line
+        env:
+          RESULT: ${{ needs.sast-scan.result }}
+          SCANNED: ${{ needs.sast-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.sast-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # A job that died before scan.sh ran leaves MESSAGE empty. Silence there would
+          # read as a clean scan, so say so explicitly instead.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="🔍 SAST (Semgrep): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -93,6 +190,8 @@ jobs:
             Image building has been completed ✅
 
             Download Link: https://github.com/novaitdevteam/novatalks.chatwidget/releases/download/NTK.CHATWIDGET_${{ needs.build-widget.outputs.RELEASE }}_${{ needs.build-widget.outputs.SHORT_REF_NAME }}_${{ needs.build-widget.outputs.SHORT_SHA }}/widget-release-${{ needs.build-widget.outputs.SHORT_REF_NAME }}-${{ needs.build-widget.outputs.SHORT_SHA }}.zip
+
+            ${{ steps.sast_line.outputs.value }}
 
             Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}

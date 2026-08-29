@@ -296,6 +296,17 @@ after `trivy-scan`, both delegating to a composite action. Three scanners, three
 questions: Semgrep reads our source, Trivy reads the image, ZAP probes the running app.
 Gitleaks covers secrets; ESLint answers none of them. See `docs/sast-dast.md`.
 
+`ci-build-ntk-on-push-tags-widget-build.yaml` (`novatalks.chatwidget`'s workflow, not the
+standard one) has its own `sast-scan` job mirroring the pattern above: same trunk gate
+(`build-widget`'s `prep` step now also emits `IS_TRUNK`, resolved the same way
+`build-image`'s is), SHA-pinned checkout, `install-docker`, the same `semgrep` composite
+action, and it upserts its report onto the release `build-widget` already creates
+(`NTK.CHATWIDGET_<release>_<ref>_<sha>`) rather than a second one. It has **no Trivy and
+no DAST job** — that workflow zips `dist` and publishes it as a release asset, so there
+is no container image for either to point at. Do not add one without inventing a target.
+The notifier's `Compose SAST line` step is the same three-state shape as the main
+workflow's (skipped / worded verdict / job died before `scan.sh` ran).
+
 Preserve these behaviors:
 
 - **A scanner that could not run is not a clean scan.** This is the spine of both

@@ -339,6 +339,18 @@ less.
 **SAST covers every standard build repository**, `novatalks.core` included. There is
 nothing per-repository about reading a checkout.
 
+**`novatalks.chatwidget` also gets SAST**, from a `sast-scan` job in its own
+`ci-build-ntk-on-push-tags-widget-build.yaml` rather than the main build workflow — that
+repository routes to the widget workflow, not the standard one. It gets **no Trivy and
+no DAST**, and that is a decision, not a gap: that workflow zips `dist` and publishes it
+as a release asset, it produces no container image, so neither scanner has a target —
+Trivy scans images, DAST boots them. Semgrep reads source, so it applies exactly as it
+does everywhere else. The widget's `sast-scan` mirrors the main workflow's: same trunk
+gate (an `IS_TRUNK` output added to `build-widget`'s `prep` step), same SHA-pinned
+checkout, same report-file convention, and it upserts its report onto the release
+`build-widget` already creates (`NTK.CHATWIDGET_<release>_<ref>_<sha>`) instead of a
+second one.
+
 **DAST covers nine repositories**, gated on `github.event.repository.name`, the same
 repository-scoped-exception pattern already used for the
 [integration Postgres image](tests.md) and R2 file storage:
