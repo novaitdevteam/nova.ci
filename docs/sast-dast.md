@@ -193,9 +193,29 @@ sensitive there even though today's only use is a dummy URL.
 `nova.chatsconnector.signal-client-api`'s `Resolve DAST target` arm sets
 `S3_ENDPOINT=https://s3.example.com` — `example.com` rather than an invented TLD
 because it is IANA-reserved for exactly this purpose and satisfies URL validators. It
-is never contacted during a baseline scan and carries no credential. Every other arm
-sets `extra_env=""` explicitly, following the same no-arm-inherits-from-another
-discipline as `port`, `health_path` and `needs_db`.
+is never contacted during a baseline scan and carries no credential.
+
+Past the URL, the same config validator rejects the next blank `S3_*` variable, one at
+a time (`"S3_ACCESS_KEY_ID" is not allowed to be empty`, then the next), so the arm
+seeds the whole plausible set together — `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+`S3_BUCKET`, `S3_PUBLIC_URL` and `WEBHOOK_SECRET` — rather than iterating one blank per
+five-minute CI run. `nova.chatsconnector.telegram-client-api`'s arm does the same for
+`TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN` and
+`ENCRYPTION_SECRET` (`"TELEGRAM_API_ID" is not allowed to be empty` was the first
+error); `TELEGRAM_API_ID` is numeric and `TELEGRAM_API_HASH` is 32 hex characters so a
+validator checking shape, not just presence, accepts them. All of these are dummy
+values, not credentials — they exist only so a scanned container reaches its HTTP
+listener; if one ever needs to be real, it belongs in a secret, not in this step.
+
+Both templates also leave `REDIS_PASSWORD` blank, and the signal one leaves
+`DATABASE_SSL_CA_CERT` blank too — both stay blank here on purpose. The redis this
+action starts has no password, so supplying one would break the connection that
+currently works, and a bogus CA certificate would break TLS negotiation rather than
+satisfy it. The telegram template also leaves `PROXY_IP`, `PROXY_PORT`,
+`PROXY_USERNAME`, `PROXY_PASSWORD` and `PROXY_SECRET` blank: an outbound proxy that
+does not exist is worse than none, and the validator has not complained about them.
+Every other arm sets `extra_env=""` explicitly, following the same
+no-arm-inherits-from-another discipline as `port`, `health_path` and `needs_db`.
 
 ### `DATABASE_URL` for Prisma-based repositories
 
@@ -299,9 +319,9 @@ repository-scoped-exception pattern already used for the
 | `novatalks.ui` | 8000 | `/livez` | false | — |
 | `novatalks.core` | 3000 | `/livez` | true | — |
 | `nova.botflow` | 1880 | `/` | true | — |
-| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | — |
+| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
 | `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | — |
-| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT=https://s3.example.com` |
+| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL`, `WEBHOOK_SECRET` |
 
 DAST is scoped that narrowly because, unlike the other two, it has to **boot the
 thing**. Every repository needs its own answer to: which port does the image listen on,

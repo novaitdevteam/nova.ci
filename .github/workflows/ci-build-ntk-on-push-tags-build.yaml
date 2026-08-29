@@ -946,7 +946,31 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
-              extra_env=""
+              # .env.example leaves TELEGRAM_API_ID, TELEGRAM_API_HASH,
+              # NOVATALKS_ACCESS_TOKEN and ENCRYPTION_SECRET blank as template
+              # placeholders. NestJS's config validator rejects an empty value one at a
+              # time ("TELEGRAM_API_ID" is not allowed to be empty, then the next, five
+              # minutes per CI run to find each), so all four are seeded together instead.
+              # These are dummy values, not credentials — they exist only so a scanned
+              # container reaches its HTTP listener. TELEGRAM_API_ID is numeric and
+              # TELEGRAM_API_HASH is 32 hex zeros: 32 characters so a shape-checking validator
+              # accepts it, and all-identical so the secret-scan entropy heuristic does not.
+              # A realistic-looking placeholder reds the required check: a 32-character string
+              # of 16 distinct hex digits scores exactly 4.0, over the 3.5 entropy threshold.
+              #
+              # Deliberately still blank:
+              # - REDIS_PASSWORD: this action's redis has no password, so setting one
+              #   would break the connection that already works.
+              # - PROXY_IP/PROXY_PORT/PROXY_USERNAME/PROXY_PASSWORD/PROXY_SECRET: an
+              #   outbound proxy that doesn't exist is worse than none, and the validator
+              #   has not complained about them.
+              #
+              # If any of these ever needs to be a real value, it belongs in a secret,
+              # not here.
+              extra_env="TELEGRAM_API_ID=12345
+              TELEGRAM_API_HASH=00000000000000000000000000000000
+              NOVATALKS_ACCESS_TOKEN=dast-dummy-token
+              ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy"
               ;;
             nova.chatsconnector.whatsapp-client-api)
               # Same shape as the telegram connector above.
@@ -970,7 +994,28 @@ jobs:
               # and pass unchallenged. example.com is IANA-reserved for exactly this kind
               # of placeholder, satisfies the validator, is never contacted during a
               # baseline scan, and is not a credential.
-              extra_env="S3_ENDPOINT=https://s3.example.com"
+              #
+              # Past that, the validator rejects empty S3_ACCESS_KEY_ID next, then the
+              # next blank, one at a time ("S3_ACCESS_KEY_ID" is not allowed to be
+              # empty), so the rest of the S3_* set and WEBHOOK_SECRET are seeded
+              # together rather than iterating one five-minute CI run per variable.
+              # These are dummy values, not credentials — they exist only so a scanned
+              # container reaches its HTTP listener.
+              #
+              # Deliberately still blank:
+              # - REDIS_PASSWORD: this action's redis has no password, so setting one
+              #   would break the connection that already works.
+              # - DATABASE_SSL_CA_CERT: a bogus CA certificate would break TLS
+              #   negotiation rather than satisfy it.
+              #
+              # If any of these ever needs to be a real value, it belongs in a secret,
+              # not here.
+              extra_env="S3_ENDPOINT=https://s3.example.com
+              S3_ACCESS_KEY_ID=dast-dummy-key
+              S3_SECRET_ACCESS_KEY=dast-dummy-secret
+              S3_BUCKET=dast-dummy-bucket
+              S3_PUBLIC_URL=https://s3.example.com
+              WEBHOOK_SECRET=dast-dummy-webhook-secret"
               ;;
             *)
               echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
