@@ -166,14 +166,9 @@ if [ -f "$env_file_path" ]; then
     # this particular line also tripped the comment filter above.
     grep -vE '^NODE_ENV=' "$app_tmp_env" > "$stage" || true
     mv "$stage" "$app_tmp_env"
-    seeded_count=$(grep -c . "$app_tmp_env" || true)
-    seeded_count="${seeded_count:-0}"
-    node_env_dropped=$(( kept_count - seeded_count ))
-
-    # Names and counts only, never values: this file may carry credentials. The absence
-    # of exactly this line is why diagnosing the novatalks.core boot failure took as
-    # many steps as it did.
-    echo "DAST env file (${DAST_ENV_FILE}): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s)."
+    node_env_kept_count=$(grep -c . "$app_tmp_env" || true)
+    node_env_kept_count="${node_env_kept_count:-0}"
+    node_env_dropped=$(( kept_count - node_env_kept_count ))
 
     # Docker's --env-file does not strip quotes the way dotenv (what .env.example files
     # are written for) does: a value written DATABASE_URL="postgresql://..." reaches the
@@ -181,6 +176,20 @@ if [ -f "$env_file_path" ]; then
     # Strip only a matching pair of surrounding quotes — first and last character both
     # `"` or both `'` — and nothing else: an inner quote stays, an unmatched leading quote
     # with no trailing one stays, and no whitespace is trimmed. That is dotenv's own rule.
+    #
+    # Fourth instance of the same shape as the comment, NODE_ENV and port filters above:
+    # a value left blank in a template ("KEY=") means "fill this in", not "set this to
+    # the empty string", and passing that empty string through is strictly worse than
+    # dropping the line — novatalks.dialer declares
+    # `MEMORY_RSS_THRESHOLD: Joi.number().integer().default(0)`, a perfectly good
+    # default, but Joi only applies a default when a value is undefined, and an empty
+    # string is a value; it dies with "MEMORY_RSS_THRESHOLD" must be a number instead of
+    # booting on its own default. Dropping the line lets that default apply, and a
+    # variable that is genuinely required will fail loudly by its own name — a far
+    # better diagnostic than a type error two layers down. A whitespace-only value is
+    # dropped for the same reason: "   " is not a real value either, just a value nobody
+    # bothered to trim out of the template.
+    empty_dropped=0
     while IFS= read -r env_line || [ -n "$env_line" ]; do
         env_key="${env_line%%=*}"
         env_val="${env_line#*=}"
@@ -193,9 +202,22 @@ if [ -f "$env_file_path" ]; then
                 env_val="${env_val:1:val_len-2}"
             fi
         fi
+        trimmed_val="${env_val%%[![:space:]]*}"
+        trimmed_val="${env_val#"$trimmed_val"}"
+        if [ -z "$trimmed_val" ]; then
+            empty_dropped=$((empty_dropped + 1))
+            continue
+        fi
         printf '%s=%s\n' "$env_key" "$env_val"
     done < "$app_tmp_env" > "$stage"
     mv "$stage" "$app_tmp_env"
+    seeded_count=$(grep -c . "$app_tmp_env" || true)
+    seeded_count="${seeded_count:-0}"
+
+    # Names and counts only, never values: this file may carry credentials. The absence
+    # of exactly this line is why diagnosing the novatalks.core boot failure took as
+    # many steps as it did.
+    echo "DAST env file (${DAST_ENV_FILE}): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s), ${empty_dropped} line(s) with an empty value."
 
     app_env_args=(--env-file "$app_tmp_env")
 fi

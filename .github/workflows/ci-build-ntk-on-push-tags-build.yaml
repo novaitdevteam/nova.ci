@@ -1002,6 +1002,24 @@ jobs:
               # These are dummy values, not credentials — they exist only so a scanned
               # container reaches its HTTP listener.
               #
+              # S3_PUBLIC_URL is deliberately absent, unlike its neighbours: its schema
+              # (src/config/env.validation.ts) declares
+              # `Joi.string().uri(...).empty('')`, not `.required()` — an empty value
+              # was already tolerated before scan.sh started dropping empty-value lines,
+              # and storage.config.ts falls back to path-style
+              # `<S3_ENDPOINT>/<S3_BUCKET>` when it's unset. Seeding it here only
+              # overrode a working fallback with an unused dummy.
+              #
+              # SIGNAL_MAX_FILE_SIZE stays despite `Joi.number().integer().positive()
+              # .empty('').default(104857600)` giving it both an empty-tolerant rule and
+              # a usable default: its .env.example line reads
+              # `SIGNAL_MAX_FILE_SIZE=104857600# inbound file size...` with no
+              # whitespace before the `#`, so scan.sh's trailing-comment filter (which
+              # anchors on a preceding space) never strips it, and the literal comment
+              # text would still reach Joi glued to the number. Dropping empty values
+              # does not touch this — the line isn't empty, it's comment-corrupted — so
+              # the override still earns its keep.
+              #
               # Deliberately still blank:
               # - REDIS_PASSWORD: this action's redis has no password, so setting one
               #   would break the connection that already works.
@@ -1014,7 +1032,6 @@ jobs:
               S3_ACCESS_KEY_ID=dast-dummy-key
               S3_SECRET_ACCESS_KEY=dast-dummy-secret
               S3_BUCKET=dast-dummy-bucket
-              S3_PUBLIC_URL=https://s3.example.com
               WEBHOOK_SECRET=dast-dummy-webhook-secret
               SIGNAL_MAX_FILE_SIZE=104857600"
               ;;

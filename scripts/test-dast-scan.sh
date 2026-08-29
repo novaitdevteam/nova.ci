@@ -73,6 +73,16 @@ mkdir -p "$WS_WRONG_PORT"
 cat > "$WS_WRONG_PORT/.env.example" <<'ENVEX'
 APP_PORT=5555
 ENVEX
+# The novatalks.dialer regression fixture: MEMORY_RSS_THRESHOLD is declared
+# `Joi.number().integer().default(0)`, a perfectly good default, but .env.example line
+# 13 leaves it blank. Joi only applies a default when a value is undefined, and an
+# empty string is a value — passing it through crashed boot with "must be a number"
+# even though the app never needed the line at all. One truly empty value, one
+# whitespace-only value (not a real value either, just untrimmed template noise), and
+# one real value that must survive untouched.
+WS_EMPTY_VALUE="$WORK/ws-empty-value-envfile"
+mkdir -p "$WS_EMPTY_VALUE"
+printf 'MEMORY_RSS_THRESHOLD=\nWHITESPACE_ONLY=   \nLOG_LEVEL=debug\n' > "$WS_EMPTY_VALUE/.env.example"
 
 pass=0
 fail=0
@@ -398,10 +408,46 @@ if grep -q '^NODE_ENV=' "$WORK/envfile-snapshot" 2>/dev/null; then
 else
     echo "ok   NODE_ENV never reaches the container regardless of its own formatting"; pass=$((pass + 1))
 fi
-if grep -q 'seeded 2 variable(s); dropped 2 line(s) with a trailing comment, 1 NODE_ENV line(s)' "$WORK/log"; then
+if grep -q 'seeded 2 variable(s); dropped 2 line(s) with a trailing comment, 1 NODE_ENV line(s), 0 line(s) with an empty value' "$WORK/log"; then
     echo "ok   seeded/dropped counts are logged, by rule"; pass=$((pass + 1))
 else
     echo "FAIL seeded/dropped counts are missing from the output"
+    sed 's/^/     /' "$WORK/log"
+    fail=$((fail + 1))
+fi
+
+# Defect regression #4: novatalks.dialer's .env.example leaves MEMORY_RSS_THRESHOLD
+# blank. Joi's `.default(0)` only fires on an undefined value, and an empty string is a
+# value, so passing it through overrode the default with something Joi's own
+# `.number()` check then rejected outright, and the app never booted. Same family as
+# NODE_ENV, the trailing comment and the port: the action must not let a blank template
+# line become a literal empty-string override.
+GITHUB_WORKSPACE="$WS_EMPTY_VALUE" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "an env file with an empty and a whitespace-only value still boots clean" clean 0
+assert_cleanup "empty-value run tears containers down"
+if grep -q '^MEMORY_RSS_THRESHOLD=' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "FAIL a line with an empty value leaked into the temporary env file"
+    fail=$((fail + 1))
+else
+    echo "ok   a line with an empty value is dropped"; pass=$((pass + 1))
+fi
+if grep -q '^WHITESPACE_ONLY=' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "FAIL a line whose value is only whitespace leaked into the temporary env file"
+    fail=$((fail + 1))
+else
+    echo "ok   a line whose value is only whitespace is dropped"; pass=$((pass + 1))
+fi
+if grep -qx 'LOG_LEVEL=debug' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   a line with a real value is kept"; pass=$((pass + 1))
+else
+    echo "FAIL a line with a real value was dropped, or is missing"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+if grep -q 'seeded 1 variable(s); dropped 0 line(s) with a trailing comment, 0 NODE_ENV line(s), 2 line(s) with an empty value' "$WORK/log"; then
+    echo "ok   the dropped-empty count appears in the log line"; pass=$((pass + 1))
+else
+    echo "FAIL the dropped-empty count is missing from the log line"
     sed 's/^/     /' "$WORK/log"
     fail=$((fail + 1))
 fi

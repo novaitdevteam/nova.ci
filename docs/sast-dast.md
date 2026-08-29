@@ -188,6 +188,26 @@ trailing comment overriding a correct image default; quoted values were the seco
 on. `scan.sh` now forces the resolved port onto the container after `--env-file`, under
 both names in use across these repositories:
 
+### An empty value is dropped, not passed through
+
+The fourth defect of the same shape: `.env.example` leaves plenty of values blank as
+template placeholders (`KEY=`), and until now every one of those blank lines was seeded
+as a literal empty string. `novatalks.dialer` declares
+`MEMORY_RSS_THRESHOLD: Joi.number().integer().default(0)` — a perfectly good default —
+but its `.env.example` carries `MEMORY_RSS_THRESHOLD=`. Joi only applies `.default()`
+when a value is `undefined`; an empty string is a value, and `.number()` rejects it, so
+the engine never booted (`"MEMORY_RSS_THRESHOLD" must be a number`) even though it never
+needed the line at all.
+
+An empty value in a template means "fill this in", not "set this to the empty string",
+and passing it through is strictly worse than dropping the line: dropping it lets an
+application's own default apply, exactly as it would if the line were never written,
+and a variable that is genuinely required still fails loudly by its own name — a far
+better diagnostic than a type error two layers down. `scan.sh` now drops any line whose
+value is empty or entirely whitespace, in the same pass that strips quotes, and folds
+the count into the same log line as the comment, `NODE_ENV` and (once resolved) seeded
+totals.
+
 ```
 -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT"
 ```
@@ -227,14 +247,34 @@ is never contacted during a baseline scan and carries no credential.
 Past the URL, the same config validator rejects the next blank `S3_*` variable, one at
 a time (`"S3_ACCESS_KEY_ID" is not allowed to be empty`, then the next), so the arm
 seeds the whole plausible set together — `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
-`S3_BUCKET`, `S3_PUBLIC_URL` and `WEBHOOK_SECRET` — rather than iterating one blank per
-five-minute CI run. `nova.chatsconnector.telegram-client-api`'s arm does the same for
+`S3_BUCKET` and `WEBHOOK_SECRET` — rather than iterating one blank per five-minute CI
+run. `nova.chatsconnector.telegram-client-api`'s arm does the same for
 `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN` and
 `ENCRYPTION_SECRET` (`"TELEGRAM_API_ID" is not allowed to be empty` was the first
 error); `TELEGRAM_API_ID` is numeric and `TELEGRAM_API_HASH` is 32 hex characters so a
 validator checking shape, not just presence, accepts them. All of these are dummy
 values, not credentials — they exist only so a scanned container reaches its HTTP
 listener; if one ever needs to be real, it belongs in a secret, not in this step.
+
+Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
+values instead of passing them through. `S3_PUBLIC_URL` is declared
+`Joi.string().uri(...).empty('')` — optional, no default needed, and
+`storage.config.ts` already falls back to path-style `<S3_ENDPOINT>/<S3_BUCKET>` when
+it's unset — so seeding a dummy only ever overrode a fallback that already worked.
+`SIGNAL_MAX_FILE_SIZE`, by contrast, stays: its schema
+(`Joi.number().integer().positive().empty('').default(104857600)`) would make it just
+as removable, but its `.env.example` line reads
+`SIGNAL_MAX_FILE_SIZE=104857600# inbound file size...` with no space before the `#`, so
+the trailing-comment filter above — anchored on a preceding space — never strips it,
+and the literal comment text would still reach the container glued to the number. That
+is a comment-filter gap, not an empty-value one; dropping empty values does not touch
+it, so the override still earns its keep. Not every workaround in this file traces back
+to the empty-value fix — `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `S3_ENDPOINT`,
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_BUCKET` are all `.required()` with no
+default, so dropping their blank line only makes the failure clearer, not avoidable;
+`NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` and `WEBHOOK_SECRET` sit outside every
+Joi schema in their repositories entirely, so there is no schema line to justify
+dropping them either.
 
 Both templates also leave `REDIS_PASSWORD` blank, and the signal one leaves
 `DATABASE_SSL_CA_CERT` blank too — both stay blank here on purpose. The redis this
@@ -362,7 +402,7 @@ repository-scoped-exception pattern already used for the
 | `nova.botflow` | 1880 | `/` | true | — |
 | `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
 | `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | — |
-| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL`, `WEBHOOK_SECRET` |
+| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `WEBHOOK_SECRET`, `SIGNAL_MAX_FILE_SIZE` |
 | `novatalks.dialer` | 3000 | `/livez` | true | — |
 | `novatalks.uspacy.connector` | 3000 | `/` | true | — |
 | `novatalks.geoip-api` | 3000 | `/` | false | — |
