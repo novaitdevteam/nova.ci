@@ -65,6 +65,14 @@ SINGLE_QUOTED='hello world'
 INNER_QUOTE=va"lu"e
 LEADING_ONLY="unterminated
 ENVEX
+# The signal-connector regression fixture: an APP_PORT that disagrees with the port
+# scan.sh is told to poll/scan. Must never win — the action forces PORT/APP_PORT to
+# DAST_PORT after --env-file regardless of what the template says.
+WS_WRONG_PORT="$WORK/ws-wrong-port-envfile"
+mkdir -p "$WS_WRONG_PORT"
+cat > "$WS_WRONG_PORT/.env.example" <<'ENVEX'
+APP_PORT=5555
+ENVEX
 
 pass=0
 fail=0
@@ -432,6 +440,62 @@ if grep -qx 'LEADING_ONLY="unterminated' "$WORK/envfile-snapshot" 2>/dev/null; t
 else
     echo "FAIL a value with only a leading quote was altered, or is missing"
     sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+
+# Defect regression: nova.chatsconnector.signal-client-api's .env.example carried
+# APP_PORT=5555 while its chart containerPort, its Dockerfile EXPOSE and the Resolve
+# DAST target step all named 3000. The app booted on 5555, the wait-loop polled 3000,
+# and a perfectly healthy boot reported "not run". The action must own the port exactly
+# like it owns NODE_ENV and quoting: force PORT and APP_PORT to DAST_PORT after
+# --env-file so the seeded template can never win.
+GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "PORT and APP_PORT are forced to the configured port" clean 0
+if grep -qE -- '--name nova-app.*-e PORT=3000( |$)' "$WORK/dockerlog" && grep -qE -- '--name nova-app.*-e APP_PORT=3000( |$)' "$WORK/dockerlog"; then
+    echo "ok   both PORT and APP_PORT are passed to the app container, both equal to DAST_PORT"; pass=$((pass + 1))
+else
+    echo "FAIL PORT and/or APP_PORT missing, or not equal to DAST_PORT"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+if grep -qE -- '--env-file [^ ]*dast\.env.*-e PORT=3000.*-e APP_PORT=3000' "$WORK/dockerlog"; then
+    echo "ok   PORT and APP_PORT appear after --env-file, so a seeded value loses"; pass=$((pass + 1))
+else
+    echo "FAIL PORT/APP_PORT do not follow --env-file on the command line"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+
+# The wrong-port fixture: APP_PORT=5555 in .env.example, same shape as the real
+# signal-connector regression. The seeded file itself still carries 5555 unmodified (the
+# comment/bare-key/NODE_ENV/quote filters above have no reason to touch it), but the
+# forced -e APP_PORT=3000 comes later on the command line and wins — docker's own
+# last-value-wins rule for repeated -e flags of the same name.
+GITHUB_WORKSPACE="$WS_WRONG_PORT" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "an APP_PORT seeded from .env.example does not change what is passed" clean 0
+if grep -q '^APP_PORT=5555$' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   the seeded APP_PORT=5555 still reaches --env-file unmodified"; pass=$((pass + 1))
+else
+    echo "FAIL the seeded APP_PORT line was unexpectedly filtered"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+if grep -qE -- '--name nova-app.*-e APP_PORT=3000( |$)' "$WORK/dockerlog"; then
+    echo "ok   the forced -e APP_PORT=3000 follows the seeded value and wins"; pass=$((pass + 1))
+else
+    echo "FAIL the forced APP_PORT is missing, or the seeded 5555 was passed instead"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+# Same run: the wait-loop polls health_url and ZAP scans target, both built from
+# DAST_PORT — the very value just forced onto the app container above. All three uses
+# share the one variable, so a mismatch between what the container listens on and what
+# gets polled/scanned is exactly the defect this scenario guards against.
+if grep -qE -- '^run .*zaproxy.* -t http://127\.0\.0\.1:3000( |$)' "$WORK/dockerlog"; then
+    echo "ok   ZAP is pointed at the same port forced onto the app container"; pass=$((pass + 1))
+else
+    echo "FAIL ZAP target port does not match the forced app container port"
+    sed 's/^/     /' "$WORK/dockerlog"
     fail=$((fail + 1))
 fi
 

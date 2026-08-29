@@ -171,6 +171,35 @@ the same way; it happened to boot anyway because none of the six was load-bearin
 never an inner quote, never an unmatched leading quote with no trailing one, no
 whitespace trimmed. That is dotenv's own rule, nothing more.
 
+### The action owns the listen port
+
+`scan.sh` decides which port to poll (the wait-loop) and which port to hand ZAP (the
+scan target), but until this fix it left which port the application actually **listens
+on** to whatever `.env.example` said — and the two can disagree.
+`nova.chatsconnector.signal-client-api`'s `.env.example` carried `APP_PORT=5555` while
+its chart `containerPort`, its Dockerfile `EXPOSE` and its `Resolve DAST target` arm all
+agreed on `3000`. The seeding passed `APP_PORT=5555` through, the application booted on
+it (`Nest application is running on PORT: 5555`), and the wait-loop polled `3000` until
+it timed out — a perfectly healthy boot reported as `not run`.
+
+This is the third defect of one shape: `NODE_ENV` was the first, a template value with a
+trailing comment overriding a correct image default; quoted values were the second.
+`.env.example` is documentation, and it must not decide anything the scan itself depends
+on. `scan.sh` now forces the resolved port onto the container after `--env-file`, under
+both names in use across these repositories:
+
+```
+-e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT"
+```
+
+Both, because the repositories disagree on the name: `nova.chatsconnector.whatsapp-client-api`
+reads `PORT`, while `novatalks.core`, the telegram connector and the signal connector all
+read `APP_PORT`. Coming after `--env-file` means either name wins over whatever the
+template said, exactly like the `NODE_ENV` filter and the quote-stripping above. An
+application that reads neither — `novatalks.ui`, served through nginx — is unaffected.
+This is also what keeps the three uses of the port — what the container listens on, what
+the wait-loop polls, and what ZAP scans — from ever disagreeing again.
+
 ### Per-repository `extra-env` overrides
 
 `.env.example` is a template, and some of its values are placeholders on purpose.

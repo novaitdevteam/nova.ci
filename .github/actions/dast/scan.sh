@@ -220,6 +220,20 @@ if [ -n "$DAST_EXTRA_ENV" ]; then
 fi
 [ "$extra_applied" -gt 0 ] && echo "DAST extra-env: applied ${extra_applied} override(s)."
 
+# The action owns three things a seeded .env.example must never be trusted to decide,
+# because that file is written for a human, not for this scan: NODE_ENV (filtered out
+# above), quoting (stripped above), and — the third instance of the same shape of bug —
+# the listen port, forced here. nova.chatsconnector.signal-client-api's .env.example
+# read APP_PORT=5555 while its chart containerPort, its Dockerfile EXPOSE and the
+# Resolve DAST target step all agreed on 3000; the app booted on 5555, the wait-loop
+# below polled 3000, and a perfectly healthy boot reported "not run". PORT and APP_PORT
+# both, because the repositories disagree on the name — nova.chatsconnector.whatsapp-client-api
+# reads PORT, novatalks.core and the telegram and signal connectors read APP_PORT — and
+# both after --env-file, so whatever the template said loses. An app that reads neither
+# (novatalks.ui, served through nginx) is unaffected. This is also what keeps the wait
+# loop, ZAP and the app container itself agreed on one port instead of three.
+echo "DAST port: forcing PORT and APP_PORT to ${DAST_PORT}, overriding anything seeded from ${DAST_ENV_FILE}."
+
 docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
     ${app_env_args[@]+"${app_env_args[@]}"} \
@@ -230,6 +244,7 @@ docker run -d --name nova-app --network host \
     -e DATABASE_NAME="${DATABASE_NAME:-db_name}" \
     ${app_db_args[@]+"${app_db_args[@]}"} \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
+    -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
     "$DAST_IMAGE" || not_run "the application container refused to start"
 
 booted=no
