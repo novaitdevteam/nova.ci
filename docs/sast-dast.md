@@ -235,9 +235,18 @@ less.
 **SAST covers every standard build repository**, `novatalks.core` included. There is
 nothing per-repository about reading a checkout.
 
-**DAST covers `novatalks.ui` and `novatalks.core` only**, gated on
-`github.event.repository.name`, the same repository-scoped-exception pattern already
-used for the [integration Postgres image](tests.md) and R2 file storage.
+**DAST covers six repositories**, gated on `github.event.repository.name`, the same
+repository-scoped-exception pattern already used for the
+[integration Postgres image](tests.md) and R2 file storage:
+
+| repository | port | health path | needs-db |
+| --- | --- | --- | --- |
+| `novatalks.ui` | 8000 | `/livez` | false |
+| `novatalks.core` | 3000 | `/livez` | true |
+| `nova.botflow` | 1880 | `/` | true |
+| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true |
+| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true |
+| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true |
 
 DAST is scoped that narrowly because, unlike the other two, it has to **boot the
 thing**. Every repository needs its own answer to: which port does the image listen on,
@@ -247,10 +256,35 @@ first. Those are per-repository inputs on
 established against the real runtime image — a wrong path scans an error page and
 reports it clean, which is the failure this whole design is built to avoid.
 
-The two chosen repositories are the two poles of the problem: `novatalks.ui` serves
+The original two repositories were the two poles of the problem: `novatalks.ui` serves
 static assets, `novatalks.core` is a backend that needs postgres, redis and a schema.
-Once both are working, the remaining repositories roll out by copying whichever pole
-they resemble, rather than by writing eight boot configs blind. **Adding one needs an
+The four repositories added after them (`nova.botflow` and the telegram, whatsapp and
+signal chatsconnectors) all resemble the `novatalks.core` pole — a backend service —
+but none of them exposes a dedicated HTTP health route the way `novatalks.core` does.
+Their charts probe them over `tcpSocket` instead, so `/` is the correct health path for
+all four: the boot wait-loop accepts any HTTP response, a 404 included, because it is
+only testing whether the process is listening, not whether a particular route exists.
+Do not "fix" that to `/livez` — there is nothing there to hit. `nova.botflow` needs
+redis or postgres depending on its storage configuration; bringing up both is simpler
+than modelling the choice, and an unused container costs a few seconds. The signal
+connector's own default branch is a feature branch, not `main`/`master`/`development`,
+so in practice it only reaches `dast-scan` via an explicit `scan*` tag — it has no trunk
+to be auto-scanned from.
+
+These per-repository values are resolved by a **`Resolve DAST target`** step in
+`dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
+and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
+repository, every value set explicitly (no arm inherits from another), writing `port`,
+`health_path` and `needs_db` to `$GITHUB_OUTPUT`. This replaced a chain of inline
+ternaries that did not scale past two repositories. The default arm is not a fallback:
+a repository that reaches `dast-scan` with no configured arm is a wiring mistake, and
+guessing a port would scan nothing and report it clean — so the default arm emits
+`::error::` and exits non-zero instead. `pg-image` stays a two-branch ternary
+(`postgres:17.9-trixie` for `novatalks.core`, the action's `postgres:16` default for
+everyone else) rather than a resolver arm, since it only ever has two truthy branches.
+
+Once all six are working, a seventh repository rolls out by copying whichever existing
+arm it resembles most, rather than by writing a boot config blind. **Adding one needs an
 explicit request and a boot probe first** — not a copied block and a hope.
 
 ## The runner-size consequence

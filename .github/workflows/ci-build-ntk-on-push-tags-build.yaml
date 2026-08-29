@@ -877,14 +877,14 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: write
-    # Same gate as SAST, narrowed to the two repositories whose images are known to boot
-    # in CI (spec D4). Everything else reaches DAST only by explicit request.
+    # Same gate as SAST, narrowed to the repositories whose images are known to boot
+    # in CI. Everything else reaches DAST only by explicit request.
     if: >-
       ${{ always()
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success'
       && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan'))
-      && contains(fromJSON('["novatalks.ui","novatalks.core"]'), github.event.repository.name) }}
+      && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api"]'), github.event.repository.name) }}
     needs: [build-image, sast-scan]
     outputs:
       SCANNED: 'true'
@@ -902,6 +902,73 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
+
+      - name: Resolve DAST target
+        id: dast_target
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+
+          case "$REPO_NAME" in
+            novatalks.ui)
+              # nginx serving the static Vue app. Port and health path from the
+              # production Helm chart (novatalks.charts, novatalks_v5/values.yaml) —
+              # authoritative because it is what runs in prod.
+              port=8000
+              health_path=/livez
+              needs_db=false
+              ;;
+            novatalks.core)
+              # NestJS engine. Same chart source as above.
+              port=3000
+              health_path=/livez
+              needs_db=true
+              ;;
+            nova.botflow)
+              # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is
+              # correct here: the boot wait-loop accepts any HTTP response, 404 included,
+              # because it is only testing whether the process is listening, not whether
+              # a route exists. Do not "fix" this to /livez.
+              port=1880
+              health_path=/
+              # Needs redis or postgres depending on its storage configuration; bringing
+              # up both is simpler than modelling the choice, and an unused container
+              # costs a few seconds.
+              needs_db=true
+              ;;
+            nova.chatsconnector.telegram-client-api)
+              # No dedicated HTTP health route — tcpSocket probe in the chart. See the
+              # nova.botflow note above for why "/" is correct rather than a guess.
+              port=3000
+              health_path=/
+              needs_db=true
+              ;;
+            nova.chatsconnector.whatsapp-client-api)
+              # Same shape as the telegram connector above.
+              port=3000
+              health_path=/
+              needs_db=true
+              ;;
+            nova.chatsconnector.signal-client-api)
+              # Same shape as the telegram connector above. Its own default branch is a
+              # feature branch, not a trunk name, so in practice this only runs off an
+              # explicit scan* tag — that needs no special-casing here.
+              port=3000
+              health_path=/
+              needs_db=true
+              ;;
+            *)
+              echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
+              exit 1
+              ;;
+          esac
+
+          echo "port=$port" | tee -a "$GITHUB_OUTPUT"
+          echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
+          echo "needs_db=$needs_db" | tee -a "$GITHUB_OUTPUT"
+
+          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db"
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -921,17 +988,14 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/dast@feat/sast-dast-scanning
         with:
           image: ${{ env.DAST_TARGET_IMAGE }}
-          # novatalks.ui (nginx, static Vue app) and novatalks.core (NestJS engine) ports
-          # and health path, from the production Helm charts (novatalks.charts,
-          # novatalks_v5/values.yaml) — authoritative because it is what runs in prod.
-          port: ${{ github.event.repository.name == 'novatalks.ui' && '8000' || '3000' }}
-          health-path: /livez
+          port: ${{ steps.dast_target.outputs.port }}
+          health-path: ${{ steps.dast_target.outputs.health_path }}
           # Derived from the engine chart's startupProbe: initialDelaySeconds 5 +
           # failureThreshold 15 * periodSeconds 30 ≈ 455s before k8s gives up on startup.
           # 300 sits between that and the action's 180 default, which risks a false
           # "not run" on a cold start.
           boot-timeout: 300
-          needs-db: ${{ github.event.repository.name == 'novatalks.core' }}
+          needs-db: ${{ steps.dast_target.outputs.needs_db }}
           pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}

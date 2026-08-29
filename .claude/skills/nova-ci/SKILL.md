@@ -289,8 +289,9 @@ Preserve these behaviors:
 ## SAST and DAST Semantics
 
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
-repositories) and `dast-scan` (OWASP ZAP baseline, `novatalks.ui` and `novatalks.core`
-only) after `trivy-scan`, both delegating to a composite action. Three scanners, three
+repositories) and `dast-scan` (OWASP ZAP baseline, six repositories: `novatalks.ui`,
+`novatalks.core`, `nova.botflow`, and the telegram, whatsapp and signal chatsconnectors)
+after `trivy-scan`, both delegating to a composite action. Three scanners, three
 questions: Semgrep reads our source, Trivy reads the image, ZAP probes the running app.
 Gitleaks covers secrets; ESLint answers none of them. See `docs/sast-dast.md`.
 
@@ -354,9 +355,21 @@ Preserve these behaviors:
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
   vendored into `security/`. `ERROR` severity only on this rollout; `WARNING` once the
   real count is known.
-- **DAST scope is `novatalks.ui` and `novatalks.core`**, gated on
-  `github.event.repository.name` like the `postgres:17.9-trixie` and R2 exceptions.
-  Adding a repository needs an explicit request **and a boot probe first**: port, health
+- **DAST scope is six repositories** — `novatalks.ui`, `novatalks.core`,
+  `nova.botflow`, `nova.chatsconnector.telegram-client-api`,
+  `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api` —
+  gated on `github.event.repository.name` like the `postgres:17.9-trixie` and R2
+  exceptions. A `Resolve DAST target` step (the same house pattern as `Resolve scan
+  policy` in `trivy-scan`) resolves port, health path and `needs-db` per repository via
+  a `case` statement, one arm per repository with every value set explicitly; the
+  default arm `::error::`s and exits non-zero rather than guessing. The four repos
+  beyond the original two have no dedicated HTTP health route (their charts probe over
+  `tcpSocket`), so their health path is `/` — the boot wait-loop accepts any HTTP
+  response, 404 included, since it only tests that the process is listening.
+  `nova.botflow` brings up both redis and postgres since its storage backend is
+  configurable. The signal connector's own default branch is a feature branch, not a
+  trunk name, so it only reaches `dast-scan` via an explicit `scan*` tag. Adding a
+  seventh repository needs an explicit request **and a boot probe first**: port, health
   path, boot timeout and database needs are per-repository inputs, and a wrong path
   scans an error page and reports it clean.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
