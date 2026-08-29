@@ -1015,7 +1015,8 @@ jobs:
               S3_SECRET_ACCESS_KEY=dast-dummy-secret
               S3_BUCKET=dast-dummy-bucket
               S3_PUBLIC_URL=https://s3.example.com
-              WEBHOOK_SECRET=dast-dummy-webhook-secret"
+              WEBHOOK_SECRET=dast-dummy-webhook-secret
+              SIGNAL_MAX_FILE_SIZE=104857600"
               ;;
             *)
               echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
