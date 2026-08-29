@@ -847,7 +847,7 @@ jobs:
 
       - name: Semgrep
         id: semgrep
-        uses: novaitdevteam/nova.ci/.github/actions/semgrep@feat/sast-dast-scanning
+        uses: novaitdevteam/nova.ci/.github/actions/semgrep@main
         with:
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
@@ -1050,7 +1050,7 @@ jobs:
 
       - name: ZAP baseline
         id: dast
-        uses: novaitdevteam/nova.ci/.github/actions/dast@feat/sast-dast-scanning
+        uses: novaitdevteam/nova.ci/.github/actions/dast@main
         with:
           image: ${{ env.DAST_TARGET_IMAGE }}
           port: ${{ steps.dast_target.outputs.port }}
