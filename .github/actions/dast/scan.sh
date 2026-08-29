@@ -37,6 +37,7 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
 app_env_args=()
 app_tmp_env=""
+app_db_args=()
 
 emit() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
@@ -107,6 +108,15 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
     docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
         psql -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
         -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null 2>&1 || true
+
+    # Two conventions coexist deliberately: DATABASE_HOST/PORT/USERNAME/PASSWORD/NAME
+    # below serve the Sequelize repositories, this single DATABASE_URL serves the Prisma
+    # ones (nova.chatsconnector.telegram-client-api among them) which have no discrete
+    # host/user/pass vars to bind to. Both are built from the very same values just
+    # handed to the postgres container above, so they cannot name a different database
+    # than the one this script actually started. Never set when no database is started —
+    # a URL pointing at a postgres that was never brought up is worse than none.
+    app_db_args=(-e "DATABASE_URL=postgresql://${DATABASE_USERNAME:-postgres}:${DATABASE_PASSWORD:-password}@127.0.0.1:5432/${DATABASE_NAME:-db_name}")
 fi
 
 # .env.example is resolved relative to the workspace, not to this action's own
@@ -163,6 +173,28 @@ if [ -f "$env_file_path" ]; then
     # many steps as it did.
     echo "DAST env file (${DAST_ENV_FILE}): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s)."
 
+    # Docker's --env-file does not strip quotes the way dotenv (what .env.example files
+    # are written for) does: a value written DATABASE_URL="postgresql://..." reaches the
+    # container as a string that literally starts with '"', and Prisma/pg refuse it.
+    # Strip only a matching pair of surrounding quotes — first and last character both
+    # `"` or both `'` — and nothing else: an inner quote stays, an unmatched leading quote
+    # with no trailing one stays, and no whitespace is trimmed. That is dotenv's own rule.
+    while IFS= read -r env_line || [ -n "$env_line" ]; do
+        env_key="${env_line%%=*}"
+        env_val="${env_line#*=}"
+        val_len=${#env_val}
+        if [ "$val_len" -ge 2 ]; then
+            first_ch="${env_val:0:1}"
+            last_ch="${env_val: -1}"
+            if { [ "$first_ch" = '"' ] && [ "$last_ch" = '"' ]; } \
+                || { [ "$first_ch" = "'" ] && [ "$last_ch" = "'" ]; }; then
+                env_val="${env_val:1:val_len-2}"
+            fi
+        fi
+        printf '%s=%s\n' "$env_key" "$env_val"
+    done < "$app_tmp_env" > "$stage"
+    mv "$stage" "$app_tmp_env"
+
     app_env_args=(--env-file "$app_tmp_env")
 fi
 
@@ -173,6 +205,7 @@ docker run -d --name nova-app --network host \
     -e DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}" \
     -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}" \
     -e DATABASE_NAME="${DATABASE_NAME:-db_name}" \
+    ${app_db_args[@]+"${app_db_args[@]}"} \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
     "$DAST_IMAGE" || not_run "the application container refused to start"
 

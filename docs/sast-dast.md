@@ -159,6 +159,35 @@ wrong reason. Two rules fix it, applied before the file ever reaches `docker run
 `scan.sh` logs how many variables were seeded and how many lines were dropped, by which
 rule — names and counts only, never values, since the file may carry credentials.
 
+`.env.example` is written for `dotenv`, which strips a **matching pair** of surrounding
+quotes from a value — first and last character both `"` or both `'` — before handing it
+to the process. Docker's `--env-file` does not: `nova.chatsconnector.telegram-client-api`
+carries `DATABASE_URL="postgresql://user:!1q2w3e@localhost:5432/novatalks..."`, and the
+container received a value whose first character is `"`, which Prisma rejected outright
+(`the URL must start with the protocol 'postgresql://'...`) — the engine never booted.
+`novatalks.core`'s `.env.example` has six quoted values that were reaching its container
+the same way; it happened to boot anyway because none of the six was load-bearing.
+`scan.sh` now strips exactly that matching pair before the file reaches `docker run` —
+never an inner quote, never an unmatched leading quote with no trailing one, no
+whitespace trimmed. That is dotenv's own rule, nothing more.
+
+### `DATABASE_URL` for Prisma-based repositories
+
+The discrete `DATABASE_HOST`/`PORT`/`USERNAME`/`PASSWORD`/`NAME` variables are the
+NovaTalks convention and serve the Sequelize-based repositories. Prisma, which
+`nova.chatsconnector.telegram-client-api` uses, has no notion of those — it wants a
+single `DATABASE_URL`. Even with the quoting fixed, the value written in that repo's
+`.env.example` names a different user, password and database than the postgres this
+script actually starts, so the connection would still fail.
+
+When `DAST_NEEDS_DB` is `true`, `scan.sh` builds
+`DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<dbname>` from the very same
+values it already uses for the discrete variables and for the postgres container it
+starts, and passes it as an explicit `-e` flag after `--env-file`, so it overrides
+whatever the example file said. It is never set when no database is started. The two
+conventions coexist deliberately and cannot disagree, since both come from one source;
+the URL is simply ignored by the Sequelize repositories that don't look for it.
+
 ### Where the ZAP warning count comes from
 
 `zap-baseline.py` has two output channels and they do not carry the same information.

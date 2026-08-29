@@ -27,7 +27,8 @@ WS_WITH_ENV="$WORK/ws-with-envfile"
 WS_WITHOUT_ENV="$WORK/ws-without-envfile"
 WS_ALL_FILTERED="$WORK/ws-all-filtered-envfile"
 WS_TRAILING_COMMENT="$WORK/ws-trailing-comment-envfile"
-mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV" "$WS_ALL_FILTERED" "$WS_TRAILING_COMMENT"
+WS_QUOTED="$WORK/ws-quoted-envfile"
+mkdir -p "$WS_WITH_ENV" "$WS_WITHOUT_ENV" "$WS_ALL_FILTERED" "$WS_TRAILING_COMMENT" "$WS_QUOTED"
 cat > "$WS_WITH_ENV/.env.example" <<'ENVEX'
 # leaked secrets would live below this line — must never reach the container
 FILE_DRIVER=s3
@@ -52,6 +53,17 @@ LOG_LEVEL=debug // change to info in prod
 RATE_LIMIT=100 # requests per minute
 EXTERNAL_URL=https://example.com
 DATABASE_POOL=5
+ENVEX
+# nova.chatsconnector.telegram-client-api's actual .env.example: a double-quoted
+# DATABASE_URL (dotenv strips the quotes; Docker's --env-file does not, and Prisma
+# refused the leading '"' outright), a single-quoted value, a value with an inner quote
+# that must survive, and a value with only a leading quote and no closing one, which
+# must be left exactly as written since there is no matching pair to strip.
+cat > "$WS_QUOTED/.env.example" <<'ENVEX'
+DATABASE_URL="postgresql://user:!1q2w3e@localhost:5432/novatalks_db"
+SINGLE_QUOTED='hello world'
+INNER_QUOTE=va"lu"e
+LEADING_ONLY="unterminated
 ENVEX
 
 pass=0
@@ -383,6 +395,69 @@ else
     echo "FAIL seeded/dropped counts are missing from the output"
     sed 's/^/     /' "$WORK/log"
     fail=$((fail + 1))
+fi
+
+# Defect regression #1: nova.chatsconnector.telegram-client-api's .env.example carries
+# DATABASE_URL="postgresql://user:!1q2w3e@localhost:5432/novatalks...". Docker's
+# --env-file does not strip quotes the way dotenv does, so the container received a
+# value whose first character is '"', and Prisma refused it outright — the engine never
+# booted. Strip a matching pair of surrounding quotes only, nothing else.
+GITHUB_WORKSPACE="$WS_QUOTED" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "an env file with quoted values still boots clean" clean 0
+assert_cleanup "quoted-values run tears containers down"
+if grep -qx 'DATABASE_URL=postgresql://user:!1q2w3e@localhost:5432/novatalks_db' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   a double-quoted value arrives unquoted"; pass=$((pass + 1))
+else
+    echo "FAIL a double-quoted value kept its surrounding quotes, or is missing"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+if grep -qx 'SINGLE_QUOTED=hello world' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   a single-quoted value arrives unquoted"; pass=$((pass + 1))
+else
+    echo "FAIL a single-quoted value kept its surrounding quotes, or is missing"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+if grep -qx 'INNER_QUOTE=va"lu"e' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   a value with an inner quote keeps it"; pass=$((pass + 1))
+else
+    echo "FAIL a value with an inner quote was altered, or is missing"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+if grep -qx 'LEADING_ONLY="unterminated' "$WORK/envfile-snapshot" 2>/dev/null; then
+    echo "ok   a value with only a leading quote and no trailing one is left untouched"; pass=$((pass + 1))
+else
+    echo "FAIL a value with only a leading quote was altered, or is missing"
+    sed 's/^/     /' "$WORK/envfile-snapshot" 2>/dev/null || echo "     (no snapshot captured)"
+    fail=$((fail + 1))
+fi
+
+# Defect regression #2: even with quotes stripped, .env.example's own DATABASE_URL names
+# a different user/password/database than the postgres this script actually starts (it
+# documents a developer's local setup, not this scan run). Prisma-based repositories
+# have no discrete DATABASE_* vars to bind to, so an explicit DATABASE_URL — built from
+# the very same values used for the discrete vars and for the postgres container this
+# script starts — must reach the app container and win over whatever the example said.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "DATABASE_URL is passed to the app container when the database is up" clean 0
+if grep -qE -- '--name nova-app.*-e DATABASE_URL=postgresql://postgres:password@127\.0\.0\.1:5432/db_name( |$)' "$WORK/dockerlog"; then
+    echo "ok   DATABASE_URL matches the user/password/db/port of the postgres this script started"; pass=$((pass + 1))
+else
+    echo "FAIL DATABASE_URL missing, or does not match the started postgres"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+
+DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: nothing to see" \
+    expect "DATABASE_URL is withheld when no database is started" clean 0
+if grep -qE -- '--name nova-app.*-e DATABASE_URL=' "$WORK/dockerlog"; then
+    echo "FAIL DATABASE_URL was passed despite DAST_NEEDS_DB=false"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+else
+    echo "ok   DATABASE_URL is not passed when DAST_NEEDS_DB is false"; pass=$((pass + 1))
 fi
 
 echo "--- $pass passed, $fail failed"
