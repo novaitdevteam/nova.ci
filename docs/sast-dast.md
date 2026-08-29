@@ -171,6 +171,32 @@ the same way; it happened to boot anyway because none of the six was load-bearin
 never an inner quote, never an unmatched leading quote with no trailing one, no
 whitespace trimmed. That is dotenv's own rule, nothing more.
 
+### Per-repository `extra-env` overrides
+
+`.env.example` is a template, and some of its values are placeholders on purpose.
+`nova.chatsconnector.signal-client-api` ships `S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com`
+— the angle brackets are documentation, not a value, and NestJS's config validator
+rejects it as an invalid URL outright. Postgres came up and migrations ran clean; only
+the boot itself failed, and none of the filters above can fix it, because the file
+isn't malformed — it's a template doing exactly what a template does. The other `S3_*`
+variables in the same file are blank and pass unchallenged; only the URL-shaped one
+needs a value at all.
+
+`dast/action.yml`'s `extra-env` input is the escape hatch: newline-separated
+`KEY=VALUE` lines, applied to the application container as `-e` flags **after**
+`--env-file`, so each overrides the seeded value of the same name. Blank lines are
+skipped and surrounding whitespace on a line is trimmed; nothing else is parsed, so a
+value containing `=` survives. `scan.sh` logs how many overrides were applied, never
+their content — the mechanism is generic, and a future repository could put something
+sensitive there even though today's only use is a dummy URL.
+
+`nova.chatsconnector.signal-client-api`'s `Resolve DAST target` arm sets
+`S3_ENDPOINT=https://s3.example.com` — `example.com` rather than an invented TLD
+because it is IANA-reserved for exactly this purpose and satisfies URL validators. It
+is never contacted during a baseline scan and carries no credential. Every other arm
+sets `extra_env=""` explicitly, following the same no-arm-inherits-from-another
+discipline as `port`, `health_path` and `needs_db`.
+
 ### `DATABASE_URL` for Prisma-based repositories
 
 The discrete `DATABASE_HOST`/`PORT`/`USERNAME`/`PASSWORD`/`NAME` variables are the
@@ -268,14 +294,14 @@ nothing per-repository about reading a checkout.
 repository-scoped-exception pattern already used for the
 [integration Postgres image](tests.md) and R2 file storage:
 
-| repository | port | health path | needs-db |
-| --- | --- | --- | --- |
-| `novatalks.ui` | 8000 | `/livez` | false |
-| `novatalks.core` | 3000 | `/livez` | true |
-| `nova.botflow` | 1880 | `/` | true |
-| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true |
-| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true |
-| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true |
+| repository | port | health path | needs-db | extra-env |
+| --- | --- | --- | --- | --- |
+| `novatalks.ui` | 8000 | `/livez` | false | — |
+| `novatalks.core` | 3000 | `/livez` | true | — |
+| `nova.botflow` | 1880 | `/` | true | — |
+| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | — |
+| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | — |
+| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT=https://s3.example.com` |
 
 DAST is scoped that narrowly because, unlike the other two, it has to **boot the
 thing**. Every repository needs its own answer to: which port does the image listen on,
@@ -304,7 +330,7 @@ These per-repository values are resolved by a **`Resolve DAST target`** step in
 `dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
 and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
 repository, every value set explicitly (no arm inherits from another), writing `port`,
-`health_path` and `needs_db` to `$GITHUB_OUTPUT`. This replaced a chain of inline
+`health_path`, `needs_db` and `extra_env` to `$GITHUB_OUTPUT`. This replaced a chain of inline
 ternaries that did not scale past two repositories. The default arm is not a fallback:
 a repository that reaches `dast-scan` with no configured arm is a wiring mistake, and
 guessing a port would scan nothing and report it clean — so the default arm emits

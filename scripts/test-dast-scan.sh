@@ -138,6 +138,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_NEEDS_DB="${DAST_NEEDS_DB:-true}" \
     DAST_PG_IMAGE="postgres:16" \
     DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}" \
+    DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}" \
     GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$WORK}" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
     DAST_REPORT_FILE="$WORK/report" \
@@ -458,6 +459,79 @@ if grep -qE -- '--name nova-app.*-e DATABASE_URL=' "$WORK/dockerlog"; then
     fail=$((fail + 1))
 else
     echo "ok   DATABASE_URL is not passed when DAST_NEEDS_DB is false"; pass=$((pass + 1))
+fi
+
+
+# Per-repository escape hatch for a template placeholder in the product repo's own
+# .env.example that a config validator rejects outright (this is what unblocked
+# nova.chatsconnector.signal-client-api: S3_ENDPOINT=https://<account-id>.r2...
+# is not a valid URL). extra-env applies -e flags after --env-file, so it overrides
+# the seeded value of the same name rather than adding alongside a stale one.
+GITHUB_WORKSPACE="$WS_WITH_ENV" DAST_EXTRA_ENV="FILE_DRIVER=override-value" \
+    SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "an extra-env line reaches the application container as a -e flag" clean 0
+if grep -qE -- '--name nova-app.*-e FILE_DRIVER=override-value( |$)' "$WORK/dockerlog"; then
+    echo "ok   extra-env line reaches the app container as a -e flag"; pass=$((pass + 1))
+else
+    echo "FAIL extra-env line missing from the docker run invocation"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+if grep -qE -- '--env-file [^ ]*dast\.env.*-e FILE_DRIVER=override-value' "$WORK/dockerlog"; then
+    echo "ok   the extra-env -e flag appears after --env-file, so it wins over the seeded file"; pass=$((pass + 1))
+else
+    echo "FAIL the extra-env -e flag does not follow --env-file on the command line"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+if grep -q 'DAST extra-env: applied 1 override(s)\.' "$WORK/log" && ! grep -q 'override-value' "$WORK/log"; then
+    echo "ok   the override count is logged, its value is not"; pass=$((pass + 1))
+else
+    echo "FAIL the override count is missing, or the value leaked into the log"
+    sed 's/^/     /' "$WORK/log"
+    fail=$((fail + 1))
+fi
+
+DAST_EXTRA_ENV="KEY=a=b=c" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "a value containing = survives intact" clean 0
+if grep -qE -- '-e KEY=a=b=c( |$)' "$WORK/dockerlog"; then
+    echo "ok   a value containing = is passed through verbatim"; pass=$((pass + 1))
+else
+    echo "FAIL a value containing = was mangled or missing"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+
+DAST_EXTRA_ENV=$'\n\n   S3_ENDPOINT=https://s3.example.com\n\n' \
+    SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "blank lines in extra-env are skipped" clean 0
+extra_env_hits=$(grep -oE -- '-e S3_ENDPOINT=https://s3\.example\.com' "$WORK/dockerlog" | wc -l | tr -d ' ' || true)
+if [ "$extra_env_hits" = "1" ]; then
+    echo "ok   blank lines produce no extra -e flags, only the real line survives"; pass=$((pass + 1))
+else
+    echo "FAIL expected exactly one -e S3_ENDPOINT flag, found $extra_env_hits"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+
+# Baseline captured with no extra-env at all, then proven byte-for-byte identical to a
+# run with DAST_EXTRA_ENV explicitly set to empty — the input must be a strict no-op
+# when unset, exactly as every arm of Resolve DAST target that has nothing to override.
+unset DAST_EXTRA_ENV
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "baseline nova-app invocation with no extra-env" clean 0
+without_extra_env=$(grep -E '^run .*--name nova-app' "$WORK/dockerlog")
+
+DAST_EXTRA_ENV="" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "empty extra-env changes nothing about the command line" clean 0
+with_empty_extra_env=$(grep -E '^run .*--name nova-app' "$WORK/dockerlog")
+if [ "$without_extra_env" = "$with_empty_extra_env" ] && [ -n "$without_extra_env" ]; then
+    echo "ok   empty extra-env leaves the nova-app command line unchanged"; pass=$((pass + 1))
+else
+    echo "FAIL empty extra-env altered the nova-app command line"
+    echo "     before: $without_extra_env"
+    echo "     after:  $with_empty_extra_env"
+    fail=$((fail + 1))
 fi
 
 echo "--- $pass passed, $fail failed"

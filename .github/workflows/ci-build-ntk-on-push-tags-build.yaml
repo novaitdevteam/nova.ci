@@ -918,12 +918,14 @@ jobs:
               port=8000
               health_path=/livez
               needs_db=false
+              extra_env=""
               ;;
             novatalks.core)
               # NestJS engine. Same chart source as above.
               port=3000
               health_path=/livez
               needs_db=true
+              extra_env=""
               ;;
             nova.botflow)
               # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is
@@ -936,6 +938,7 @@ jobs:
               # up both is simpler than modelling the choice, and an unused container
               # costs a few seconds.
               needs_db=true
+              extra_env=""
               ;;
             nova.chatsconnector.telegram-client-api)
               # No dedicated HTTP health route — tcpSocket probe in the chart. See the
@@ -943,12 +946,14 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              extra_env=""
               ;;
             nova.chatsconnector.whatsapp-client-api)
               # Same shape as the telegram connector above.
               port=3000
               health_path=/
               needs_db=true
+              extra_env=""
               ;;
             nova.chatsconnector.signal-client-api)
               # Same shape as the telegram connector above. Its own default branch is a
@@ -957,6 +962,15 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              # .env.example line 61 documents S3_ENDPOINT as
+              # https://<account-id>.r2.cloudflarestorage.com — a template placeholder,
+              # not a value meant to be used as-is. The angle brackets make it an invalid
+              # URL, and NestJS's config validator refuses to boot on it even though
+              # postgres came up and migrations ran clean; the other S3_* vars are blank
+              # and pass unchallenged. example.com is IANA-reserved for exactly this kind
+              # of placeholder, satisfies the validator, is never contacted during a
+              # baseline scan, and is not a credential.
+              extra_env="S3_ENDPOINT=https://s3.example.com"
               ;;
             *)
               echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
@@ -967,8 +981,13 @@ jobs:
           echo "port=$port" | tee -a "$GITHUB_OUTPUT"
           echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
           echo "needs_db=$needs_db" | tee -a "$GITHUB_OUTPUT"
+          {
+            echo "extra_env<<DAST_EXTRA_ENV_EOF"
+            printf '%s\n' "$extra_env"
+            echo "DAST_EXTRA_ENV_EOF"
+          } >> "$GITHUB_OUTPUT"
 
-          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db"
+          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -996,6 +1015,7 @@ jobs:
           # "not run" on a cold start.
           boot-timeout: 300
           needs-db: ${{ steps.dast_target.outputs.needs_db }}
+          extra-env: ${{ steps.dast_target.outputs.extra_env }}
           pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}

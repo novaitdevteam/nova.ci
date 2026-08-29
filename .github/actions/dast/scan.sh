@@ -26,6 +26,7 @@ set -euo pipefail
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
 DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
+DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
 # not interchangeable — on novatalks.ui the health path 404s — so the summary and the
 # report header name the URL that was actually scanned, not the one that was polled.
@@ -38,6 +39,7 @@ zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
 app_env_args=()
 app_tmp_env=""
 app_db_args=()
+extra_env_args=()
 
 emit() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
@@ -198,9 +200,30 @@ if [ -f "$env_file_path" ]; then
     app_env_args=(--env-file "$app_tmp_env")
 fi
 
+# Per-repository escape hatch, not a filter fix: some values in .env.example are
+# deliberately unusable template placeholders (an angle-bracket account ID, a redacted
+# example) that a config validator rejects outright, and no amount of comment/quote
+# stripping above turns a placeholder into a real value. One -e per non-blank line,
+# after --env-file so it wins over whatever the seeded file said; the value after the
+# first `=` is passed through verbatim, so a value containing `=` survives. Only the
+# count is logged, never the content — a future caller may put something sensitive
+# here even though today's only use is a dummy URL.
+extra_applied=0
+if [ -n "$DAST_EXTRA_ENV" ]; then
+    while IFS= read -r extra_line || [ -n "$extra_line" ]; do
+        trimmed="${extra_line#"${extra_line%%[![:space:]]*}"}"
+        trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+        [ -z "$trimmed" ] && continue
+        extra_env_args+=(-e "$trimmed")
+        extra_applied=$((extra_applied + 1))
+    done <<< "$DAST_EXTRA_ENV"
+fi
+[ "$extra_applied" -gt 0 ] && echo "DAST extra-env: applied ${extra_applied} override(s)."
+
 docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
     ${app_env_args[@]+"${app_env_args[@]}"} \
+    ${extra_env_args[@]+"${extra_env_args[@]}"} \
     -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
     -e DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}" \
     -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}" \
