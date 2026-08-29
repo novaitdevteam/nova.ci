@@ -1043,7 +1043,16 @@ jobs:
               port=3000
               health_path=/livez
               needs_db=true
-              extra_env=""
+              # multer-s3 wires object storage at boot and throws "bucket is required"
+              # without one, and FILE_DRIVER=s3 is the only driver this app supports, so
+              # storage cannot simply be turned off. The template leaves all five AWS_S3_*
+              # values blank; dummies satisfy the constructor and are never contacted by a
+              # baseline scan. Not credentials — a real value would belong in a secret.
+              extra_env="AWS_S3_ACCESS_KEY_ID=dast-dummy-key
+              AWS_S3_SECRET_ACCESS_KEY=dast-dummy-secret
+              AWS_S3_BUCKET=dast-dummy-bucket
+              AWS_S3_REGION=auto
+              AWS_S3_ENDPOINT=https://s3.example.com"
               ;;
             novatalks.uspacy.connector)
               # Not in the deployment chart; docker/server.Dockerfile says EXPOSE 3000.
