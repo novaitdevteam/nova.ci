@@ -884,7 +884,7 @@ jobs:
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success'
       && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan'))
-      && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api"]'), github.event.repository.name) }}
+      && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api","novatalks.dialer","novatalks.uspacy.connector","novatalks.geoip-api"]'), github.event.repository.name) }}
     needs: [build-image, sast-scan]
     outputs:
       SCANNED: 'true'
@@ -1017,6 +1017,38 @@ jobs:
               S3_PUBLIC_URL=https://s3.example.com
               WEBHOOK_SECRET=dast-dummy-webhook-secret
               SIGNAL_MAX_FILE_SIZE=104857600"
+              ;;
+            novatalks.dialer)
+              # Port and health path from the production Helm chart (novatalks.charts,
+              # novatalks_v5/values.yaml dialer.containerPort: 3000, deployment probes
+              # /livez and /readyz) — authoritative because it is what runs in prod. Uses
+              # Prisma and redis, so it needs the database stack.
+              port=3000
+              health_path=/livez
+              needs_db=true
+              extra_env=""
+              ;;
+            novatalks.uspacy.connector)
+              # Not in the deployment chart; docker/server.Dockerfile says EXPOSE 3000.
+              # No dedicated health route, so "/" is correct — see the nova.botflow note
+              # above for why that is not a guess. Uses Prisma, so it needs the database;
+              # the action already builds DATABASE_URL when needs-db is true.
+              port=3000
+              health_path=/
+              needs_db=true
+              extra_env=""
+              ;;
+            novatalks.geoip-api)
+              # Not in the deployment chart; docker/server.Dockerfile says EXPOSE 3000.
+              # No dedicated health route, so "/" is correct, same reasoning as above.
+              # No ORM dependency and only five variables in its .env.example, so it is
+              # treated as needing no database, like novatalks.ui. This is the one
+              # inference in this set — if the first real run shows it wanting a
+              # database, flip this flag.
+              port=3000
+              health_path=/
+              needs_db=false
+              extra_env=""
               ;;
             *)
               echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."

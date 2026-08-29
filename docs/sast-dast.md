@@ -339,7 +339,7 @@ less.
 **SAST covers every standard build repository**, `novatalks.core` included. There is
 nothing per-repository about reading a checkout.
 
-**DAST covers six repositories**, gated on `github.event.repository.name`, the same
+**DAST covers nine repositories**, gated on `github.event.repository.name`, the same
 repository-scoped-exception pattern already used for the
 [integration Postgres image](tests.md) and R2 file storage:
 
@@ -351,6 +351,9 @@ repository-scoped-exception pattern already used for the
 | `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
 | `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | — |
 | `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL`, `WEBHOOK_SECRET` |
+| `novatalks.dialer` | 3000 | `/livez` | true | — |
+| `novatalks.uspacy.connector` | 3000 | `/` | true | — |
+| `novatalks.geoip-api` | 3000 | `/` | false | — |
 
 DAST is scoped that narrowly because, unlike the other two, it has to **boot the
 thing**. Every repository needs its own answer to: which port does the image listen on,
@@ -375,6 +378,23 @@ connector's own default branch is a feature branch, not `main`/`master`/`develop
 so in practice it only reaches `dast-scan` via an explicit `scan*` tag — it has no trunk
 to be auto-scanned from.
 
+The three repositories added after those (`novatalks.dialer`, `novatalks.uspacy.connector`,
+`novatalks.geoip-api`) split differently. `novatalks.dialer` is in the deployment chart
+(`novatalks.charts`, `novatalks_v5/values.yaml`, `dialer.containerPort: 3000`), whose
+deployment probes `/livez` and `/readyz` — the same authoritative source as `novatalks.ui`
+and `novatalks.core`. It uses Prisma and redis, so `needs-db` is `true`. The other two are
+not in that chart; their port comes from `docker/server.Dockerfile`'s `EXPOSE 3000`
+instead, and neither exposes a dedicated health route, so `/` is correct for the same
+reason it is for `nova.botflow` and the chatsconnectors. `novatalks.uspacy.connector` uses
+Prisma, so it needs the database. `novatalks.geoip-api` has no ORM dependency and only
+five variables in its `.env.example`, so it is treated as needing no database, like
+`novatalks.ui` — this is the one inference in the set, not a verified fact like the
+others; if its first real run wants a database, flip `needs-db` to `true`. Both
+`novatalks.dialer` and `novatalks.uspacy.connector` set an `APP_PORT` in their templates
+that disagrees with their Dockerfile (3006 and 3001 against `EXPOSE 3000`), but the
+action already forces `PORT` and `APP_PORT` to the resolved port for exactly this reason,
+so it needs no special-casing in their arms.
+
 These per-repository values are resolved by a **`Resolve DAST target`** step in
 `dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
 and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
@@ -387,7 +407,7 @@ guessing a port would scan nothing and report it clean — so the default arm em
 (`postgres:17.9-trixie` for `novatalks.core`, the action's `postgres:16` default for
 everyone else) rather than a resolver arm, since it only ever has two truthy branches.
 
-Once all six are working, a seventh repository rolls out by copying whichever existing
+Once all nine are working, a tenth repository rolls out by copying whichever existing
 arm it resembles most, rather than by writing a boot config blind. **Adding one needs an
 explicit request and a boot probe first** — not a copied block and a hope.
 
