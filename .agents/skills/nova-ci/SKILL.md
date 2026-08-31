@@ -397,7 +397,8 @@ Preserve these behaviors:
   `novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api` —
   gated on `github.event.repository.name` like the `postgres:17.9-trixie` and R2
   exceptions. A `Resolve DAST target` step (the same house pattern as `Resolve scan
-  policy` in `trivy-scan`) resolves port, health path, `needs-db` and `needs-nats` per
+  policy` in `trivy-scan`) resolves port, health path, `needs-db`, `needs-nats` and
+  `extra-env` per
   repository via a `case` statement, one arm per repository with every value set explicitly; the
   default arm `::error::`s and exits non-zero rather than guessing. The four repos after
   the original two (`nova.botflow` and the chatsconnectors) have no dedicated HTTP
@@ -420,6 +421,26 @@ Preserve these behaviors:
   explicit request **and a boot probe first**: port, health path, boot timeout and
   database needs are per-repository inputs, and a wrong path scans an error page and
   reports it clean.
+- **`.env.example` is documentation and must not decide anything the scan depends on.**
+  Four boot failures traced back to trusting it literally: a trailing `//` comment glued
+  onto `NODE_ENV`, dotenv-style surrounding quotes that `docker --env-file` does not
+  strip, an `APP_PORT` disagreeing with the Dockerfile, and a blank `KEY=` seeded as an
+  empty string where the app had a perfectly good default. `scan.sh` therefore drops
+  comment-bearing and empty-valued lines, strips one matching quote pair, never seeds
+  `NODE_ENV`, and forces `PORT`/`APP_PORT` (and `NATS_SERVERS`, and `DATABASE_URL` when
+  `needs-db`) after `--env-file`. It logs counts and names, never values.
+- **`dast/action.yml`'s `extra-env` is the per-repository escape hatch** for template
+  values no filter can fix — newline-separated `KEY=VALUE`, applied as `-e` flags after
+  `--env-file` so each overrides the seeded value. Used by three arms:
+  `nova.chatsconnector.telegram-client-api` (four blanks its Joi schema rejects one per
+  CI run), `nova.chatsconnector.signal-client-api` (an `S3_ENDPOINT` written as
+  `https://<account-id>.…`, plus the blanks behind it), and `novatalks.dialer` (five
+  `AWS_S3_*` — `multer-s3` throws `bucket is required` at boot and `FILE_DRIVER=s3` is
+  the only driver it supports). Every value is a dummy and none is a credential; a real
+  one belongs in a secret. `example.com` is the placeholder host — IANA-reserved, so it
+  satisfies URL validators and is never contacted. Keep `TELEGRAM_API_HASH` as
+  thirty-two *identical* hex characters: a realistic-looking hash trips Gitleaks'
+  `generic-api-key` entropy heuristic and reds the required `secret-scan` check.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
   `scripts/test-dast-scan.sh` in the same change. `validate.sh` also fails if any
   workflow runs `semgrep scan`/`semgrep ci`, a `docker run` of a Semgrep image,
