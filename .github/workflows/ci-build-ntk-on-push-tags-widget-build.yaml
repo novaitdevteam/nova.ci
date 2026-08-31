@@ -124,7 +124,7 @@ jobs:
 
       - name: Semgrep
         id: semgrep
-        uses: novaitdevteam/nova.ci/.github/actions/semgrep@feat/dast-more-repos
+        uses: novaitdevteam/nova.ci/.github/actions/semgrep@main
         with:
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
