@@ -701,7 +701,7 @@ with:
 # `FAIL-INPROG: ` (per-rule in-progress lines are spelled `-IN_PROGRESS:`, never
 # `-INPROG:`, per zap_common.py:201), so anchoring on that shape instead of the prefix
 # alone cannot match a per-rule line.
-tally="$(grep -m1 -E '^FAIL-NEW: [0-9]+\tFAIL-INPROG: ' "$zap_console" || true)"
+tally="$(grep -m1 -E $'^FAIL-NEW: [0-9]+\tFAIL-INPROG: ' "$zap_console" || true)"
 [ -n "$tally" ] || scanner_error "ZAP printed no result tally — the scan did not complete"
 
 tally_at() { # tally_at <label>
@@ -948,7 +948,9 @@ One line carries all of them, printed unconditionally at the end of any complete
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 11	WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30
 ```
 
-`scan.sh` anchors on `^FAIL-NEW: [0-9]+\tFAIL-INPROG: ` and reads all six. The anchor
+`scan.sh` anchors on `$'^FAIL-NEW: [0-9]+\tFAIL-INPROG: '` — ANSI-C quoted, so the tab is
+a real byte: GNU grep does not read `\t` inside a pattern as a tab, it matches a literal
+`t`, and every runner is GNU. The anchor
 matches the tally's shape rather than its prefix on purpose: every `FAIL`-level finding
 also prints a per-rule line beginning `FAIL-NEW: `, before the tally, so a bare-prefix
 match would read an alert name where a number belongs and misreport a real finding as a
@@ -1066,7 +1068,7 @@ Delete every mention of the `severity` input, which no longer exists. Add one se
 Under **Code scanning (SAST/DAST)**, add:
 
 - Semgrep reports `ERROR` and `WARNING` as two counts and lists both. Do not reintroduce a single-severity filter: the old one was an exact equality that hid 12 `WARNING` findings on `novatalks.core` from the count *and* from the published report.
-- Take the ZAP counts from the single tally line (anchored on `^FAIL-NEW: [0-9]+\tFAIL-INPROG: `, not the bare `^FAIL-NEW: ` prefix — a per-rule FAIL-level line starts with that same prefix and would be matched instead), never from the per-rule `WARN-NEW:` lines, and treat a missing or non-numeric tally as a scanner error. The line is printed unconditionally by any completed scan, so its absence means the scan did not finish.
+- Take the ZAP counts from the single tally line (anchored on `$'^FAIL-NEW: [0-9]+\tFAIL-INPROG: '` — the ANSI-C quoting is load-bearing, GNU grep matches a literal `t` for `\t` inside a pattern, not the bare `^FAIL-NEW: ` prefix — a per-rule FAIL-level line starts with that same prefix and would be matched instead), never from the per-rule `WARN-NEW:` lines, and treat a missing or non-numeric tally as a scanner error. The line is printed unconditionally by any completed scan, so its absence means the scan did not finish.
 - Keep `0|1|2` in the ZAP exit-code `case`. Exit **1** is `FAIL`-level findings and `-I` does not suppress it — `-I` gates exit 2 alone. Moving 1 back into the error arm reds a trunk build for a finding.
 - `.github/actions/dast/zap-baseline.conf` is the triage register. Keep the reason column mandatory. Adding an entry is a risk-acceptance decision, not a CI change. A mistyped rule ID is silently inert; `scan.sh` validates line shape and levels only, and cannot validate IDs.
 
