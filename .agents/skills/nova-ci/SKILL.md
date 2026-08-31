@@ -289,11 +289,23 @@ Preserve these behaviors:
 ## SAST and DAST Semantics
 
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
-repositories) and `dast-scan` (OWASP ZAP baseline, six repositories: `novatalks.ui`,
-`novatalks.core`, `nova.botflow`, and the telegram, whatsapp and signal chatsconnectors)
+repositories) and `dast-scan` (OWASP ZAP baseline, nine repositories: `novatalks.ui`,
+`novatalks.core`, `nova.botflow`, the telegram, whatsapp and signal chatsconnectors, and
+`novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api`)
 after `trivy-scan`, both delegating to a composite action. Three scanners, three
 questions: Semgrep reads our source, Trivy reads the image, ZAP probes the running app.
 Gitleaks covers secrets; ESLint answers none of them. See `docs/sast-dast.md`.
+
+`ci-build-ntk-on-push-tags-widget-build.yaml` (`novatalks.chatwidget`'s workflow, not the
+standard one) has its own `sast-scan` job mirroring the pattern above: same trunk gate
+(`build-widget`'s `prep` step now also emits `IS_TRUNK`, resolved the same way
+`build-image`'s is), SHA-pinned checkout, `install-docker`, the same `semgrep` composite
+action, and it upserts its report onto the release `build-widget` already creates
+(`NTK.CHATWIDGET_<release>_<ref>_<sha>`) rather than a second one. It has **no Trivy and
+no DAST job** — that workflow zips `dist` and publishes it as a release asset, so there
+is no container image for either to point at. Do not add one without inventing a target.
+The notifier's `Compose SAST line` step is the same three-state shape as the main
+workflow's (skipped / worded verdict / job died before `scan.sh` ran).
 
 Preserve these behaviors:
 
@@ -355,23 +367,35 @@ Preserve these behaviors:
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
   vendored into `security/`. `ERROR` severity only on this rollout; `WARNING` once the
   real count is known.
-- **DAST scope is six repositories** — `novatalks.ui`, `novatalks.core`,
+- **DAST scope is nine repositories** — `novatalks.ui`, `novatalks.core`,
   `nova.botflow`, `nova.chatsconnector.telegram-client-api`,
-  `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api` —
+  `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api`,
+  `novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api` —
   gated on `github.event.repository.name` like the `postgres:17.9-trixie` and R2
   exceptions. A `Resolve DAST target` step (the same house pattern as `Resolve scan
-  policy` in `trivy-scan`) resolves port, health path and `needs-db` per repository via
-  a `case` statement, one arm per repository with every value set explicitly; the
-  default arm `::error::`s and exits non-zero rather than guessing. The four repos
-  beyond the original two have no dedicated HTTP health route (their charts probe over
-  `tcpSocket`), so their health path is `/` — the boot wait-loop accepts any HTTP
-  response, 404 included, since it only tests that the process is listening.
-  `nova.botflow` brings up both redis and postgres since its storage backend is
-  configurable. The signal connector's own default branch is a feature branch, not a
-  trunk name, so it only reaches `dast-scan` via an explicit `scan*` tag. Adding a
-  seventh repository needs an explicit request **and a boot probe first**: port, health
-  path, boot timeout and database needs are per-repository inputs, and a wrong path
-  scans an error page and reports it clean.
+  policy` in `trivy-scan`) resolves port, health path, `needs-db` and `needs-nats` per
+  repository via a `case` statement, one arm per repository with every value set explicitly; the
+  default arm `::error::`s and exits non-zero rather than guessing. The four repos after
+  the original two (`nova.botflow` and the chatsconnectors) have no dedicated HTTP
+  health route (their charts probe over `tcpSocket`), so their health path is `/` — the
+  boot wait-loop accepts any HTTP response, 404 included, since it only tests that the
+  process is listening. `nova.botflow` brings up both redis and postgres since its
+  storage backend is configurable. The signal connector's own default branch is a
+  feature branch, not a trunk name, so it only reaches `dast-scan` via an explicit
+  `scan*` tag. `novatalks.dialer` is in the deployment chart (port 3000, `/livez`) and is
+  the only arm with `needs-nats: true` — it reaches NestJS startup and then dies with
+  `ECONNREFUSED ::1:4222` without one; `scan.sh` brings up a bare, unconfigured
+  `nats:2.10-alpine` (tag-pinned like `postgres:16`/`redis:8`, not digest-pinned like the
+  scanners) and forces `-e NATS_SERVERS=127.0.0.1:4222` onto the app container after
+  `--env-file`, since the observed failure was IPv6 resolution of `localhost`, not a
+  missing server. `novatalks.uspacy.connector` and `novatalks.geoip-api` are not, so their port comes
+  from `docker/server.Dockerfile`'s `EXPOSE 3000` and their health path is `/` for the
+  same tcpSocket-style reason. `novatalks.geoip-api`'s `needs-db: false` is an inference
+  (no ORM dependency, a five-variable `.env.example`), not a verified fact like the
+  others — flip it if a real run wants a database. Adding a tenth repository needs an
+  explicit request **and a boot probe first**: port, health path, boot timeout and
+  database needs are per-repository inputs, and a wrong path scans an error page and
+  reports it clean.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
   `scripts/test-dast-scan.sh` in the same change. `validate.sh` also fails if any
   workflow runs `semgrep scan`/`semgrep ci`, a `docker run` of a Semgrep image,

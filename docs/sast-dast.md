@@ -188,6 +188,26 @@ trailing comment overriding a correct image default; quoted values were the seco
 on. `scan.sh` now forces the resolved port onto the container after `--env-file`, under
 both names in use across these repositories:
 
+### An empty value is dropped, not passed through
+
+The fourth defect of the same shape: `.env.example` leaves plenty of values blank as
+template placeholders (`KEY=`), and until now every one of those blank lines was seeded
+as a literal empty string. `novatalks.dialer` declares
+`MEMORY_RSS_THRESHOLD: Joi.number().integer().default(0)` — a perfectly good default —
+but its `.env.example` carries `MEMORY_RSS_THRESHOLD=`. Joi only applies `.default()`
+when a value is `undefined`; an empty string is a value, and `.number()` rejects it, so
+the engine never booted (`"MEMORY_RSS_THRESHOLD" must be a number`) even though it never
+needed the line at all.
+
+An empty value in a template means "fill this in", not "set this to the empty string",
+and passing it through is strictly worse than dropping the line: dropping it lets an
+application's own default apply, exactly as it would if the line were never written,
+and a variable that is genuinely required still fails loudly by its own name — a far
+better diagnostic than a type error two layers down. `scan.sh` now drops any line whose
+value is empty or entirely whitespace, in the same pass that strips quotes, and folds
+the count into the same log line as the comment, `NODE_ENV` and (once resolved) seeded
+totals.
+
 ```
 -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT"
 ```
@@ -227,14 +247,34 @@ is never contacted during a baseline scan and carries no credential.
 Past the URL, the same config validator rejects the next blank `S3_*` variable, one at
 a time (`"S3_ACCESS_KEY_ID" is not allowed to be empty`, then the next), so the arm
 seeds the whole plausible set together — `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
-`S3_BUCKET`, `S3_PUBLIC_URL` and `WEBHOOK_SECRET` — rather than iterating one blank per
-five-minute CI run. `nova.chatsconnector.telegram-client-api`'s arm does the same for
+`S3_BUCKET` and `WEBHOOK_SECRET` — rather than iterating one blank per five-minute CI
+run. `nova.chatsconnector.telegram-client-api`'s arm does the same for
 `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN` and
 `ENCRYPTION_SECRET` (`"TELEGRAM_API_ID" is not allowed to be empty` was the first
 error); `TELEGRAM_API_ID` is numeric and `TELEGRAM_API_HASH` is 32 hex characters so a
 validator checking shape, not just presence, accepts them. All of these are dummy
 values, not credentials — they exist only so a scanned container reaches its HTTP
 listener; if one ever needs to be real, it belongs in a secret, not in this step.
+
+Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
+values instead of passing them through. `S3_PUBLIC_URL` is declared
+`Joi.string().uri(...).empty('')` — optional, no default needed, and
+`storage.config.ts` already falls back to path-style `<S3_ENDPOINT>/<S3_BUCKET>` when
+it's unset — so seeding a dummy only ever overrode a fallback that already worked.
+`SIGNAL_MAX_FILE_SIZE`, by contrast, stays: its schema
+(`Joi.number().integer().positive().empty('').default(104857600)`) would make it just
+as removable, but its `.env.example` line reads
+`SIGNAL_MAX_FILE_SIZE=104857600# inbound file size...` with no space before the `#`, so
+the trailing-comment filter above — anchored on a preceding space — never strips it,
+and the literal comment text would still reach the container glued to the number. That
+is a comment-filter gap, not an empty-value one; dropping empty values does not touch
+it, so the override still earns its keep. Not every workaround in this file traces back
+to the empty-value fix — `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `S3_ENDPOINT`,
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_BUCKET` are all `.required()` with no
+default, so dropping their blank line only makes the failure clearer, not avoidable;
+`NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` and `WEBHOOK_SECRET` sit outside every
+Joi schema in their repositories entirely, so there is no schema line to justify
+dropping them either.
 
 Both templates also leave `REDIS_PASSWORD` blank, and the signal one leaves
 `DATABASE_SSL_CA_CERT` blank too — both stay blank here on purpose. The redis this
@@ -244,7 +284,8 @@ satisfy it. The telegram template also leaves `PROXY_IP`, `PROXY_PORT`,
 `PROXY_USERNAME`, `PROXY_PASSWORD` and `PROXY_SECRET` blank: an outbound proxy that
 does not exist is worse than none, and the validator has not complained about them.
 Every other arm sets `extra_env=""` explicitly, following the same
-no-arm-inherits-from-another discipline as `port`, `health_path` and `needs_db`.
+no-arm-inherits-from-another discipline as `port`, `health_path`, `needs_db` and
+`needs_nats`.
 
 ### `DATABASE_URL` for Prisma-based repositories
 
@@ -339,18 +380,33 @@ less.
 **SAST covers every standard build repository**, `novatalks.core` included. There is
 nothing per-repository about reading a checkout.
 
-**DAST covers six repositories**, gated on `github.event.repository.name`, the same
+**`novatalks.chatwidget` also gets SAST**, from a `sast-scan` job in its own
+`ci-build-ntk-on-push-tags-widget-build.yaml` rather than the main build workflow — that
+repository routes to the widget workflow, not the standard one. It gets **no Trivy and
+no DAST**, and that is a decision, not a gap: that workflow zips `dist` and publishes it
+as a release asset, it produces no container image, so neither scanner has a target —
+Trivy scans images, DAST boots them. Semgrep reads source, so it applies exactly as it
+does everywhere else. The widget's `sast-scan` mirrors the main workflow's: same trunk
+gate (an `IS_TRUNK` output added to `build-widget`'s `prep` step), same SHA-pinned
+checkout, same report-file convention, and it upserts its report onto the release
+`build-widget` already creates (`NTK.CHATWIDGET_<release>_<ref>_<sha>`) instead of a
+second one.
+
+**DAST covers nine repositories**, gated on `github.event.repository.name`, the same
 repository-scoped-exception pattern already used for the
 [integration Postgres image](tests.md) and R2 file storage:
 
-| repository | port | health path | needs-db | extra-env |
-| --- | --- | --- | --- | --- |
-| `novatalks.ui` | 8000 | `/livez` | false | — |
-| `novatalks.core` | 3000 | `/livez` | true | — |
-| `nova.botflow` | 1880 | `/` | true | — |
-| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
-| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | — |
-| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL`, `WEBHOOK_SECRET` |
+| repository | port | health path | needs-db | needs-nats | extra-env |
+| --- | --- | --- | --- | --- | --- |
+| `novatalks.ui` | 8000 | `/livez` | false | false | — |
+| `novatalks.core` | 3000 | `/livez` | true | false | — |
+| `nova.botflow` | 1880 | `/` | true | false | — |
+| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | false | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
+| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | false | — |
+| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | false | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `WEBHOOK_SECRET`, `SIGNAL_MAX_FILE_SIZE` |
+| `novatalks.dialer` | 3000 | `/livez` | true | true | — |
+| `novatalks.uspacy.connector` | 3000 | `/` | true | false | — |
+| `novatalks.geoip-api` | 3000 | `/` | false | false | — |
 
 DAST is scoped that narrowly because, unlike the other two, it has to **boot the
 thing**. Every repository needs its own answer to: which port does the image listen on,
@@ -375,11 +431,57 @@ connector's own default branch is a feature branch, not `main`/`master`/`develop
 so in practice it only reaches `dast-scan` via an explicit `scan*` tag — it has no trunk
 to be auto-scanned from.
 
+The three repositories added after those (`novatalks.dialer`, `novatalks.uspacy.connector`,
+`novatalks.geoip-api`) split differently. `novatalks.dialer` is in the deployment chart
+(`novatalks.charts`, `novatalks_v5/values.yaml`, `dialer.containerPort: 3000`), whose
+deployment probes `/livez` and `/readyz` — the same authoritative source as `novatalks.ui`
+and `novatalks.core`. It uses Prisma and redis, so `needs-db` is `true`. The other two are
+not in that chart; their port comes from `docker/server.Dockerfile`'s `EXPOSE 3000`
+instead, and neither exposes a dedicated health route, so `/` is correct for the same
+reason it is for `nova.botflow` and the chatsconnectors. `novatalks.uspacy.connector` uses
+Prisma, so it needs the database. `novatalks.geoip-api` has no ORM dependency and only
+five variables in its `.env.example`, so it is treated as needing no database, like
+`novatalks.ui` — this is the one inference in the set, not a verified fact like the
+others; if its first real run wants a database, flip `needs-db` to `true`. Both
+`novatalks.dialer` and `novatalks.uspacy.connector` set an `APP_PORT` in their templates
+that disagrees with their Dockerfile (3006 and 3001 against `EXPOSE 3000`), but the
+action already forces `PORT` and `APP_PORT` to the resolved port for exactly this reason,
+so it needs no special-casing in their arms.
+
+### `needs-nats`, for `novatalks.dialer` only
+
+`novatalks.dialer` reaches NestJS startup and then dies with
+`Error: connect ECONNREFUSED ::1:4222` — port 4222 is NATS, and nothing in this action
+listened on it. `dast/action.yml`'s `needs-nats` input (default `false`) tells `scan.sh`
+to bring up `nats:2.10-alpine` before the application the same way `needs-db` brings up
+postgres and redis: no config file, published on `4222`, started with its monitoring
+port (`-m 8222`) so a wait-loop shaped like the `pg_isready` one can poll
+`http://127.0.0.1:8222/healthz` before the application ever starts. A NATS that never
+becomes ready takes the same `not-run` path a database failure does, naming NATS in the
+reason. The container is named `nova-nats` and torn down by `cleanup()` on every exit
+path, alongside `nova-pg` and `nova-redis`. It is tag-pinned (`nats:2.10-alpine`), not
+digest-pinned, matching the existing `postgres:16`/`redis:8` precedent in this
+script — digest pinning stays reserved for the scanners themselves.
+
+The scan runs this NATS completely unconfigured — no auth, no TLS, no JetStream —
+because that is all the client side needs: `novatalks.dialer`'s own `.env.example`
+already defaults to `NATS_SERVERS=localhost:4222` with `NATS_USER`, `NATS_PASS`,
+`NATS_NKEY`, `NATS_JWT` all blank, `NATS_TLS_ENABLED=false` and
+`NATS_STREAM_ENABLED=false`. Production NATS (`nats-system/ntk-nats-prod-cluster`) is a
+three-node cluster with TLS certificates and NKEY/account authentication — none of that
+belongs here, and nobody should "harden" this bring-up to look more like it; a baseline
+scan needs a server to connect to, not a faithful copy of the production topology.
+`scan.sh` also forces `-e NATS_SERVERS=127.0.0.1:4222` onto the application container
+after `--env-file`, for the same reason `PORT`/`APP_PORT` are forced: the observed
+failure was `::1:4222`, i.e. the client resolved `localhost` to IPv6, and a server bound
+to `0.0.0.0` still refuses that — naming the address explicitly removes the resolution
+question rather than hoping it resolves to `127.0.0.1` on its own.
+
 These per-repository values are resolved by a **`Resolve DAST target`** step in
 `dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
 and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
 repository, every value set explicitly (no arm inherits from another), writing `port`,
-`health_path`, `needs_db` and `extra_env` to `$GITHUB_OUTPUT`. This replaced a chain of inline
+`health_path`, `needs_db`, `needs_nats` and `extra_env` to `$GITHUB_OUTPUT`. This replaced a chain of inline
 ternaries that did not scale past two repositories. The default arm is not a fallback:
 a repository that reaches `dast-scan` with no configured arm is a wiring mistake, and
 guessing a port would scan nothing and report it clean — so the default arm emits
@@ -387,7 +489,7 @@ guessing a port would scan nothing and report it clean — so the default arm em
 (`postgres:17.9-trixie` for `novatalks.core`, the action's `postgres:16` default for
 everyone else) rather than a resolver arm, since it only ever has two truthy branches.
 
-Once all six are working, a seventh repository rolls out by copying whichever existing
+Once all nine are working, a tenth repository rolls out by copying whichever existing
 arm it resembles most, rather than by writing a boot config blind. **Adding one needs an
 explicit request and a boot probe first** — not a copied block and a hope.
 

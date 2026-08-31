@@ -20,14 +20,10 @@ inputs:
     description: "Bring up postgres and redis alongside the application"
     required: false
     default: "false"
-  pg-image:
-    description: "Postgres image, when needs-db is true"
+  needs-nats:
+    description: "Bring up a plain, unconfigured NATS server alongside the application"
     required: false
-    default: "postgres:16"
-  env-file:
-    description: "A .env.example-style file, relative to the workspace unless absolute, whose non-comment lines are passed to the application container via --env-file. Absent files are not an error — most repositories will not have one."
-    required: false
-    default: ".env.example"
+    default: "false"
   extra-env:
     description: "Newline-separated KEY=VALUE lines applied to the application container via -e, after --env-file so each overrides the seeded value of the same name. A per-repository escape hatch for a template placeholder in the product repo's own .env.example that the app refuses to boot with — never a place for a real credential."
     required: false
@@ -65,8 +61,7 @@ runs:
         DAST_HEALTH_PATH: ${{ inputs.health-path }}
         DAST_BOOT_TIMEOUT: ${{ inputs.boot-timeout }}
         DAST_NEEDS_DB: ${{ inputs.needs-db }}
-        DAST_PG_IMAGE: ${{ inputs.pg-image }}
-        DAST_ENV_FILE: ${{ inputs.env-file }}
+        DAST_NEEDS_NATS: ${{ inputs.needs-nats }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}

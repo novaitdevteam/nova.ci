@@ -884,7 +884,7 @@ jobs:
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success'
       && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan'))
-      && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api"]'), github.event.repository.name) }}
+      && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api","novatalks.dialer","novatalks.uspacy.connector","novatalks.geoip-api"]'), github.event.repository.name) }}
     needs: [build-image, sast-scan]
     outputs:
       SCANNED: 'true'
@@ -918,6 +918,7 @@ jobs:
               port=8000
               health_path=/livez
               needs_db=false
+              needs_nats=false
               extra_env=""
               ;;
             novatalks.core)
@@ -925,6 +926,7 @@ jobs:
               port=3000
               health_path=/livez
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             nova.botflow)
@@ -938,6 +940,7 @@ jobs:
               # up both is simpler than modelling the choice, and an unused container
               # costs a few seconds.
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             nova.chatsconnector.telegram-client-api)
@@ -946,6 +949,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               # .env.example leaves TELEGRAM_API_ID, TELEGRAM_API_HASH,
               # NOVATALKS_ACCESS_TOKEN and ENCRYPTION_SECRET blank as template
               # placeholders. NestJS's config validator rejects an empty value one at a
@@ -977,6 +981,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             nova.chatsconnector.signal-client-api)
@@ -986,6 +991,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               # .env.example line 61 documents S3_ENDPOINT as
               # https://<account-id>.r2.cloudflarestorage.com — a template placeholder,
               # not a value meant to be used as-is. The angle brackets make it an invalid
@@ -1002,6 +1008,24 @@ jobs:
               # These are dummy values, not credentials — they exist only so a scanned
               # container reaches its HTTP listener.
               #
+              # S3_PUBLIC_URL is deliberately absent, unlike its neighbours: its schema
+              # (src/config/env.validation.ts) declares
+              # `Joi.string().uri(...).empty('')`, not `.required()` — an empty value
+              # was already tolerated before scan.sh started dropping empty-value lines,
+              # and storage.config.ts falls back to path-style
+              # `<S3_ENDPOINT>/<S3_BUCKET>` when it's unset. Seeding it here only
+              # overrode a working fallback with an unused dummy.
+              #
+              # SIGNAL_MAX_FILE_SIZE stays despite `Joi.number().integer().positive()
+              # .empty('').default(104857600)` giving it both an empty-tolerant rule and
+              # a usable default: its .env.example line reads
+              # `SIGNAL_MAX_FILE_SIZE=104857600# inbound file size...` with no
+              # whitespace before the `#`, so scan.sh's trailing-comment filter (which
+              # anchors on a preceding space) never strips it, and the literal comment
+              # text would still reach Joi glued to the number. Dropping empty values
+              # does not touch this — the line isn't empty, it's comment-corrupted — so
+              # the override still earns its keep.
+              #
               # Deliberately still blank:
               # - REDIS_PASSWORD: this action's redis has no password, so setting one
               #   would break the connection that already works.
@@ -1014,9 +1038,58 @@ jobs:
               S3_ACCESS_KEY_ID=dast-dummy-key
               S3_SECRET_ACCESS_KEY=dast-dummy-secret
               S3_BUCKET=dast-dummy-bucket
-              S3_PUBLIC_URL=https://s3.example.com
               WEBHOOK_SECRET=dast-dummy-webhook-secret
               SIGNAL_MAX_FILE_SIZE=104857600"
+              ;;
+            novatalks.dialer)
+              # Port and health path from the production Helm chart (novatalks.charts,
+              # novatalks_v5/values.yaml dialer.containerPort: 3000, deployment probes
+              # /livez and /readyz) — authoritative because it is what runs in prod. Uses
+              # Prisma and redis, so it needs the database stack.
+              port=3000
+              health_path=/livez
+              needs_db=true
+              # NestJS reaches startup and then dies with "Error: connect ECONNREFUSED
+              # ::1:4222" — nothing listens on NATS's port. The app's own .env.example
+              # defaults to the simplest possible client config (NATS_SERVERS=
+              # localhost:4222, no user/pass/nkey/jwt, TLS and JetStream both off), so a
+              # bare, unconfigured NATS server satisfies it; see dast/action.yml's
+              # needs-nats input and scan.sh for what that brings up.
+              needs_nats=true
+              # multer-s3 wires object storage at boot and throws "bucket is required"
+              # without one, and FILE_DRIVER=s3 is the only driver this app supports, so
+              # storage cannot simply be turned off. The template leaves all five AWS_S3_*
+              # values blank; dummies satisfy the constructor and are never contacted by a
+              # baseline scan. Not credentials — a real value would belong in a secret.
+              extra_env="AWS_S3_ACCESS_KEY_ID=dast-dummy-key
+              AWS_S3_SECRET_ACCESS_KEY=dast-dummy-secret
+              AWS_S3_BUCKET=dast-dummy-bucket
+              AWS_S3_REGION=auto
+              AWS_S3_ENDPOINT=https://s3.example.com"
+              ;;
+            novatalks.uspacy.connector)
+              # Not in the deployment chart; docker/server.Dockerfile says EXPOSE 3000.
+              # No dedicated health route, so "/" is correct — see the nova.botflow note
+              # above for why that is not a guess. Uses Prisma, so it needs the database;
+              # the action already builds DATABASE_URL when needs-db is true.
+              port=3000
+              health_path=/
+              needs_db=true
+              needs_nats=false
+              extra_env=""
+              ;;
+            novatalks.geoip-api)
+              # Not in the deployment chart; docker/server.Dockerfile says EXPOSE 3000.
+              # No dedicated health route, so "/" is correct, same reasoning as above.
+              # No ORM dependency and only five variables in its .env.example, so it is
+              # treated as needing no database, like novatalks.ui. This is the one
+              # inference in this set — if the first real run shows it wanting a
+              # database, flip this flag.
+              port=3000
+              health_path=/
+              needs_db=false
+              needs_nats=false
+              extra_env=""
               ;;
             *)
               echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
@@ -1027,13 +1100,14 @@ jobs:
           echo "port=$port" | tee -a "$GITHUB_OUTPUT"
           echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
           echo "needs_db=$needs_db" | tee -a "$GITHUB_OUTPUT"
+          echo "needs_nats=$needs_nats" | tee -a "$GITHUB_OUTPUT"
           {
             echo "extra_env<<DAST_EXTRA_ENV_EOF"
             printf '%s\n' "$extra_env"
             echo "DAST_EXTRA_ENV_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
+          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db needs-nats=$needs_nats extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -1061,8 +1135,8 @@ jobs:
           # "not run" on a cold start.
           boot-timeout: 300
           needs-db: ${{ steps.dast_target.outputs.needs_db }}
+          needs-nats: ${{ steps.dast_target.outputs.needs_nats }}
           extra-env: ${{ steps.dast_target.outputs.extra_env }}
-          pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
 

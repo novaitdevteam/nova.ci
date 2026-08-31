@@ -24,8 +24,12 @@ set -euo pipefail
 : "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}"
 
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
-DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
-DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
+# Postgres and redis mirror what the platform actually runs, so a scan meets the same
+# database the application does — novatalks.charts, novatalks_v5/values.yaml
+# (cnpgClusterImage and redis.image). Update both together when the charts move; nothing
+# here can detect that drift, since a check inside this repo would only compare a
+# constant with itself.
+DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
 # not interchangeable — on novatalks.ui the health path 404s — so the summary and the
@@ -36,6 +40,8 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 # zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
+# Printed on failure, never suppressed: a stream that cannot be created must say why.
+nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 app_env_args=()
 app_tmp_env=""
 app_db_args=()
@@ -52,14 +58,14 @@ emit_message() {
 }
 
 cleanup() {
-    docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
+    docker rm -f nova-app nova-pg nova-redis nova-nats >/dev/null 2>&1 || true
     # Self-hosted runners are pooled and reused, not thrown away after one job, so a
     # temp file that may carry S3/database credentials must not outlive this process —
     # RUNNER_TEMP is not guaranteed wiped before the next job lands on the same VM.
     [ -n "$app_tmp_env" ] && rm -f "$app_tmp_env" >/dev/null 2>&1 || true
     # The console log is a counting artefact, never an artifact: it holds raw ZAP
     # output about a container that was booted with the product repo's own env.
-    rm -f "$zap_console" >/dev/null 2>&1 || true
+    rm -f "$zap_console" "$nats_stream_log" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -101,8 +107,9 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
         -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
         -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
         -e POSTGRES_DB="${DATABASE_NAME:-db_name}" \
-        "$DAST_PG_IMAGE" || not_run "postgres did not start"
-    docker run -d --name nova-redis -p 6379:6379 redis:8 || not_run "redis did not start"
+        ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie \
+        || not_run "postgres did not start"
+    docker run -d --name nova-redis -p 6379:6379 redis:8.6.4 || not_run "redis did not start"
     for _ in $(seq 1 30); do
         docker exec nova-pg pg_isready -U "${DATABASE_USERNAME:-postgres}" >/dev/null 2>&1 && break
         sleep 2
@@ -121,12 +128,51 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
     app_db_args=(-e "DATABASE_URL=postgresql://${DATABASE_USERNAME:-postgres}:${DATABASE_PASSWORD:-password}@127.0.0.1:5432/${DATABASE_NAME:-db_name}")
 fi
 
+if [ "$DAST_NEEDS_NATS" = "true" ]; then
+    docker rm -f nova-nats >/dev/null 2>&1 || true
+    # No config file, no auth, no TLS, no JetStream: the client side (novatalks.dialer's
+    # own .env.example) defaults to exactly this — NATS_USER/NATS_PASS/NATS_NKEY/NATS_JWT
+    # all blank, NATS_TLS_ENABLED=false, NATS_STREAM_ENABLED=false. Production NATS
+    # (nats-system/ntk-nats-prod-cluster) is a three-node cluster with TLS and
+    # NKEY/account auth; none of that is needed here, and mirroring it would scan
+    # something the client was never configured to reach. `-m 8222` turns on the
+    # monitoring endpoint the wait-loop below polls; it costs nothing else.
+    #
+    # Tag-pinned, not digest-pinned, matching the postgres and redis images in this
+    # script: infrastructure containers here follow that precedent, digest pinning is
+    # reserved for the scanners themselves (Semgrep, ZAP).
+    docker run -d --name nova-nats -p 4222:4222 -p 8222:8222 \
+        nats:2.10-alpine -js -m 8222 || not_run "NATS did not start"
+    nats_ready=no
+    for _ in $(seq 1 30); do
+        code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8222/healthz || true)"
+        if [ -n "$code" ] && [ "$code" != "000" ]; then nats_ready=yes; break; fi
+        sleep 2
+    done
+    [ "$nats_ready" = "yes" ] || not_run "NATS did not become ready"
+
+    # A running JetStream is not enough: the dialer asks $JS.API.STREAM.NAMES for a
+    # subject and throws "no stream matches subject" when nothing owns it. Mirrors
+    # ~/novatalks/scripts/nats-docker/scripts/js-init.sh, the stand the team already
+    # uses locally — same stream, same subjects, same retention — minus its `nsc push`
+    # step, which provisions JWT accounts this unauthenticated server has no use for.
+    # Keep the two comparable: if that script's stream changes, this should follow.
+    docker run --rm --network host natsio/nats-box:0.19.7 \
+        nats --server 127.0.0.1:4222 stream add campaign \
+            --subjects 'campaign.*' \
+            --storage file --replicas 1 \
+            --retention work --discard old \
+            --max-msgs=-1 --max-msgs-per-subject=-1 --max-bytes=-1 \
+            --max-age=-1 --max-msg-size=-1 \
+            --dupe-window=2m --no-allow-rollup --no-deny-delete --no-deny-purge \
+            --defaults > "$nats_stream_log" 2>&1 \
+        || { sed 's/^/    /' "$nats_stream_log" 2>/dev/null || true
+             not_run "could not create the 'campaign' JetStream stream"; }
+fi
+
 # .env.example is resolved relative to the workspace, not to this action's own
 # checkout, since it belongs to the product repo whose image is being scanned.
-case "$DAST_ENV_FILE" in
-    /*) env_file_path="$DAST_ENV_FILE" ;;
-    *)  env_file_path="${GITHUB_WORKSPACE:-.}/${DAST_ENV_FILE}" ;;
-esac
+env_file_path="${GITHUB_WORKSPACE:-.}/.env.example"
 
 if [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
@@ -166,14 +212,9 @@ if [ -f "$env_file_path" ]; then
     # this particular line also tripped the comment filter above.
     grep -vE '^NODE_ENV=' "$app_tmp_env" > "$stage" || true
     mv "$stage" "$app_tmp_env"
-    seeded_count=$(grep -c . "$app_tmp_env" || true)
-    seeded_count="${seeded_count:-0}"
-    node_env_dropped=$(( kept_count - seeded_count ))
-
-    # Names and counts only, never values: this file may carry credentials. The absence
-    # of exactly this line is why diagnosing the novatalks.core boot failure took as
-    # many steps as it did.
-    echo "DAST env file (${DAST_ENV_FILE}): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s)."
+    node_env_kept_count=$(grep -c . "$app_tmp_env" || true)
+    node_env_kept_count="${node_env_kept_count:-0}"
+    node_env_dropped=$(( kept_count - node_env_kept_count ))
 
     # Docker's --env-file does not strip quotes the way dotenv (what .env.example files
     # are written for) does: a value written DATABASE_URL="postgresql://..." reaches the
@@ -181,6 +222,20 @@ if [ -f "$env_file_path" ]; then
     # Strip only a matching pair of surrounding quotes — first and last character both
     # `"` or both `'` — and nothing else: an inner quote stays, an unmatched leading quote
     # with no trailing one stays, and no whitespace is trimmed. That is dotenv's own rule.
+    #
+    # Fourth instance of the same shape as the comment, NODE_ENV and port filters above:
+    # a value left blank in a template ("KEY=") means "fill this in", not "set this to
+    # the empty string", and passing that empty string through is strictly worse than
+    # dropping the line — novatalks.dialer declares
+    # `MEMORY_RSS_THRESHOLD: Joi.number().integer().default(0)`, a perfectly good
+    # default, but Joi only applies a default when a value is undefined, and an empty
+    # string is a value; it dies with "MEMORY_RSS_THRESHOLD" must be a number instead of
+    # booting on its own default. Dropping the line lets that default apply, and a
+    # variable that is genuinely required will fail loudly by its own name — a far
+    # better diagnostic than a type error two layers down. A whitespace-only value is
+    # dropped for the same reason: "   " is not a real value either, just a value nobody
+    # bothered to trim out of the template.
+    empty_dropped=0
     while IFS= read -r env_line || [ -n "$env_line" ]; do
         env_key="${env_line%%=*}"
         env_val="${env_line#*=}"
@@ -193,9 +248,22 @@ if [ -f "$env_file_path" ]; then
                 env_val="${env_val:1:val_len-2}"
             fi
         fi
+        trimmed_val="${env_val%%[![:space:]]*}"
+        trimmed_val="${env_val#"$trimmed_val"}"
+        if [ -z "$trimmed_val" ]; then
+            empty_dropped=$((empty_dropped + 1))
+            continue
+        fi
         printf '%s=%s\n' "$env_key" "$env_val"
     done < "$app_tmp_env" > "$stage"
     mv "$stage" "$app_tmp_env"
+    seeded_count=$(grep -c . "$app_tmp_env" || true)
+    seeded_count="${seeded_count:-0}"
+
+    # Names and counts only, never values: this file may carry credentials. The absence
+    # of exactly this line is why diagnosing the novatalks.core boot failure took as
+    # many steps as it did.
+    echo "DAST env file (.env.example): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s), ${empty_dropped} line(s) with an empty value."
 
     app_env_args=(--env-file "$app_tmp_env")
 fi
@@ -232,8 +300,14 @@ fi
 # both after --env-file, so whatever the template said loses. An app that reads neither
 # (novatalks.ui, served through nginx) is unaffected. This is also what keeps the wait
 # loop, ZAP and the app container itself agreed on one port instead of three.
-echo "DAST port: forcing PORT and APP_PORT to ${DAST_PORT}, overriding anything seeded from ${DAST_ENV_FILE}."
+echo "DAST port: forcing PORT and APP_PORT to ${DAST_PORT}, overriding anything seeded from .env.example."
 
+# Same "the action owns this, not the template" reasoning as PORT/APP_PORT above, for a
+# different failure shape: novatalks.dialer's own boot log read
+# "Error: connect ECONNREFUSED ::1:4222" — the client resolved `localhost` to IPv6, and a
+# NATS server bound to 0.0.0.0 still refuses that connection. Naming 127.0.0.1 explicitly
+# removes the resolution question rather than hoping the app or its host resolver picks
+# the v4 address. After --env-file so it wins over whatever the seeded template said.
 docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
     ${app_env_args[@]+"${app_env_args[@]}"} \
@@ -245,6 +319,7 @@ docker run -d --name nova-app --network host \
     ${app_db_args[@]+"${app_db_args[@]}"} \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
     -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
+    -e NATS_SERVERS=127.0.0.1:4222 \
     "$DAST_IMAGE" || not_run "the application container refused to start"
 
 booted=no
