@@ -173,6 +173,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}" \
     GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$WORK}" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
+    DAST_ACTION_ROOT="${DAST_ACTION_ROOT:-$ROOT/.github/actions/dast}" \
     DAST_REPORT_FILE="$WORK/report" \
     RUNNER_TEMP="$WORK" \
     REPORT_URL="https://example.invalid/r" \
@@ -742,6 +743,63 @@ assert_cleanup "app-boot-failure run still tears nova-nats down alongside the re
 DAST_NEEDS_NATS=true DAST_NEEDS_DB=false SHIM_NATS_CURL_RC=7 SHIM_CURL_RC=0 SHIM_NATS_RUN_RC=0 SHIM_ZAP_RC=0 \
     expect "a NATS that never becomes ready is a loud skip, not clean or error" not-run 0
 assert_cleanup "unready-NATS run still tears containers down"
+
+# --- the ZAP triage register -------------------------------------------------------
+# The config is what says "this finding is accepted" and "this one must be fixed". It
+# reaches ZAP through /zap/wrk, which is the bind mount of RUNNER_TEMP, because
+# zap-baseline.py resolves -c relative to that directory and nothing else.
+CONF_DIR="$WORK/action-root"
+mkdir -p "$CONF_DIR"
+
+conf_scenario() { # conf_scenario <content>
+    printf '%s\n' "$1" > "$CONF_DIR/zap-baseline.conf"
+}
+
+conf_scenario '# a comment
+
+10038	IGNORE	terminated at the ingress
+10020,10021	OUTOFSCOPE	^http://127\.0\.0\.1:3000/healthz'
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 1	PASS: 40" \
+DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "a well-formed triage config is accepted" clean 0
+if grep -qE '^run .*zaproxy.* -c zap-baseline\.conf' "$WORK/dockerlog"; then
+    echo "ok   the triage config is passed to zap-baseline.py"; pass=$((pass + 1))
+else
+    echo "FAIL zap-baseline.py was invoked without -c"
+    grep -E '^run .*zaproxy' "$WORK/dockerlog" | sed 's/^/     /'
+    fail=$((fail + 1))
+fi
+if [ -f "$WORK/zap-baseline.conf" ]; then
+    echo "ok   the triage config is copied into RUNNER_TEMP, which /zap/wrk mounts"; pass=$((pass + 1))
+else
+    echo "FAIL the triage config never reached RUNNER_TEMP"; fail=$((fail + 1))
+fi
+
+# A malformed register is a broken gate, not a warning: an IGNORE that fails to parse
+# means ZAP silently applies a policy nobody wrote. ZAP exits 3 on it, but its reason
+# lands in a log nobody reads, and a check of our own is one this harness can cover.
+conf_scenario '10038	IGNORE'
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "a line with too few fields is a scanner error" error 2
+
+conf_scenario '10038	MAYBE	not a level'
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "an unknown level is a scanner error" error 2
+
+conf_scenario '# only comments, no entries — every rule keeps its WARN default'
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
+DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "an entry-free register is valid, not an error" clean 0
+
+rm -f "$CONF_DIR/zap-baseline.conf"
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "a missing triage register is a scanner error, never a clean scan" error 2
+
+# The register that actually ships must itself be valid — a broken one would red every
+# DAST job on trunk, and nothing else in the harness reads the real file.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
+DAST_ACTION_ROOT="$ROOT/.github/actions/dast" \
+    expect "the register committed to this repository parses" clean 0
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

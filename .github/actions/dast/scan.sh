@@ -21,7 +21,7 @@
 set -euo pipefail
 
 : "${DAST_IMAGE:?}" "${DAST_PORT:?}" "${DAST_HEALTH_PATH:?}" "${DAST_BOOT_TIMEOUT:?}"
-: "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}"
+: "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}" "${DAST_ACTION_ROOT:?}"
 
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 # Postgres and redis mirror what the platform actually runs, so a scan meets the same
@@ -40,6 +40,11 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 # zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
+# The triage register: which findings must be fixed, which are accepted, and why. Copied
+# into RUNNER_TEMP because zap-baseline.py resolves -c against /zap/wrk/ and nowhere
+# else, and /zap/wrk is the bind mount of that directory.
+zap_conf_src="${DAST_ACTION_ROOT}/zap-baseline.conf"
+zap_conf="${RUNNER_TEMP:-/tmp}/zap-baseline.conf"
 # Printed on failure, never suppressed: a stream that cannot be created must say why.
 nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 app_env_args=()
@@ -100,6 +105,28 @@ scanner_error() { # scanner_error <reason>
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
 }
+
+# Validated before anything is booted: a broken register means ZAP silently applies a
+# policy nobody wrote, and finding that out after a five-minute stack boot helps nobody.
+# ZAP's own handling is loud enough (sys.exit(3) on a malformed line, an uncaught
+# FileNotFoundError on a missing one) but its reason lands in a log nobody reads, and a
+# check of our own is one the harness can cover.
+[ -r "$zap_conf_src" ] || scanner_error "the ZAP triage register is missing or unreadable: ${zap_conf_src}"
+
+# Grammar per zap_common.py:148-176 — at least two tabs, and a level from the fixed set
+# at zap_common.py:57 plus OUTOFSCOPE, which load_config checks before the level list.
+# What this cannot catch is a well-formed line naming a rule ID that does not exist: ZAP
+# reports alert counts per bucket, never which configured IDs matched, so an IGNORE that
+# applied and an IGNORE that was mistyped are indistinguishable from the outside.
+conf_bad="$(awk -F'\t' '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    NF < 3 { printf "line %d: fewer than three tab-separated fields; ", NR; next }
+    $2 != "PASS" && $2 != "IGNORE" && $2 != "INFO" && $2 != "WARN" && $2 != "FAIL" && $2 != "OUTOFSCOPE" {
+        printf "line %d: unknown level \"%s\"; ", NR, $2 }
+' "$zap_conf_src")"
+[ -z "$conf_bad" ] || scanner_error "the ZAP triage register is malformed — ${conf_bad}"
+cp "$zap_conf_src" "$zap_conf"
 
 if [ "$DAST_NEEDS_DB" = "true" ]; then
     docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
@@ -344,7 +371,7 @@ set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
     "$ZAP_IMAGE" zap-baseline.py -t "$target" \
-    -I -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
+    -I -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
 # PIPESTATUS[0], not $?: it is ZAP's own exit status, unambiguously. $? happens to
 # agree only because pipefail is set above; it would silently become tee's status the
 # moment that changed, and it is tee's status whenever tee itself fails.
