@@ -686,6 +686,14 @@ if grep -qE -- '^run .*--name nova-nats\b.* -js( |$)' "$WORK/dockerlog"; then
 else
     echo "FAIL nova-nats started without -js; \$JS.API.INFO would answer 503"; fail=$((fail + 1))
 fi
+
+# JetStream running is not the same as the stream existing: the dialer resolves a
+# subject to a stream and throws "no stream matches subject" against an empty server.
+if grep -qE -- 'stream add campaign' "$WORK/dockerlog" && grep -qE -- "subjects campaign" "$WORK/dockerlog"; then
+    echo "ok   the campaign stream is created with its subjects"; pass=$((pass + 1))
+else
+    echo "FAIL no campaign stream was created; the dialer resolves a subject at startup"; fail=$((fail + 1))
+fi
 assert_cleanup "needs-nats run tears all four containers down"
 
 DAST_NEEDS_NATS=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
