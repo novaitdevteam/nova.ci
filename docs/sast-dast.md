@@ -319,7 +319,13 @@ One line carries all of them, printed unconditionally at the end of any complete
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 11	WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30
 ```
 
-`scan.sh` anchors on `^FAIL-NEW: [0-9]+\tFAIL-INPROG: ` and reads all six. The anchor
+`scan.sh` anchors on `^FAIL-NEW: <digits>` followed by a **literal tab byte** and
+`FAIL-INPROG: `, and reads all six. The tab has to reach `grep` as a real tab, which is
+why the pattern is written with ANSI-C quoting (`$'…\t…'`) and not as a plain
+single-quoted string: BSD `grep` expands `\t` inside a pattern, GNU `grep` does not — it
+warns `stray \ before t` and matches a literal `t`. Every runner is GNU, so the plainly
+quoted form matches nothing there, and every completed scan reports a missing tally and
+reds the build. A macOS harness run is the one place it passes. The anchor
 matches the tally's shape rather than its prefix on purpose: every `FAIL`-level finding
 also prints a per-rule line beginning `FAIL-NEW: `, before the tally, so a bare-prefix
 match would read an alert name where a number belongs and misreport a real finding as a
@@ -383,11 +389,16 @@ TAB-separated with at least three fields:
 | `FAIL` | must be fixed — counted and reported separately from warnings |
 | `WARN` | the default; no entry needed |
 | `INFO` | noted, out of the warning count, still in the report |
-| `IGNORE` | accepted risk — the reason column is not optional |
+| `IGNORE` | accepted risk — write the reason; see below |
 | `PASS` | treated as passing |
 
 The file ships with no entries, so it changes nothing until someone adds a line. Adding
 one is a risk-acceptance decision, not a CI change.
+
+The reason is a **review-time obligation, not a parsed one.** `10038<TAB>IGNORE<TAB>` with an
+empty third field is accepted by `scan.sh`, because ZAP itself accepts it and this
+validator must never reject a register ZAP would load. Nothing mechanical will stop an
+unexplained `IGNORE`; the pull request is what stops it.
 
 Rule IDs are not written from memory. Generate the list the pinned image actually loads:
 

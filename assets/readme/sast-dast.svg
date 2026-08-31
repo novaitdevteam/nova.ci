@@ -2,7 +2,7 @@
      width="1200" height="580" viewBox="0 0 1200 580"
      role="img" aria-labelledby="sdaTitle sdaDesc">
   <title id="sdaTitle">Semgrep and ZAP answer questions Trivy and ESLint do not, and a scanner that could not run is never reported clean</title>
-  <desc id="sdaDesc">Three scanners ask three different questions: Trivy reads the container image, Semgrep reads our own source at ERROR and WARNING severity behind a canary guard, and an OWASP ZAP baseline probes the running application on novatalks.ui and novatalks.core. Gitleaks covers secrets and ESLint answers none of these. Each scan reports clean, findings or error, and DAST alone has a fourth outcome, not run. Findings only warn and the build stays green; an application that never booted is a loud skip that also stays green; the scanner itself breaking turns the job red. All three reports are attached to the one release the build already creates, whose tag still carries the historical TRIVY.SCAN_ prefix so existing download URLs keep working, and each scanner adds one line to the build notification.</desc>
+  <desc id="sdaDesc">Three scanners ask three different questions: Trivy reads the container image, Semgrep reads our own source at ERROR and WARNING severity behind a canary guard, and an OWASP ZAP baseline probes the running application on the nine repositories DAST is scoped to. Gitleaks covers secrets and ESLint answers none of these. Each scan reports clean, findings or error, and DAST alone has a fourth outcome, not run. Findings only warn and the build stays green; an application that never booted is a loud skip that also stays green; the scanner itself breaking turns the job red. All three reports are attached to the one release the build already creates, whose tag still carries the historical TRIVY.SCAN_ prefix so existing download URLs keep working, and each scanner adds one line to the build notification.</desc>
 
   <rect width="1200" height="580" rx="20" fill="#0B0E11"/>
 
@@ -28,7 +28,7 @@
 
       <rect x="40" y="282" width="430" height="76" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
       <text x="64" y="314" font-size="20" fill="#F4F6F8">ZAP · the running app</text>
-      <text x="64" y="340" font-size="18" fill="#8B96A2">novatalks.ui · novatalks.core</text>
+      <text x="64" y="340" font-size="18" fill="#8B96A2">DAST · nine repositories</text>
     </g>
 
     <text x="40" y="388" font-size="18" fill="#6E7A87">Gitleaks covers secrets. ESLint answers none of these.</text>

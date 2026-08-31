@@ -869,9 +869,32 @@ fi
 # canary and the `git rev-list --count` guard on the secret scan.
 SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything looked fine" \
     expect "a console with no tally line is a scanner error, never clean" error 2
+# The reason is asserted, not just the outcome. Both tally guards end in scanner_error,
+# so outcome+rc alone cannot tell them apart: with only that check, deleting the
+# missing-tally guard still passed this scenario, because the numeric guard below caught
+# the empty parse on the way past. Matching the reason makes each guard independently
+# falsifiable.
+if grep -q 'no result tally' "$WORK/output"; then
+    echo "ok   a missing tally is reported as a missing tally, not as a malformed one"; pass=$((pass + 1))
+else
+    echo "FAIL the missing-tally guard did not name the missing tally"
+    sed 's/^/     /' "$WORK/output"
+    fail=$((fail + 1))
+fi
 
-SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: none	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 1	IGNORE: 3	PASS: 30" \
+# FAIL-NEW stays numeric so the anchor matches and this reaches the guard it is named
+# for. The earlier fixture used `FAIL-NEW: none`, which the anchor's [0-9]+ rejects
+# outright — it exited through the missing-tally guard above and never exercised the
+# numeric one at all.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: many	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
     expect "a non-numeric tally is a scanner error" error 2
+if grep -q 'malformed' "$WORK/output"; then
+    echo "ok   a matched-but-unparseable tally is reported as malformed"; pass=$((pass + 1))
+else
+    echo "FAIL the numeric tally guard did not fire"
+    sed 's/^/     /' "$WORK/output"
+    fail=$((fail + 1))
+fi
 
 # Exit 3 is both "an exception was raised" and "nothing passed, warned or failed" — no
 # rule ran at all. Both are broken gates.

@@ -198,14 +198,28 @@ assert_report "report lists the WARNING section too" "=== WARNING: 3 ==="
 
 # INFO is counted for the summary but deliberately kept out of the report body: the OSS
 # packs emit it liberally and it would bury the two levels that carry a decision.
-SHIM_JSON="$(semgrep_json yes INFO INFO)" SHIM_RC=1 \
+#
+# Written out rather than built by semgrep_json because that helper names every finding
+# `rule.x` regardless of severity, and "the report body does not name this rule" is only
+# an assertion about INFO if the rule ID belongs to the INFO finding alone. With the
+# shared ID the same string could have come from an ERROR or WARNING listing and the
+# check would pass no matter what the body contained.
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}},{"check_id":"rule.info-only","path":"src/a.ts","start":{"line":3},"extra":{"severity":"INFO","message":"m"}},{"check_id":"rule.info-only","path":"src/b.ts","start":{"line":4},"extra":{"severity":"INFO","message":"m"}}],"errors":[],"paths":{"scanned":["src/a.ts","src/b.ts"]}}' SHIM_RC=1 \
     expect "INFO alone is not a finding" clean 0
 assert_warnings "INFO alone counts no warnings" 0
+assert_report "the report body does not list INFO findings" "rule.info-only" --absent
 if grep -q 'INFO: 2' "$WORK/summary"; then
     echo "ok   INFO findings are still counted in the job summary"; pass=$((pass + 1))
 else
     echo "FAIL the job summary does not report the INFO count"; fail=$((fail + 1))
 fi
+
+# The zero-files guard sits ahead of the canary guard in scan.sh, so the existing
+# empty-.paths.scanned fixture (which has no canary either) was caught by the canary
+# guard whenever the zero-files one was removed, and the guard was untestable. A firing
+# canary isolates it: everything else about this run says "completed and clean".
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}}],"errors":[],"paths":{"scanned":[]}}' SHIM_RC=0 \
+    expect "zero files scanned is an error even with a firing canary" error 0
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

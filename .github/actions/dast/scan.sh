@@ -418,7 +418,14 @@ esac
 # `FAIL-INPROG: ` (per-rule in-progress lines are spelled `-IN_PROGRESS:`, never
 # `-INPROG:`, per zap_common.py:201), so anchoring on that shape instead of the prefix
 # alone cannot match a per-rule line.
-tally="$(grep -m1 -E '^FAIL-NEW: [0-9]+\tFAIL-INPROG: ' "$zap_console" || true)"
+#
+# $'...' is load-bearing, not decoration: it is ANSI-C quoting, so the pattern reaches
+# grep carrying a real tab byte. Written as a plain '...' string the pattern carries a
+# backslash and a `t`, which BSD grep interprets as a tab but GNU grep does not — GNU
+# warns `stray \ before t` and matches a literal `t`, so the tally never matches, every
+# completed scan reports "no tally" and reds the build. Every runner is GNU; a macOS
+# harness run is the one place the broken form passes. Do not "tidy" it back.
+tally="$(grep -m1 -E $'^FAIL-NEW: [0-9]+\tFAIL-INPROG: ' "$zap_console" || true)"
 [ -n "$tally" ] || scanner_error "ZAP printed no result tally — the scan did not complete"
 
 tally_at() { # tally_at <label>

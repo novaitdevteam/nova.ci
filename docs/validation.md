@@ -50,24 +50,35 @@ that page is built around: the difference between "found nothing" and "never ran
 invisible in the tools' own output, so it has to be asserted.
 
 [`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh) runs the Semgrep
-[`scan.sh`](../.github/actions/semgrep/scan.sh) against 14 checks with `docker`
-stubbed by a shim on `PATH`, so it needs no image and no network. It covers a clean
-run, findings at the counted severity, and every fail-closed case the rule-load guard
-exists for: no output file, a non-zero exit, unparseable JSON, zero files scanned, a
-result set in which the canary rule did not fire, and a non-empty `.errors[]` *with* a
-firing canary — the shape of a run whose registry packs never loaded. It also asserts
-the canary is never counted as a finding, including when the counted severity is set to
-the canary's own `INFO`.
+[`scan.sh`](../.github/actions/semgrep/scan.sh) against 31 checks with `docker`
+stubbed by a shim on `PATH`, so it needs no image and no network. It covers a clean run,
+`ERROR` and `WARNING` counted and listed separately (a lone `WARNING` is a finding, not
+a clean scan), `INFO` counted in the job summary but kept out of the report body, and
+every fail-closed case the rule-load guard exists for: no output file, a non-zero exit,
+unparseable JSON, zero files scanned, a result set in which the canary rule did not
+fire, and a non-empty `.errors[]` *with* a firing canary — the shape of a run whose
+registry packs never loaded, as against per-file `.errors[]` entries, which all carry a
+`path` and must not fail the job. Two guards are isolated by giving their scenario a
+firing canary, so the canary guard cannot catch the case first: the zero-files guard,
+and the `INFO`-is-not-listed rule, which uses an `INFO`-only rule ID so the report
+assertion is about `INFO` and nothing else. The canary itself is excluded from every
+bucket unconditionally, by `check_id`, and the `canary alone is a clean scan` scenario
+holds it to that — there is no severity input to coincide with any more.
 
 [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh) does the same for the ZAP
-[`scan.sh`](../.github/actions/dast/scan.sh) across 36 checks, with `docker` and
+[`scan.sh`](../.github/actions/dast/scan.sh) across 112 checks, with `docker` and
 `curl` stubbed. It asserts the four outcomes stay distinct — `clean`, `findings`,
-`not-run` and `error` — plus the boot wait loop, teardown on every path, and that a
-no-database run never starts postgres or redis. Its ZAP shim writes the `-w` markdown
-report and the console stream **separately**, because the real `zap-baseline.py` does:
-`WARN-NEW` lines exist only on stdout, so a scenario whose markdown report is full of
-alert text but carries no `WARN-NEW` proves the count comes from the stream ZAP actually
-prints it on.
+`not-run` and `error` — plus the boot wait loop, teardown on every path, that a
+no-database run never starts postgres or redis, the `.env.example` seeding filters, and
+the triage register's shape validation. Its ZAP shim writes the `-w` markdown report and
+the console stream **separately**, because the real `zap-baseline.py` does: `WARN-NEW`
+lines exist only on stdout, so a scenario whose markdown report is full of alert text but
+carries no `WARN-NEW` proves the count comes from the stream ZAP actually prints it on.
+All six counts come off one tally line, and the scenarios around it assert the reason as
+well as the outcome — a missing tally and an unparseable one are both scanner errors, so
+outcome alone cannot tell the two guards apart, and matching the reason keeps each one
+independently falsifiable. A `FAIL`-level finding is asserted to report as a finding with
+the build green, never as a broken scanner.
 
 ```bash
 ./scripts/test-sast-scan.sh

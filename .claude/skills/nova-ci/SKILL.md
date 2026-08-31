@@ -360,11 +360,16 @@ Preserve these behaviors:
   a per-rule `WARN-NEW:`/`FAIL-NEW:` line. `-w` writes the markdown "ZAP Scanning
   Report" and carries no count at all. One line, printed unconditionally at the end of
   any completed scan, carries all six: `FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 11
-  WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30`. Anchor on
-  `^FAIL-NEW: [0-9]+\tFAIL-INPROG: ` — the tally's *shape*, not the bare `FAIL-NEW: `
+  WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30`. Anchor on `^FAIL-NEW: <digits>` + a
+  **literal tab byte** + `FAIL-INPROG: ` — the tally's *shape*, not the bare `FAIL-NEW: `
   prefix, which a per-rule FAIL-level line also starts with and would be matched
-  instead, misreporting a real finding as a broken scanner. A missing or non-numeric
-  tally is a scanner error, never a clean scan — the format moving under the pinned
+  instead, misreporting a real finding as a broken scanner. **Keep the pattern ANSI-C
+  quoted (`$'…\t…'`), never a plain `'…\t…'` string:** BSD grep expands `\t` inside a
+  pattern, GNU grep does not — it warns `stray \ before t` and matches a literal `t`.
+  Every runner is GNU, so the plainly quoted form matches nothing in production, every
+  completed scan reports a missing tally and reds the build, and a macOS harness run is
+  the one place it passes. A missing or non-numeric tally is a scanner error, never a
+  clean scan — the format moving under the pinned
   digest is not a zero. Keep the `tee` capture and `${PIPESTATUS[0]}` — ZAP's own exit
   status, unambiguously; plain `$?` only agrees because `pipefail` is set and would
   become `tee`'s status the moment that changed, or whenever `tee` itself fails — and
@@ -374,10 +379,13 @@ Preserve these behaviors:
   suppress 1. Moving 1 into the error arm reds a trunk build the first time the triage
   register gains a `FAIL` entry.
 - **`.github/actions/dast/zap-baseline.conf` is the triage register** — TAB-separated,
-  at least three fields, levels `PASS`/`IGNORE`/`INFO`/`WARN`/`FAIL`/`OUTOFSCOPE`, reason
-  column mandatory. Ships with zero entries; adding one is a risk-acceptance decision,
-  not a CI change. `scan.sh` validates line shape and level before anything boots and
-  treats a malformed or missing register as a scanner error, but **cannot validate rule
+  at least three fields, levels `PASS`/`IGNORE`/`INFO`/`WARN`/`FAIL`/`OUTOFSCOPE`. The
+  reason column is a **review-time obligation, not a parsed one** — an empty third field
+  is accepted, because ZAP accepts it and this validator must never reject a register
+  ZAP would load; do not add a check that enforces it. Ships with zero entries; adding
+  one is a risk-acceptance decision, not a CI change. `scan.sh` validates line shape and
+  level before anything boots and treats a malformed or missing register as a scanner
+  error, but **cannot validate rule
   IDs** — a mistyped one is silently inert.
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
   vendored into `security/`. `ERROR` and `WARNING` are both counted and both listed in
