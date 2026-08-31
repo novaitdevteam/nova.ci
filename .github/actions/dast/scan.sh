@@ -29,12 +29,7 @@ DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 # (cnpgClusterImage and redis.image). Update both together when the charts move; nothing
 # here can detect that drift, since a check inside this repo would only compare a
 # constant with itself.
-DAST_PG_IMAGE="${DAST_PG_IMAGE:-ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie}"
 DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
-DAST_NATS_STREAM="${DAST_NATS_STREAM:-campaign}"
-DAST_NATS_SUBJECTS="${DAST_NATS_SUBJECTS:-campaign.*}"
-DAST_NATS_BOX_IMAGE="${DAST_NATS_BOX_IMAGE:-natsio/nats-box:0.19.7}"
-DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
 # not interchangeable — on novatalks.ui the health path 404s — so the summary and the
@@ -112,7 +107,8 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
         -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
         -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
         -e POSTGRES_DB="${DATABASE_NAME:-db_name}" \
-        "$DAST_PG_IMAGE" || not_run "postgres did not start"
+        ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie \
+        || not_run "postgres did not start"
     docker run -d --name nova-redis -p 6379:6379 redis:8.6.4 || not_run "redis did not start"
     for _ in $(seq 1 30); do
         docker exec nova-pg pg_isready -U "${DATABASE_USERNAME:-postgres}" >/dev/null 2>&1 && break
@@ -161,9 +157,9 @@ if [ "$DAST_NEEDS_NATS" = "true" ]; then
     # uses locally — same stream, same subjects, same retention — minus its `nsc push`
     # step, which provisions JWT accounts this unauthenticated server has no use for.
     # Keep the two comparable: if that script's stream changes, this should follow.
-    docker run --rm --network host "$DAST_NATS_BOX_IMAGE" \
-        nats --server 127.0.0.1:4222 stream add "$DAST_NATS_STREAM" \
-            --subjects "$DAST_NATS_SUBJECTS" \
+    docker run --rm --network host natsio/nats-box:0.19.7 \
+        nats --server 127.0.0.1:4222 stream add campaign \
+            --subjects 'campaign.*' \
             --storage file --replicas 1 \
             --retention work --discard old \
             --max-msgs=-1 --max-msgs-per-subject=-1 --max-bytes=-1 \
@@ -171,15 +167,12 @@ if [ "$DAST_NEEDS_NATS" = "true" ]; then
             --dupe-window=2m --no-allow-rollup --no-deny-delete --no-deny-purge \
             --defaults > "$nats_stream_log" 2>&1 \
         || { sed 's/^/    /' "$nats_stream_log" 2>/dev/null || true
-             not_run "could not create the '${DAST_NATS_STREAM}' JetStream stream"; }
+             not_run "could not create the 'campaign' JetStream stream"; }
 fi
 
 # .env.example is resolved relative to the workspace, not to this action's own
 # checkout, since it belongs to the product repo whose image is being scanned.
-case "$DAST_ENV_FILE" in
-    /*) env_file_path="$DAST_ENV_FILE" ;;
-    *)  env_file_path="${GITHUB_WORKSPACE:-.}/${DAST_ENV_FILE}" ;;
-esac
+env_file_path="${GITHUB_WORKSPACE:-.}/.env.example"
 
 if [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
@@ -270,7 +263,7 @@ if [ -f "$env_file_path" ]; then
     # Names and counts only, never values: this file may carry credentials. The absence
     # of exactly this line is why diagnosing the novatalks.core boot failure took as
     # many steps as it did.
-    echo "DAST env file (${DAST_ENV_FILE}): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s), ${empty_dropped} line(s) with an empty value."
+    echo "DAST env file (.env.example): seeded ${seeded_count} variable(s); dropped ${comment_dropped} line(s) with a trailing comment, ${node_env_dropped} NODE_ENV line(s), ${empty_dropped} line(s) with an empty value."
 
     app_env_args=(--env-file "$app_tmp_env")
 fi
@@ -307,7 +300,7 @@ fi
 # both after --env-file, so whatever the template said loses. An app that reads neither
 # (novatalks.ui, served through nginx) is unaffected. This is also what keeps the wait
 # loop, ZAP and the app container itself agreed on one port instead of three.
-echo "DAST port: forcing PORT and APP_PORT to ${DAST_PORT}, overriding anything seeded from ${DAST_ENV_FILE}."
+echo "DAST port: forcing PORT and APP_PORT to ${DAST_PORT}, overriding anything seeded from .env.example."
 
 # Same "the action owns this, not the template" reasoning as PORT/APP_PORT above, for a
 # different failure shape: novatalks.dialer's own boot log read

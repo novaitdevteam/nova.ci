@@ -169,9 +169,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_HEALTH_PATH="${DAST_HEALTH_PATH:-/}" \
     DAST_BOOT_TIMEOUT="6" \
     DAST_NEEDS_DB="${DAST_NEEDS_DB:-true}" \
-    DAST_PG_IMAGE="postgres:16" \
     DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}" \
-    DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}" \
     DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}" \
     GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$WORK}" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
