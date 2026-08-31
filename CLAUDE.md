@@ -105,6 +105,13 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 - Keep notification jobs Docker-free and routed through [`notify/action.yml`](.github/actions/notify/action.yml): `actions/github-script@v8` with Node.js `fetch`. A workflow must not call the Telegram or Google Chat API directly — `validate.sh` fails on it.
 - Keep mobile APK setup explicit — self-hosted images ship neither `zip`/`unzip` nor the Android build tools.
 
+**Credentials in the transcript**
+
+- Never print a credential value. Read `.env` redacted (`sed 's/=.*/=<redacted>/' .env`) or load it without printing (`set -a; . ./.env; set +a`), then use the variable — in a header, in step `env:` — but never `echo` it and never paste it into a file, a commit, an issue or a wiki page. `scripts/guard-secret-echo.sh` runs as a `PreToolUse` hook and blocks Bash commands that would dump a `.env`; run `./scripts/guard-secret-echo.sh --self-test` after changing it.
+- That hook covers **one** accident. It cannot see an editor `@file` reference, which pastes the file into the conversation before any tool runs — that is how three live credentials from this repository's `.env` reached a transcript on 2026-08-31. It also cannot see a log line, an API response or a paste.
+- When a value reaches the transcript anyway, say so **first**, before answering whatever was asked, and say that rotation is the only remedy. Deleting the line later fixes nothing: it was readable the moment it appeared, and this repository is **public**, so anything ever pushed stays fetchable after a force-push.
+- Ask for secret **names**, not values. Values belong in GitHub Secrets.
+
 ## Editing style
 
 - Prefer small, targeted workflow edits over broad refactors.

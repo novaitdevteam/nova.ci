@@ -143,6 +143,20 @@ case "$scan_rc" in
     ;;
 esac
 
+section "Secret-echo guard self-check"
+# guard-secret-echo.sh runs as a PreToolUse hook and can refuse an agent's command, so a
+# false positive is not the safe side of the trade — it teaches people to bypass the
+# check. Both directions are asserted: the dumps it must block, and the redacted reads,
+# `open(` calls and unrelated `tail -1`s it must not.
+if out="$(./scripts/guard-secret-echo.sh --self-test 2>&1)"; then
+  printf '%s\n' "$out" | tail -1
+  echo "OK: all secret-echo guard scenarios passed"
+else
+  printf '%s\n' "$out"
+  echo "ERROR: guard-secret-echo.sh self-check failed"
+  fail=1
+fi
+
 section "SAST scan self-check"
 # Semgrep's scan.sh decides whether a build reports findings, a clean scan or a broken
 # scanner, and conflating the last two is the failure this guard exists to prevent.
