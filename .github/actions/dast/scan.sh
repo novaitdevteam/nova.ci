@@ -28,7 +28,7 @@ DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
 DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_NATS_STREAM="${DAST_NATS_STREAM:-campaign}"
 DAST_NATS_SUBJECTS="${DAST_NATS_SUBJECTS:-campaign.*}"
-DAST_NATS_BOX_IMAGE="${DAST_NATS_BOX_IMAGE:-natsio/nats-box:0.14.5}"
+DAST_NATS_BOX_IMAGE="${DAST_NATS_BOX_IMAGE:-natsio/nats-box:0.19.7}"
 DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
@@ -40,6 +40,8 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 # zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
+# Printed on failure, never suppressed: a stream that cannot be created must say why.
+nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 app_env_args=()
 app_tmp_env=""
 app_db_args=()
@@ -63,7 +65,7 @@ cleanup() {
     [ -n "$app_tmp_env" ] && rm -f "$app_tmp_env" >/dev/null 2>&1 || true
     # The console log is a counting artefact, never an artifact: it holds raw ZAP
     # output about a container that was booted with the product repo's own env.
-    rm -f "$zap_console" >/dev/null 2>&1 || true
+    rm -f "$zap_console" "$nats_stream_log" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -162,8 +164,9 @@ if [ "$DAST_NEEDS_NATS" = "true" ]; then
             --max-msgs=-1 --max-msgs-per-subject=-1 --max-bytes=-1 \
             --max-age=-1 --max-msg-size=-1 \
             --dupe-window=2m --no-allow-rollup --no-deny-delete --no-deny-purge \
-            --defaults >/dev/null 2>&1 \
-        || not_run "could not create the '${DAST_NATS_STREAM}' JetStream stream"
+            --defaults > "$nats_stream_log" 2>&1 \
+        || { sed 's/^/    /' "$nats_stream_log" 2>/dev/null || true
+             not_run "could not create the '${DAST_NATS_STREAM}' JetStream stream"; }
 fi
 
 # .env.example is resolved relative to the workspace, not to this action's own
