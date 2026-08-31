@@ -284,7 +284,8 @@ satisfy it. The telegram template also leaves `PROXY_IP`, `PROXY_PORT`,
 `PROXY_USERNAME`, `PROXY_PASSWORD` and `PROXY_SECRET` blank: an outbound proxy that
 does not exist is worse than none, and the validator has not complained about them.
 Every other arm sets `extra_env=""` explicitly, following the same
-no-arm-inherits-from-another discipline as `port`, `health_path` and `needs_db`.
+no-arm-inherits-from-another discipline as `port`, `health_path`, `needs_db` and
+`needs_nats`.
 
 ### `DATABASE_URL` for Prisma-based repositories
 
@@ -395,17 +396,17 @@ second one.
 repository-scoped-exception pattern already used for the
 [integration Postgres image](tests.md) and R2 file storage:
 
-| repository | port | health path | needs-db | extra-env |
-| --- | --- | --- | --- | --- |
-| `novatalks.ui` | 8000 | `/livez` | false | — |
-| `novatalks.core` | 3000 | `/livez` | true | — |
-| `nova.botflow` | 1880 | `/` | true | — |
-| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
-| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | — |
-| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `WEBHOOK_SECRET`, `SIGNAL_MAX_FILE_SIZE` |
-| `novatalks.dialer` | 3000 | `/livez` | true | — |
-| `novatalks.uspacy.connector` | 3000 | `/` | true | — |
-| `novatalks.geoip-api` | 3000 | `/` | false | — |
+| repository | port | health path | needs-db | needs-nats | extra-env |
+| --- | --- | --- | --- | --- | --- |
+| `novatalks.ui` | 8000 | `/livez` | false | false | — |
+| `novatalks.core` | 3000 | `/livez` | true | false | — |
+| `nova.botflow` | 1880 | `/` | true | false | — |
+| `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | false | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
+| `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | false | — |
+| `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | false | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `WEBHOOK_SECRET`, `SIGNAL_MAX_FILE_SIZE` |
+| `novatalks.dialer` | 3000 | `/livez` | true | true | — |
+| `novatalks.uspacy.connector` | 3000 | `/` | true | false | — |
+| `novatalks.geoip-api` | 3000 | `/` | false | false | — |
 
 DAST is scoped that narrowly because, unlike the other two, it has to **boot the
 thing**. Every repository needs its own answer to: which port does the image listen on,
@@ -447,11 +448,40 @@ that disagrees with their Dockerfile (3006 and 3001 against `EXPOSE 3000`), but 
 action already forces `PORT` and `APP_PORT` to the resolved port for exactly this reason,
 so it needs no special-casing in their arms.
 
+### `needs-nats`, for `novatalks.dialer` only
+
+`novatalks.dialer` reaches NestJS startup and then dies with
+`Error: connect ECONNREFUSED ::1:4222` — port 4222 is NATS, and nothing in this action
+listened on it. `dast/action.yml`'s `needs-nats` input (default `false`) tells `scan.sh`
+to bring up `nats:2.10-alpine` before the application the same way `needs-db` brings up
+postgres and redis: no config file, published on `4222`, started with its monitoring
+port (`-m 8222`) so a wait-loop shaped like the `pg_isready` one can poll
+`http://127.0.0.1:8222/healthz` before the application ever starts. A NATS that never
+becomes ready takes the same `not-run` path a database failure does, naming NATS in the
+reason. The container is named `nova-nats` and torn down by `cleanup()` on every exit
+path, alongside `nova-pg` and `nova-redis`. It is tag-pinned (`nats:2.10-alpine`), not
+digest-pinned, matching the existing `postgres:16`/`redis:8` precedent in this
+script — digest pinning stays reserved for the scanners themselves.
+
+The scan runs this NATS completely unconfigured — no auth, no TLS, no JetStream —
+because that is all the client side needs: `novatalks.dialer`'s own `.env.example`
+already defaults to `NATS_SERVERS=localhost:4222` with `NATS_USER`, `NATS_PASS`,
+`NATS_NKEY`, `NATS_JWT` all blank, `NATS_TLS_ENABLED=false` and
+`NATS_STREAM_ENABLED=false`. Production NATS (`nats-system/ntk-nats-prod-cluster`) is a
+three-node cluster with TLS certificates and NKEY/account authentication — none of that
+belongs here, and nobody should "harden" this bring-up to look more like it; a baseline
+scan needs a server to connect to, not a faithful copy of the production topology.
+`scan.sh` also forces `-e NATS_SERVERS=127.0.0.1:4222` onto the application container
+after `--env-file`, for the same reason `PORT`/`APP_PORT` are forced: the observed
+failure was `::1:4222`, i.e. the client resolved `localhost` to IPv6, and a server bound
+to `0.0.0.0` still refuses that — naming the address explicitly removes the resolution
+question rather than hoping it resolves to `127.0.0.1` on its own.
+
 These per-repository values are resolved by a **`Resolve DAST target`** step in
 `dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
 and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
 repository, every value set explicitly (no arm inherits from another), writing `port`,
-`health_path`, `needs_db` and `extra_env` to `$GITHUB_OUTPUT`. This replaced a chain of inline
+`health_path`, `needs_db`, `needs_nats` and `extra_env` to `$GITHUB_OUTPUT`. This replaced a chain of inline
 ternaries that did not scale past two repositories. The default arm is not a fallback:
 a repository that reaches `dast-scan` with no configured arm is a wiring mistake, and
 guessing a port would scan nothing and report it clean — so the default arm emits

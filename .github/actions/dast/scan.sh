@@ -25,6 +25,7 @@ set -euo pipefail
 
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
+DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
@@ -52,7 +53,7 @@ emit_message() {
 }
 
 cleanup() {
-    docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
+    docker rm -f nova-app nova-pg nova-redis nova-nats >/dev/null 2>&1 || true
     # Self-hosted runners are pooled and reused, not thrown away after one job, so a
     # temp file that may carry S3/database credentials must not outlive this process —
     # RUNNER_TEMP is not guaranteed wiped before the next job lands on the same VM.
@@ -119,6 +120,30 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
     # than the one this script actually started. Never set when no database is started —
     # a URL pointing at a postgres that was never brought up is worse than none.
     app_db_args=(-e "DATABASE_URL=postgresql://${DATABASE_USERNAME:-postgres}:${DATABASE_PASSWORD:-password}@127.0.0.1:5432/${DATABASE_NAME:-db_name}")
+fi
+
+if [ "$DAST_NEEDS_NATS" = "true" ]; then
+    docker rm -f nova-nats >/dev/null 2>&1 || true
+    # No config file, no auth, no TLS, no JetStream: the client side (novatalks.dialer's
+    # own .env.example) defaults to exactly this — NATS_USER/NATS_PASS/NATS_NKEY/NATS_JWT
+    # all blank, NATS_TLS_ENABLED=false, NATS_STREAM_ENABLED=false. Production NATS
+    # (nats-system/ntk-nats-prod-cluster) is a three-node cluster with TLS and
+    # NKEY/account auth; none of that is needed here, and mirroring it would scan
+    # something the client was never configured to reach. `-m 8222` turns on the
+    # monitoring endpoint the wait-loop below polls; it costs nothing else.
+    #
+    # Tag-pinned, not digest-pinned, matching the existing postgres:16/redis:8 in this
+    # script: infrastructure containers here follow that precedent, digest pinning is
+    # reserved for the scanners themselves (Semgrep, ZAP).
+    docker run -d --name nova-nats -p 4222:4222 -p 8222:8222 \
+        nats:2.10-alpine -m 8222 || not_run "NATS did not start"
+    nats_ready=no
+    for _ in $(seq 1 30); do
+        code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8222/healthz || true)"
+        if [ -n "$code" ] && [ "$code" != "000" ]; then nats_ready=yes; break; fi
+        sleep 2
+    done
+    [ "$nats_ready" = "yes" ] || not_run "NATS did not become ready"
 fi
 
 # .env.example is resolved relative to the workspace, not to this action's own
@@ -256,6 +281,12 @@ fi
 # loop, ZAP and the app container itself agreed on one port instead of three.
 echo "DAST port: forcing PORT and APP_PORT to ${DAST_PORT}, overriding anything seeded from ${DAST_ENV_FILE}."
 
+# Same "the action owns this, not the template" reasoning as PORT/APP_PORT above, for a
+# different failure shape: novatalks.dialer's own boot log read
+# "Error: connect ECONNREFUSED ::1:4222" — the client resolved `localhost` to IPv6, and a
+# NATS server bound to 0.0.0.0 still refuses that connection. Naming 127.0.0.1 explicitly
+# removes the resolution question rather than hoping the app or its host resolver picks
+# the v4 address. After --env-file so it wins over whatever the seeded template said.
 docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
     ${app_env_args[@]+"${app_env_args[@]}"} \
@@ -267,6 +298,7 @@ docker run -d --name nova-app --network host \
     ${app_db_args[@]+"${app_db_args[@]}"} \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
     -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
+    -e NATS_SERVERS=127.0.0.1:4222 \
     "$DAST_IMAGE" || not_run "the application container refused to start"
 
 booted=no

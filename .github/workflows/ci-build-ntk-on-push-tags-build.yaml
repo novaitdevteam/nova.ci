@@ -918,6 +918,7 @@ jobs:
               port=8000
               health_path=/livez
               needs_db=false
+              needs_nats=false
               extra_env=""
               ;;
             novatalks.core)
@@ -925,6 +926,7 @@ jobs:
               port=3000
               health_path=/livez
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             nova.botflow)
@@ -938,6 +940,7 @@ jobs:
               # up both is simpler than modelling the choice, and an unused container
               # costs a few seconds.
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             nova.chatsconnector.telegram-client-api)
@@ -946,6 +949,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               # .env.example leaves TELEGRAM_API_ID, TELEGRAM_API_HASH,
               # NOVATALKS_ACCESS_TOKEN and ENCRYPTION_SECRET blank as template
               # placeholders. NestJS's config validator rejects an empty value one at a
@@ -977,6 +981,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             nova.chatsconnector.signal-client-api)
@@ -986,6 +991,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               # .env.example line 61 documents S3_ENDPOINT as
               # https://<account-id>.r2.cloudflarestorage.com — a template placeholder,
               # not a value meant to be used as-is. The angle brackets make it an invalid
@@ -1043,6 +1049,13 @@ jobs:
               port=3000
               health_path=/livez
               needs_db=true
+              # NestJS reaches startup and then dies with "Error: connect ECONNREFUSED
+              # ::1:4222" — nothing listens on NATS's port. The app's own .env.example
+              # defaults to the simplest possible client config (NATS_SERVERS=
+              # localhost:4222, no user/pass/nkey/jwt, TLS and JetStream both off), so a
+              # bare, unconfigured NATS server satisfies it; see dast/action.yml's
+              # needs-nats input and scan.sh for what that brings up.
+              needs_nats=true
               # multer-s3 wires object storage at boot and throws "bucket is required"
               # without one, and FILE_DRIVER=s3 is the only driver this app supports, so
               # storage cannot simply be turned off. The template leaves all five AWS_S3_*
@@ -1062,6 +1075,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=true
+              needs_nats=false
               extra_env=""
               ;;
             novatalks.geoip-api)
@@ -1074,6 +1088,7 @@ jobs:
               port=3000
               health_path=/
               needs_db=false
+              needs_nats=false
               extra_env=""
               ;;
             *)
@@ -1085,13 +1100,14 @@ jobs:
           echo "port=$port" | tee -a "$GITHUB_OUTPUT"
           echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
           echo "needs_db=$needs_db" | tee -a "$GITHUB_OUTPUT"
+          echo "needs_nats=$needs_nats" | tee -a "$GITHUB_OUTPUT"
           {
             echo "extra_env<<DAST_EXTRA_ENV_EOF"
             printf '%s\n' "$extra_env"
             echo "DAST_EXTRA_ENV_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
+          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db needs-nats=$needs_nats extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -1119,6 +1135,7 @@ jobs:
           # "not run" on a cold start.
           boot-timeout: 300
           needs-db: ${{ steps.dast_target.outputs.needs_db }}
+          needs-nats: ${{ steps.dast_target.outputs.needs_nats }}
           extra-env: ${{ steps.dast_target.outputs.extra_env }}
           pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
           report-file: ${{ env.REPORT_FILE }}

@@ -112,6 +112,10 @@ case "$1" in
 | Informational | 0 |}" > "${SHIM_ZAP_OUT:?}"
                 printf '%s\n' "${SHIM_ZAP_CONSOLE:-PASS: everything}"
                 exit "${SHIM_ZAP_RC:-0}" ;;
+            *nova-nats*)
+                # Separate control from SHIM_APP_RC: some scenarios need NATS to start
+                # fine while the application container itself refuses to, or vice versa.
+                exit "${SHIM_NATS_RUN_RC:-0}" ;;
             *)
                 if [ -n "${SHIM_ENVFILE_SNAPSHOT:-}" ]; then
                     prev=""
@@ -128,9 +132,20 @@ esac
 SHIM
 chmod +x "$WORK/bin/docker"
 
-# curl shim: the wait-loop's only oracle. SHIM_CURL_RC=0 means the app answered.
+# curl shim: the wait-loops' only oracle. SHIM_CURL_RC=0 means the app answered. The
+# NATS readiness poll (http://127.0.0.1:8222/healthz) gets its own SHIM_NATS_CURL_RC,
+# falling back to SHIM_CURL_RC when unset — needed to prove the readiness check is load
+# -bearing: a scenario can make NATS never answer while the app health probe still would.
 cat > "$WORK/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
+for arg in "$@"; do
+    case "$arg" in
+        *8222/healthz*)
+            rc="${SHIM_NATS_CURL_RC:-${SHIM_CURL_RC:-0}}"
+            [ "$rc" = "0" ] && { printf '200'; exit 0; }
+            printf '000'; exit 7 ;;
+    esac
+done
 [ "${SHIM_CURL_RC:-0}" = "0" ] && { printf '200'; exit 0; }
 printf '000'; exit 7
 SHIM
@@ -155,6 +170,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_BOOT_TIMEOUT="6" \
     DAST_NEEDS_DB="${DAST_NEEDS_DB:-true}" \
     DAST_PG_IMAGE="postgres:16" \
+    DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}" \
     DAST_ENV_FILE="${DAST_ENV_FILE:-.env.example}" \
     DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}" \
     GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$WORK}" \
@@ -191,11 +207,12 @@ assert_findings() { # assert_findings <name> <expected>
 }
 
 assert_cleanup() { # assert_cleanup <name>
-    # Only cleanup() removes all three containers in one call; the pre-flight `docker rm
+    # Only cleanup() removes all four containers in one call; the pre-flight `docker rm
     # -f` calls earlier in scan.sh remove them separately (nova-pg/nova-redis together,
-    # nova-app on its own). Matching the exact three-name line proves the EXIT trap ran,
-    # rather than just proving a pre-flight removal happened before anything started.
-    if grep -qx 'rm -f nova-app nova-pg nova-redis' "$WORK/dockerlog"; then
+    # nova-nats and nova-app each on their own). Matching the exact four-name line proves
+    # the EXIT trap ran, rather than just proving a pre-flight removal happened before
+    # anything started.
+    if grep -qx 'rm -f nova-app nova-pg nova-redis nova-nats' "$WORK/dockerlog"; then
         echo "ok   $1"; pass=$((pass + 1))
     else
         echo "FAIL $1 — containers were not torn down"; fail=$((fail + 1))
@@ -643,6 +660,72 @@ else
     echo "     after:  $with_empty_extra_env"
     fail=$((fail + 1))
 fi
+
+
+# novatalks.dialer's boot log read "Error: connect ECONNREFUSED ::1:4222" — the engine
+# reaches NestJS startup but dies because nothing is listening on NATS's port. needs-nats
+# brings up a bare, unconfigured NATS server (no config file, no auth, no TLS, no
+# JetStream) the same way needs-db brings up postgres/redis, gated on its own flag so the
+# other eight repositories, which never asked for NATS, never pay for it.
+DAST_NEEDS_NATS=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "needs-nats true starts a nova-nats container" clean 0
+if grep -qE -- '^run .*--name nova-nats\b' "$WORK/dockerlog"; then
+    echo "ok   a nova-nats container is started when needs-nats is true"; pass=$((pass + 1))
+else
+    echo "FAIL no nova-nats container appeared in the docker log"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+assert_cleanup "needs-nats run tears all four containers down"
+
+DAST_NEEDS_NATS=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "needs-nats false starts no NATS container" clean 0
+if grep -qE -- '^run .*--name nova-nats\b' "$WORK/dockerlog"; then
+    echo "FAIL a nova-nats container was started despite needs-nats being false"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+else
+    echo "ok   no nova-nats container appears in the docker log when needs-nats is false"; pass=$((pass + 1))
+fi
+
+# The client address is forced the same way PORT/APP_PORT are: "ECONNREFUSED ::1:4222"
+# is IPv6 resolution of `localhost`, and a server bound to 0.0.0.0 still refuses that.
+# Naming 127.0.0.1 explicitly removes the resolution question, and it must come after
+# --env-file so it wins over anything a seeded .env.example named.
+GITHUB_WORKSPACE="$WS_WITH_ENV" DAST_NEEDS_NATS=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    expect "NATS_SERVERS is forced on the application container" clean 0
+if grep -qE -- '--name nova-app.*--env-file [^ ]*dast\.env.*-e NATS_SERVERS=127\.0\.0\.1:4222( |$)' "$WORK/dockerlog"; then
+    echo "ok   NATS_SERVERS=127.0.0.1:4222 is passed to the app container, after --env-file"; pass=$((pass + 1))
+else
+    echo "FAIL NATS_SERVERS missing, or not ahead of --env-file on the command line"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+
+# NATS ready, but the application container itself refuses to start (SHIM_APP_RC, not a
+# boot timeout) — nova-nats must still be torn down by the same EXIT trap. needs-db is
+# turned off here so the shared "default run" exit code only has to account for
+# nova-nats (its own dedicated shim branch) and nova-app, not also nova-pg/nova-redis.
+DAST_NEEDS_NATS=true DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_APP_RC=1 \
+    expect "nova-nats is torn down when the application fails to boot" not-run 0
+if grep -qE -- '^run .*--name nova-nats\b' "$WORK/dockerlog"; then
+    echo "ok   nova-nats had actually started before the app refused to boot"; pass=$((pass + 1))
+else
+    echo "FAIL nova-nats never started in this scenario — teardown assertion would be vacuous"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+assert_cleanup "app-boot-failure run still tears nova-nats down alongside the rest"
+
+# NATS itself never answers its monitoring port — this must land on the same loud-skip
+# path as a postgres or app boot timeout, never `error` (NATS isn't the scanner) and
+# never `clean` (an application that can't reach NATS never actually came up). The app's
+# own health probe (SHIM_CURL_RC=0) would happily report booted if the run ever reached
+# it — it must not, proving the NATS readiness check itself gates the run rather than
+# merely coinciding with an app that was going to fail anyway.
+DAST_NEEDS_NATS=true DAST_NEEDS_DB=false SHIM_NATS_CURL_RC=7 SHIM_CURL_RC=0 SHIM_NATS_RUN_RC=0 SHIM_ZAP_RC=0 \
+    expect "a NATS that never becomes ready is a loud skip, not clean or error" not-run 0
+assert_cleanup "unready-NATS run still tears containers down"
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

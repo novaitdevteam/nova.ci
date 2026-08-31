@@ -373,8 +373,8 @@ Preserve these behaviors:
   `novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api` —
   gated on `github.event.repository.name` like the `postgres:17.9-trixie` and R2
   exceptions. A `Resolve DAST target` step (the same house pattern as `Resolve scan
-  policy` in `trivy-scan`) resolves port, health path and `needs-db` per repository via
-  a `case` statement, one arm per repository with every value set explicitly; the
+  policy` in `trivy-scan`) resolves port, health path, `needs-db` and `needs-nats` per
+  repository via a `case` statement, one arm per repository with every value set explicitly; the
   default arm `::error::`s and exits non-zero rather than guessing. The four repos after
   the original two (`nova.botflow` and the chatsconnectors) have no dedicated HTTP
   health route (their charts probe over `tcpSocket`), so their health path is `/` — the
@@ -382,8 +382,13 @@ Preserve these behaviors:
   process is listening. `nova.botflow` brings up both redis and postgres since its
   storage backend is configurable. The signal connector's own default branch is a
   feature branch, not a trunk name, so it only reaches `dast-scan` via an explicit
-  `scan*` tag. `novatalks.dialer` is in the deployment chart (port 3000, `/livez`);
-  `novatalks.uspacy.connector` and `novatalks.geoip-api` are not, so their port comes
+  `scan*` tag. `novatalks.dialer` is in the deployment chart (port 3000, `/livez`) and is
+  the only arm with `needs-nats: true` — it reaches NestJS startup and then dies with
+  `ECONNREFUSED ::1:4222` without one; `scan.sh` brings up a bare, unconfigured
+  `nats:2.10-alpine` (tag-pinned like `postgres:16`/`redis:8`, not digest-pinned like the
+  scanners) and forces `-e NATS_SERVERS=127.0.0.1:4222` onto the app container after
+  `--env-file`, since the observed failure was IPv6 resolution of `localhost`, not a
+  missing server. `novatalks.uspacy.connector` and `novatalks.geoip-api` are not, so their port comes
   from `docker/server.Dockerfile`'s `EXPOSE 3000` and their health path is `/` for the
   same tcpSocket-style reason. `novatalks.geoip-api`'s `needs-db: false` is an inference
   (no ORM dependency, a five-variable `.env.example`), not a verified fact like the

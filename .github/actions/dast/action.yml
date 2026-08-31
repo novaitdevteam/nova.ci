@@ -24,6 +24,10 @@ inputs:
     description: "Postgres image, when needs-db is true"
     required: false
     default: "postgres:16"
+  needs-nats:
+    description: "Bring up a plain, unconfigured NATS server alongside the application"
+    required: false
+    default: "false"
   env-file:
     description: "A .env.example-style file, relative to the workspace unless absolute, whose non-comment lines are passed to the application container via --env-file. Absent files are not an error — most repositories will not have one."
     required: false
@@ -66,6 +70,7 @@ runs:
         DAST_BOOT_TIMEOUT: ${{ inputs.boot-timeout }}
         DAST_NEEDS_DB: ${{ inputs.needs-db }}
         DAST_PG_IMAGE: ${{ inputs.pg-image }}
+        DAST_NEEDS_NATS: ${{ inputs.needs-nats }}
         DAST_ENV_FILE: ${{ inputs.env-file }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
