@@ -6,10 +6,6 @@ inputs:
     description: "Space-separated Semgrep configs"
     required: false
     default: "p/typescript p/nodejs p/owasp-top-ten"
-  severity:
-    description: "Severity counted as a finding"
-    required: false
-    default: "ERROR"
   report-file:
     description: "Path the .report is written to"
     required: true
@@ -23,8 +19,11 @@ outputs:
     description: "clean | findings | error — a notifier must distinguish findings from a broken scanner"
     value: ${{ steps.scan.outputs.outcome }}
   findings:
-    description: "Number of findings at the configured severity"
+    description: "Number of ERROR findings"
     value: ${{ steps.scan.outputs.findings }}
+  warnings:
+    description: "Number of WARNING findings — reported alongside ERROR, never hidden behind it"
+    value: ${{ steps.scan.outputs.warnings }}
   message:
     description: "Ready-to-send notifier text"
     value: ${{ steps.scan.outputs.message }}
@@ -42,7 +41,6 @@ runs:
       env:
         SEMGREP_IMAGE: "semgrep/semgrep:1.99.0@sha256:ae27024c16f7848cdbfd49c24ed0b78b13f13b85fcd7b87c679aaa8b0c0dce98"
         SEMGREP_CONFIGS: ${{ inputs.configs }}
-        SEMGREP_SEVERITY: ${{ inputs.severity }}
         SEMGREP_SRC: ${{ github.workspace }}
         SEMGREP_REPORT_FILE: ${{ inputs.report-file }}
         SEMGREP_ACTION_ROOT: ${{ github.action_path }}

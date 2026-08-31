@@ -21,7 +21,7 @@
 set -euo pipefail
 
 : "${DAST_IMAGE:?}" "${DAST_PORT:?}" "${DAST_HEALTH_PATH:?}" "${DAST_BOOT_TIMEOUT:?}"
-: "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}"
+: "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}" "${DAST_ACTION_ROOT:?}"
 
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 # Postgres and redis mirror what the platform actually runs, so a scan meets the same
@@ -40,6 +40,11 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 # zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
+# The triage register: which findings must be fixed, which are accepted, and why. Copied
+# into RUNNER_TEMP because zap-baseline.py resolves -c against /zap/wrk/ and nowhere
+# else, and /zap/wrk is the bind mount of that directory.
+zap_conf_src="${DAST_ACTION_ROOT}/zap-baseline.conf"
+zap_conf="${RUNNER_TEMP:-/tmp}/zap-baseline.conf"
 # Printed on failure, never suppressed: a stream that cannot be created must say why.
 nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 app_env_args=()
@@ -86,6 +91,7 @@ not_run() { # not_run <reason>
     echo "::warning::DAST did not run: $1"
     emit outcome not-run
     emit findings 0
+    emit failures 0
     emit_message "🕷 DAST (ZAP): ⚠️ not run — $1"
     summary WARNING "Scan did not run: $1. This is not a clean result."
     { echo "=== DAST: not run ==="; echo "$1"; } > "$DAST_REPORT_FILE"
@@ -96,10 +102,33 @@ scanner_error() { # scanner_error <reason>
     echo "::error::DAST scanner failed: $1"
     emit outcome error
     emit findings 0
+    emit failures 0
     emit_message "🕷 DAST (ZAP): ❌ scanner failed — $1"
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
 }
+
+# Validated before anything is booted: a broken register means ZAP silently applies a
+# policy nobody wrote, and finding that out after a five-minute stack boot helps nobody.
+# ZAP's own handling is loud enough (sys.exit(3) on a malformed line, an uncaught
+# FileNotFoundError on a missing one) but its reason lands in a log nobody reads, and a
+# check of our own is one the harness can cover.
+[ -r "$zap_conf_src" ] || scanner_error "the ZAP triage register is missing or unreadable: ${zap_conf_src}"
+
+# Grammar per zap_common.py:148-176 — at least two tabs, and a level from the fixed set
+# at zap_common.py:57 plus OUTOFSCOPE, which load_config checks before the level list.
+# What this cannot catch is a well-formed line naming a rule ID that does not exist: ZAP
+# reports alert counts per bucket, never which configured IDs matched, so an IGNORE that
+# applied and an IGNORE that was mistyped are indistinguishable from the outside.
+conf_bad="$(awk -F'\t' '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    NF < 3 { printf "line %d: fewer than three tab-separated fields; ", NR; next }
+    $2 != "PASS" && $2 != "IGNORE" && $2 != "INFO" && $2 != "WARN" && $2 != "FAIL" && $2 != "OUTOFSCOPE" {
+        printf "line %d: unknown level \"%s\"; ", NR, $2 }
+' "$zap_conf_src")"
+[ -z "$conf_bad" ] || scanner_error "the ZAP triage register is malformed — ${conf_bad}"
+cp "$zap_conf_src" "$zap_conf"
 
 if [ "$DAST_NEEDS_DB" = "true" ]; then
     docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
@@ -344,18 +373,26 @@ set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
     "$ZAP_IMAGE" zap-baseline.py -t "$target" \
-    -I -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
+    -I -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
 # PIPESTATUS[0], not $?: it is ZAP's own exit status, unambiguously. $? happens to
 # agree only because pipefail is set above; it would silently become tee's status the
 # moment that changed, and it is tee's status whenever tee itself fails.
 zap_rc=${PIPESTATUS[0]}
 set -e
 
-# zap-baseline.py: 0 = nothing, 2 = warnings present (with -I it never returns 1),
-# anything else means ZAP could not do its job.
+# The ladder, verified against zap-baseline.py:697-708 rather than assumed:
+#   0  passes only
+#   1  FAIL-level findings present — a finding, not a broken scanner. -I does NOT
+#      suppress this; it gates exit 2 alone (`elif (not ignore_warn) and warn_count`).
+#      An earlier comment here claimed -I made 1 unreachable, which was simply wrong,
+#      and would have reddened a trunk build for a finding the first time the triage
+#      register gained a FAIL entry.
+#   2  warnings with -I absent — unreachable while we pass -I, kept so that removing -I
+#      never silently turns a findings run into a broken-gate report.
+#   3  an exception, or nothing passed, warned or failed at all. Both are broken gates.
 case "$zap_rc" in
-    0|2) : ;;
-    *)   scanner_error "zap-baseline.py exited ${zap_rc}" ;;
+    0|1|2) : ;;
+    *)     scanner_error "zap-baseline.py exited ${zap_rc}" ;;
 esac
 
 [ -s "$zap_out" ] || scanner_error "ZAP produced no report"
@@ -363,10 +400,48 @@ esac
 # Counted from stdout, not from the -w report: that report is the traditional
 # "ZAP Scanning Report" markdown (## Summary of Alerts + per-risk sections) and contains
 # no WARN-NEW at all, so counting it there is a permanent zero — every run green,
-# including one with twenty warnings. `^WARN-NEW: ` matches the per-rule lines only; the
-# trailing tally line starts with FAIL-NEW:.
-findings=$(grep -cE '^WARN-NEW: ' "$zap_console" || true)
-findings="${findings:-0}"
+# including one with twenty warnings.
+#
+# One tally line carries all six numbers and is printed unconditionally at the end of any
+# completed scan (zap-baseline.py:666-668), which is why it is read instead of the
+# per-rule `^WARN-NEW: ` lines: those give one of the six. Its absence means the scan did
+# not complete, and an unfinished scan reporting zero findings is precisely the failure
+# this job exists to avoid — fail closed, the same shape as the Semgrep canary.
+#
+# A bare `^FAIL-NEW: ` prefix is not enough to find it: print_rule (zap_common.py:205)
+# emits one per-rule line per FAIL-level finding shaped `FAIL-NEW: <alert name> [<id>]
+# x <n>`, which starts with the exact same prefix and comes before the tally whenever a
+# FAIL entry exists. `grep -m1` would take that line instead, tally_at would read an
+# alert name where a number belongs, and the numeric guard below would misreport a real
+# FAIL finding as a broken scanner — the collapse this task exists to prevent. The tally
+# line's shape is unique: `FAIL-NEW: <digits>` immediately followed by a tab and
+# `FAIL-INPROG: ` (per-rule in-progress lines are spelled `-IN_PROGRESS:`, never
+# `-INPROG:`, per zap_common.py:201), so anchoring on that shape instead of the prefix
+# alone cannot match a per-rule line.
+#
+# $'...' is load-bearing, not decoration: it is ANSI-C quoting, so the pattern reaches
+# grep carrying a real tab byte. Written as a plain '...' string the pattern carries a
+# backslash and a `t`, which BSD grep interprets as a tab but GNU grep does not — GNU
+# warns `stray \ before t` and matches a literal `t`, so the tally never matches, every
+# completed scan reports "no tally" and reds the build. Every runner is GNU; a macOS
+# harness run is the one place the broken form passes. Do not "tidy" it back.
+tally="$(grep -m1 -E $'^FAIL-NEW: [0-9]+\tFAIL-INPROG: ' "$zap_console" || true)"
+[ -n "$tally" ] || scanner_error "ZAP printed no result tally — the scan did not complete"
+
+tally_at() { # tally_at <label>
+    printf '%s' "$tally" | tr '\t' '\n' | sed -n "s/^$1: //p" | head -1
+}
+failures="$(tally_at FAIL-NEW)"
+findings="$(tally_at WARN-NEW)"
+infos="$(tally_at INFO)"
+accepted="$(tally_at IGNORE)"
+passes="$(tally_at PASS)"
+
+# A tally that parsed to anything other than a number means the format moved under the
+# pinned digest. Guessing a zero there would report a clean scan.
+for n in "$failures" "$findings" "$infos" "$accepted" "$passes"; do
+    [[ "$n" =~ ^[0-9]+$ ]] || scanner_error "ZAP tally line is malformed: ${tally}"
+done
 
 {
     echo "=============================="
@@ -375,10 +450,24 @@ findings="${findings:-0}"
     echo " Target: ${target}"
     echo "=============================="
     echo ""
+    echo "must fix (FAIL):   ${failures}"
+    echo "warnings (WARN):   ${findings}"
+    echo "informational:     ${infos}"
+    echo "accepted (IGNORE): ${accepted}"
+    echo "passed:            ${passes}"
+    echo ""
     cat "$zap_out"
 } > "$DAST_REPORT_FILE"
 
-if [ "$findings" -gt 0 ]; then
+emit failures "$failures"
+
+if [ "$failures" -gt 0 ]; then
+    echo "::warning::ZAP baseline reported ${failures} must-fix and ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    emit outcome findings
+    emit findings "$findings"
+    emit_message "🕷 DAST (ZAP): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🔴 ${failures} must-fix and ${findings} warning(s) — the register marks these as blocking."
+elif [ "$findings" -gt 0 ]; then
     echo "::warning::ZAP baseline reported ${findings} warning(s). See ${DAST_REPORT_FILE}."
     emit outcome findings
     emit findings "$findings"
@@ -387,8 +476,8 @@ if [ "$findings" -gt 0 ]; then
 else
     emit outcome clean
     emit findings 0
-    emit_message "🕷 DAST (ZAP): 🟢 clean"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary NOTE "✅ No baseline warnings."
+    emit_message "🕷 DAST (ZAP): 🟢 clean · ${infos} info · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary NOTE "✅ No must-fix or warning findings. ${infos} informational, ${accepted} accepted by the triage register."
 fi
 
-echo "ZAP baseline — warnings: ${findings}"
+echo "ZAP baseline — must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"

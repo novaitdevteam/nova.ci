@@ -10,7 +10,7 @@
 #
 set -euo pipefail
 
-: "${SEMGREP_IMAGE:?}" "${SEMGREP_CONFIGS:?}" "${SEMGREP_SEVERITY:?}"
+: "${SEMGREP_IMAGE:?}" "${SEMGREP_CONFIGS:?}"
 : "${SEMGREP_SRC:?}" "${SEMGREP_REPORT_FILE:?}" "${SEMGREP_ACTION_ROOT:?}"
 
 CANARY_MARKER="NOVA_CI_SEMGREP_CANARY_MARKER"
@@ -33,6 +33,7 @@ finish_error() { # finish_error <reason>
     echo "::error::SAST scan could not complete: ${reason}"
     emit outcome error
     emit findings 0
+    emit warnings 0
     emit_message "🔍 SAST (Semgrep): ❌ scan failed — ${reason}"
     {
         echo "## 🔍 SAST (Semgrep)"
@@ -106,39 +107,57 @@ file_err_count=$(( err_count - config_err_count ))
 canary_hits=$(jq '[.results[] | select(.check_id | test("nova-ci-semgrep-canary"))] | length' "$json")
 [ "$canary_hits" -gt 0 ] || finish_error "the canary rule did not fire — the rule engine did not run"
 
-# The canary's severity is a fixed INFO in canary.yaml, but SEMGREP_SEVERITY is a
-# caller-configurable input with no enum restriction — if it is ever set to INFO,
-# the canary hit must still never be countable as a finding, so it is excluded by
-# check_id here independent of severity, not just by the severity happening to differ.
-findings=$(jq --arg sev "$SEMGREP_SEVERITY" \
-    '[.results[] | select(.extra.severity == $sev and (.check_id | test("nova-ci-semgrep-canary") | not))] | length' "$json")
+# The canary is mounted from this action's own directory, not from the repository under
+# scan, so it must be excluded from every bucket. It is excluded by check_id rather than
+# by severity: severity used to be a caller input and the exclusion silently stopped
+# working whenever the two happened to coincide.
+count_at() { # count_at <severity>
+    jq --arg sev "$1" \
+        '[.results[] | select(.extra.severity == $sev
+            and (.check_id | test("nova-ci-semgrep-canary") | not))] | length' "$json"
+}
 
+list_at() { # list_at <severity>
+    jq -r --arg sev "$1" \
+        '.results[] | select(.extra.severity == $sev
+            and (.check_id | test("nova-ci-semgrep-canary") | not))
+         | "\(.path):\(.start.line)  [\(.check_id)]\n    \(.extra.message)\n"' "$json"
+}
+
+errors=$(count_at ERROR)
+warnings=$(count_at WARNING)
+infos=$(count_at INFO)
+
+# Both decision-carrying levels are listed. INFO is counted for the summary only: the
+# registry packs emit it liberally, and burying ERROR and WARNING under it is how a
+# report stops being read.
 {
     echo "=============================="
     echo " SAST: Semgrep"
     echo " Image:    ${SEMGREP_IMAGE}"
     echo " Configs:  ${SEMGREP_CONFIGS}"
-    echo " Severity: ${SEMGREP_SEVERITY}"
     echo "=============================="
     echo ""
-    echo "=== ${SEMGREP_SEVERITY} findings: ${findings} ==="
+    echo "=== ERROR: ${errors} ==="
     echo ""
-    jq -r --arg sev "$SEMGREP_SEVERITY" \
-        '.results[] | select(.extra.severity == $sev and (.check_id | test("nova-ci-semgrep-canary") | not))
-         | "\(.path):\(.start.line)  [\(.check_id)]\n    \(.extra.message)\n"' "$json"
+    list_at ERROR
+    echo "=== WARNING: ${warnings} ==="
+    echo ""
+    list_at WARNING
+    echo "=== INFO: ${infos} (counted, not listed) ==="
 } > "$SEMGREP_REPORT_FILE"
 
-if [ "$findings" -gt 0 ]; then
+if [ "$errors" -gt 0 ] || [ "$warnings" -gt 0 ]; then
     outcome=findings
-    echo "::warning::Semgrep found ${findings} ${SEMGREP_SEVERITY} finding(s). See ${SEMGREP_REPORT_FILE}."
-    message="🔍 SAST (Semgrep): 🟡 ${findings} ${SEMGREP_SEVERITY}"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    echo "::warning::Semgrep found ${errors} ERROR and ${warnings} WARNING finding(s). See ${SEMGREP_REPORT_FILE}."
+    message="🔍 SAST (Semgrep): 🟡 ${errors} error · ${warnings} warning"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
     alert=WARNING
-    headline="⚠️ ${findings} ${SEMGREP_SEVERITY} finding(s) — review the report."
+    headline="⚠️ ${errors} ERROR and ${warnings} WARNING finding(s) — review the report."
 else
     outcome=clean
     message="🔍 SAST (Semgrep): 🟢 clean"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
     alert=NOTE
-    headline="✅ No ${SEMGREP_SEVERITY} findings."
+    headline="✅ No ERROR or WARNING findings."
 fi
 
 {
@@ -150,10 +169,12 @@ fi
     echo "- Image: \`${SEMGREP_IMAGE}\`"
     echo "- Configs: \`${SEMGREP_CONFIGS}\`"
     echo "- Files scanned: ${scanned}"
+    echo "- ERROR: ${errors} · WARNING: ${warnings} · INFO: ${infos}"
     echo "- Report: ${REPORT_URL:-not published}"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 emit outcome "$outcome"
-emit findings "$findings"
+emit findings "$errors"
+emit warnings "$warnings"
 emit_message "$message"
-echo "Semgrep results — ${SEMGREP_SEVERITY}: ${findings} (outcome: ${outcome})"
+echo "Semgrep results — ERROR: ${errors}, WARNING: ${warnings}, INFO: ${infos} (outcome: ${outcome})"

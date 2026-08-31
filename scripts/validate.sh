@@ -73,7 +73,10 @@ if ruby -e '
 
   # 2. every locally referenced asset resolves - a renamed file is an invisible diff
   (Dir.glob("docs/**/*.md") + ["README.md"]).sort.each do |md|
-    File.read(md).scan(/src="([^"]+)"/).flatten.each do |ref|
+    # The lookbehind is load-bearing: an unanchored src=" also matches the tail of any
+    # identifier ending in "src", so a shell variable like zap_conf_src="..." in a fenced
+    # code block was read as an HTML attribute and failed the whole run.
+    File.read(md).scan(/(?<![-\w])src="([^"]+)"/).flatten.each do |ref|
       next if ref =~ %r{\A(https?:|#)}
       target = File.expand_path(ref, File.dirname(md))
       next if File.exist?(target)

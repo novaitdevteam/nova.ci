@@ -61,7 +61,6 @@ expect() { # expect <name> <expected-outcome> <expected-findings>
     PATH="$WORK/bin:$PATH" \
     SEMGREP_IMAGE="semgrep/semgrep@sha256:deadbeef" \
     SEMGREP_CONFIGS="p/typescript" \
-    SEMGREP_SEVERITY="${SEMGREP_SEVERITY:-ERROR}" \
     SEMGREP_SRC="$WORK/src" \
     SEMGREP_REPORT_FILE="$report" \
     SEMGREP_ACTION_ROOT="$ACTION_DIR" \
@@ -99,6 +98,16 @@ assert_report() { # assert_report <name> <grep-pattern> [--absent]
     echo "ok   $name"; pass=$((pass + 1))
 }
 
+assert_warnings() { # assert_warnings <name> <expected>
+    local got
+    got=$(sed -n 's/^warnings=//p' "$WORK/output")
+    if [ "$got" = "$2" ]; then
+        echo "ok   $1"; pass=$((pass + 1))
+    else
+        echo "FAIL $1 — expected warnings=$2, got warnings=$got"; fail=$((fail + 1))
+    fi
+}
+
 echo "=== semgrep scan.sh — $SCAN ==="
 
 SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 \
@@ -107,8 +116,13 @@ SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 \
 SHIM_JSON="$(semgrep_json yes ERROR ERROR)" SHIM_RC=1 \
     expect "two ERROR findings are counted" findings 2
 
+# WARNING used to be invisible: the old filter was an exact equality on ERROR, and the
+# same filter built the report body, so a repository's WARNING findings appeared in
+# neither the count nor the published artifact. novatalks.core had 12 nobody ever saw.
 SHIM_JSON="$(semgrep_json yes WARNING)" SHIM_RC=1 \
-    expect "WARNING is not counted at ERROR severity" clean 0
+    expect "a lone WARNING is a finding, not a clean scan" findings 0
+assert_warnings "the WARNING lands in its own count" 1
+assert_report "report lists the WARNING section" "=== WARNING: 1 ==="
 
 SHIM_JSON="$(semgrep_json no)" SHIM_RC=0 \
     expect "a missing canary is an error, never a clean run" error 0
@@ -167,12 +181,45 @@ SHIM_JSON="$(semgrep_json yes ERROR)" SHIM_RC=1 \
 assert_report "report names the rule" "rule.x"
 assert_report "report never contains the canary" "nova-ci-semgrep-canary" --absent
 
-# severity is a caller-configurable input with no enum restriction. If it is ever set
-# to the canary's own hardcoded INFO severity, the canary hit must still be excluded by
-# check_id, never counted as a finding and never leaked into the report.
-SEMGREP_SEVERITY=INFO SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 \
-    expect "canary is never a finding even at its own INFO severity" clean 0
-assert_report "report never contains the canary at INFO severity" "nova-ci-semgrep-canary" --absent
+# The canary is mounted from the action's own directory and carries a hardcoded INFO
+# severity. It proves the engine ran and must never be countable as a finding of the
+# repository under scan, nor leak into the published report.
+SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 \
+    expect "canary alone is a clean scan" clean 0
+assert_warnings "canary alone counts no warnings" 0
+assert_report "report never contains the canary" "nova-ci-semgrep-canary" --absent
+
+# The real picture: both levels counted, both listed, neither hiding the other.
+SHIM_JSON="$(semgrep_json yes ERROR ERROR WARNING WARNING WARNING)" SHIM_RC=1 \
+    expect "ERROR and WARNING are counted separately" findings 2
+assert_warnings "the three WARNING findings are their own number" 3
+assert_report "report lists the ERROR section" "=== ERROR: 2 ==="
+assert_report "report lists the WARNING section too" "=== WARNING: 3 ==="
+
+# INFO is counted for the summary but deliberately kept out of the report body: the OSS
+# packs emit it liberally and it would bury the two levels that carry a decision.
+#
+# Written out rather than built by semgrep_json because that helper names every finding
+# `rule.x` regardless of severity, and "the report body does not name this rule" is only
+# an assertion about INFO if the rule ID belongs to the INFO finding alone. With the
+# shared ID the same string could have come from an ERROR or WARNING listing and the
+# check would pass no matter what the body contained.
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}},{"check_id":"rule.info-only","path":"src/a.ts","start":{"line":3},"extra":{"severity":"INFO","message":"m"}},{"check_id":"rule.info-only","path":"src/b.ts","start":{"line":4},"extra":{"severity":"INFO","message":"m"}}],"errors":[],"paths":{"scanned":["src/a.ts","src/b.ts"]}}' SHIM_RC=1 \
+    expect "INFO alone is not a finding" clean 0
+assert_warnings "INFO alone counts no warnings" 0
+assert_report "the report body does not list INFO findings" "rule.info-only" --absent
+if grep -q 'INFO: 2' "$WORK/summary"; then
+    echo "ok   INFO findings are still counted in the job summary"; pass=$((pass + 1))
+else
+    echo "FAIL the job summary does not report the INFO count"; fail=$((fail + 1))
+fi
+
+# The zero-files guard sits ahead of the canary guard in scan.sh, so the existing
+# empty-.paths.scanned fixture (which has no canary either) was caught by the canary
+# guard whenever the zero-files one was removed, and the guard was untestable. A firing
+# canary isolates it: everything else about this run says "completed and clean".
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}}],"errors":[],"paths":{"scanned":[]}}' SHIM_RC=0 \
+    expect "zero files scanned is an error even with a firing canary" error 0
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

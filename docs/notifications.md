@@ -11,8 +11,10 @@ The build message carries:
 - `ESLinter Check Status:` — ✅ / ❌
 - `Unit Tests Status:` — ✅ passed, ❌ failed, or `⏭️ n/a (no unit tests configured)` when the repository has no unit test plan, so a repo without tests is never reported as if its tests passed
 - a **Trivy line** color-coded by worst severity — `🔴 CRITICAL found!`, `🟠 HIGH found`, `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped` when no scan ran — with CRITICAL/HIGH counts and the report download link
-- a **SAST line** — `🔍 SAST (Semgrep): 🟢 clean`, `🟡 <n> ERROR`, `❌ scan failed — <reason>`, or `⏭️ skipped (no scan trigger)` — with the report download link
-- a **DAST line** — `🕷 DAST (ZAP): 🟢 clean`, `🟡 <n> warnings`, `❌ scanner failed — <reason>`, `⏭️ skipped (not a DAST trigger or repository)`, or **`⚠️ not run — <reason>`**
+- a **SAST line** — `🔍 SAST (Semgrep): 🟢 clean`, `🟡 <n> error · <n> warning` (both levels, always both counts), `❌ scan failed — <reason>`, or `⏭️ skipped (no scan trigger)` — with the report download link
+- a **DAST line** — `🕷 DAST (ZAP): 🟢 clean · <n> info · <n> accepted`, `🟡 <n> warnings`, `🔴 <n> must-fix · <n> warnings`, `❌ scanner failed — <reason>`, `⏭️ skipped (not a DAST trigger or repository)`, or **`⚠️ not run — <reason>`** — with the report download link
+
+The exact wording of both lines is tabulated on [SAST and DAST](sast-dast.md#in-the-notification); the two pages must agree. A clean DAST run still names its `info` and `accepted` counts, because a suppression nobody can see is a suppression nobody audits, and a `🔴 must-fix` line is a **finding**, not a broken scanner — the build stays green under `warn-only`.
 
 > [!IMPORTANT]
 > **`⚠️ not run` is not a colour variant of clean.** It means the application never came

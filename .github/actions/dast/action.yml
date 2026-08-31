@@ -41,8 +41,11 @@ outputs:
     description: "clean | findings | not-run | error — a failed boot is not a clean scan"
     value: ${{ steps.scan.outputs.outcome }}
   findings:
-    description: "Number of ZAP baseline warnings"
+    description: "Number of WARN-level ZAP baseline findings"
     value: ${{ steps.scan.outputs.findings }}
+  failures:
+    description: "Number of FAIL-level ZAP findings — those the triage register marks as must-fix"
+    value: ${{ steps.scan.outputs.failures }}
   message:
     description: "Ready-to-send notifier text"
     value: ${{ steps.scan.outputs.message }}

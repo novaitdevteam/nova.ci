@@ -31,10 +31,11 @@ alike to it.
 **Semgrep OSS** runs pattern-based static analysis with the registry rule packs
 `p/typescript`, `p/nodejs` and `p/owasp-top-ten`. It is not a whole-program analyzer:
 it matches syntactic patterns, so it finds the shapes those packs describe and nothing
-else. Only `ERROR` severity is counted on this rollout — the first pass at `WARNING`
-over an established codebase produces a volume nobody triages, and an untriaged backlog
-is the exact failure this work exists to fix. `WARNING` gets added once the real count
-is known.
+else. `ERROR` and `WARNING` are both counted and both listed in the report body, as two
+separate numbers — there is no `severity` input to narrow that. `INFO` is counted for
+the job summary only and kept out of the report body: the registry packs emit it
+liberally, and burying the two levels that carry a decision under it is how a report
+stops being read.
 
 > [!IMPORTANT]
 > **The ZAP baseline is not a penetration test.** It runs unauthenticated and passive:
@@ -105,7 +106,7 @@ gets a positive proof that it did its job, not the absence of a complaint.
 | Outcome | What it means | Build |
 | --- | --- | --- |
 | `clean` | the scan ran, proved it ran, and found nothing | 🟢 green |
-| `findings` | the scan ran and found something at the counted severity | 🟢 green — `warn-only` governs findings |
+| `findings` | the scan ran and found something at a counted level | 🟢 green — `warn-only` governs findings |
 | `not-run` (DAST only) | the application never came up, so nothing was scanned | 🟢 green, and **said loudly** |
 | `error` | the scanner itself broke | 🔴 **red** |
 
@@ -304,29 +305,128 @@ whatever the example file said. It is never set when no database is started. The
 conventions coexist deliberately and cannot disagree, since both come from one source;
 the URL is simply ignored by the Sequelize repositories that don't look for it.
 
-### Where the ZAP warning count comes from
+### Where the ZAP counts come from
 
 `zap-baseline.py` has two output channels and they do not carry the same information.
 `-w` writes the traditional **"ZAP Scanning Report" markdown** — `## Summary of Alerts`
 and a section per risk level. That file is the human-readable artifact, and it is what
-the `.report` is assembled from. But the **`WARN-NEW:` lines are printed to stdout
-only** and never appear in it, so the count is taken from a `tee` of the console stream,
-anchored on `^WARN-NEW: ` — the trailing tally line begins `FAIL-NEW:` and must not be
-counted as a rule.
+the `.report` is assembled from. But **no count appears in it at all**, so every number
+is taken from a `tee` of the console stream.
+
+One line carries all of them, printed unconditionally at the end of any completed scan:
+
+```
+FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 11	WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30
+```
+
+`scan.sh` anchors on `^FAIL-NEW: <digits>` followed by a **literal tab byte** and
+`FAIL-INPROG: `, and reads all six. The tab has to reach `grep` as a real tab, which is
+why the pattern is written with ANSI-C quoting (`$'…\t…'`) and not as a plain
+single-quoted string: BSD `grep` expands `\t` inside a pattern, GNU `grep` does not — it
+warns `stray \ before t` and matches a literal `t`. Every runner is GNU, so the plainly
+quoted form matches nothing there, and every completed scan reports a missing tally and
+reds the build. A macOS harness run is the one place it passes. The anchor
+matches the tally's shape rather than its prefix on purpose: every `FAIL`-level finding
+also prints a per-rule line beginning `FAIL-NEW: `, before the tally, so a bare-prefix
+match would read an alert name where a number belongs and misreport a real finding as a
+broken scanner. `FAIL-NEW` is the must-fix count,
+`WARN-NEW` the warning count, and `INFO` / `IGNORE` are what the
+[triage register](#recording-a-decision-about-a-finding) suppressed — reported even on a
+clean run, because suppressions nobody can see are suppressions nobody audits.
+
+**A missing tally line is a scanner error, never a clean scan.** A completed scan always
+prints one, so its absence means the scan did not finish — and an unfinished scan
+reporting zero findings is the exact failure this page is built around. The same applies
+to a tally whose numbers do not parse: the format would have moved under the pinned
+digest, and guessing zero there reports a clean scan that never happened.
 
 This is not a detail. `-I` makes the script exit `0` even with warnings present, so the
 exit code carries no signal either; counting the wrong stream leaves **both** channels
 dead and every run reports `🟢 clean` with `findings=0`, including one where ZAP found
-twenty warnings. It is precisely the failure this page is built around, so the harness
-carries a scenario whose markdown report is full of alert text and free of `WARN-NEW`.
+twenty warnings. The harness carries a scenario whose markdown report is full of alert
+text and free of any count, so a `scan.sh` that ever reads the `-w` file again fails.
+
 `${PIPESTATUS[0]}` matters for the same reason: it is ZAP's own exit status,
 unambiguously. Plain `$?` after the pipe happens to give the same answer today only
 because `pipefail` is set — it would silently become `tee`'s status the moment that
 changed, and it reports `tee`'s status whenever `tee` itself fails.
 
+The exit ladder is read from the same source rather than assumed
+(`zap-baseline.py:697-708`):
+
+| Exit | Meaning | Treated as |
+| --- | --- | --- |
+| 0 | passes only | clean |
+| 1 | `FAIL`-level findings present | **findings** — `-I` does *not* suppress this |
+| 2 | warnings with `-I` absent | findings — unreachable while `-I` is passed |
+| 3 | an exception, or no rule ran at all | scanner error |
+
+Exit `1` is the one to be careful with. `-I` gates exit `2` alone, so the moment the
+triage register gains its first `FAIL` entry, an exit-`1` run is a *finding* — and
+treating it as a broken scanner would red a trunk build for one.
+
 The console log lives under `RUNNER_TEMP`, is deleted by the same `EXIT` trap that
 removes the temporary env file, and is never uploaded — it is raw output about a
 container booted with the product repository's own environment.
+
+### Recording a decision about a finding
+
+A scanner that can only ever add to its count is one people stop reading. Both scanners
+have a way to write down "this is accepted" or "this must be fixed", and both keep that
+decision in version control next to a reason.
+
+**ZAP — [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf).** Every rule
+defaults to `WARN`; an entry overrides that for one rule ID. The grammar is
+TAB-separated with at least three fields:
+
+```
+<rule_id>	<LEVEL>	<why this decision was made, and who accepted it>
+<id>,<id>	OUTOFSCOPE	<regex matched against the alert URL>
+```
+
+| Level | Means |
+| --- | --- |
+| `FAIL` | must be fixed — counted and reported separately from warnings |
+| `WARN` | the default; no entry needed |
+| `INFO` | noted, out of the warning count, still in the report |
+| `IGNORE` | accepted risk — write the reason; see below |
+| `PASS` | treated as passing |
+
+The file ships with no entries, so it changes nothing until someone adds a line. Adding
+one is a risk-acceptance decision, not a CI change.
+
+The reason is a **review-time obligation, not a parsed one.** `10038<TAB>IGNORE<TAB>` with an
+empty third field is accepted by `scan.sh`, because ZAP itself accepts it and this
+validator must never reject a register ZAP would load. Nothing mechanical will stop an
+unexplained `IGNORE`; the pull request is what stops it.
+
+Rule IDs are not written from memory. Generate the list the pinned image actually loads:
+
+```bash
+docker run --rm -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+    zap-baseline.py -t http://example.com -g zap-rules.conf
+```
+
+`scan.sh` validates the shape of every line before anything is booted — at least two
+tabs, and a level from the set above — and treats a malformed or missing register as a
+broken gate. **It cannot validate the IDs.** ZAP reports alert counts per bucket, never
+which configured IDs matched, so a well-formed line naming a rule that does not exist is
+silently inert and nothing detects it. That limit is procedural, not mechanical: use the
+generated list.
+
+**Semgrep — inline `nosemgrep`, in the product repository.**
+
+```ts
+// nosemgrep: javascript.express.security.audit.xss.direct-response-write — value is a
+// UUID from the router, validated by the Joi schema above. NC2-XXXX.
+res.write(req.params.id)
+```
+
+Per-finding, next to the code it describes, reviewed in the pull request that introduces
+it. This is the analogue of a `.gitleaksignore` fingerprint. A path-scoped
+`.semgrepignore` is deliberately **not** used: it is the blanket `ignore tests/**` that
+[secret detection](secret-detection.md) already rejected, and it hides whole directories
+rather than one decision.
 
 ### The Semgrep canary guard
 
@@ -364,10 +464,11 @@ clean forty minutes earlier. So `scan.sh` prints every error — level, type, pa
 message — and only fails closed on the ones with no `path`; per-file errors are logged
 as a warning with their count and the scan proceeds, findings and all.
 
-The canary hit is excluded from the finding count **by rule ID, not by severity**. Its
-own severity is a fixed `INFO`, but the counted severity is a caller-configurable input
-with no enum behind it, so a caller that ever set it to `INFO` would otherwise start
-counting the canary as a finding in every repository.
+The canary hit is excluded from every bucket — `ERROR`, `WARNING` and `INFO` — **by rule
+ID, not by severity**. Its own severity is a fixed `INFO`; severity used to be a caller
+input, and excluding by check_id instead means the exclusion does not depend on it —
+severity used to be exactly the kind of caller-configurable value that could silently
+coincide with the canary's own and stop excluding it.
 
 Rules come from the registry rather than being vendored into `security/`, unlike the
 Gitleaks config. Mirroring thousands of rule files to guard against the registry being
@@ -568,12 +669,13 @@ build already sends — see [Notifications](notifications.md).
 
 | Line | When |
 | --- | --- |
-| `🔍 SAST (Semgrep): 🟢 clean` | scan ran, nothing at the counted severity |
-| `🔍 SAST (Semgrep): 🟡 <n> ERROR` | findings |
+| `🔍 SAST (Semgrep): 🟢 clean` | scan ran, no `ERROR` or `WARNING` findings |
+| `🔍 SAST (Semgrep): 🟡 3 error · 12 warning` | findings — `ERROR` and `WARNING`, always both counts |
 | `🔍 SAST (Semgrep): ❌ scan failed — <reason>` | broken scanner |
 | `🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)` | not a trunk build or `scan*` tag |
-| `🕷 DAST (ZAP): 🟢 clean` | app booted, no baseline warnings |
-| `🕷 DAST (ZAP): 🟡 <n> warnings` | baseline warnings |
+| `🕷 DAST (ZAP): 🟢 clean · <n> info · <n> accepted` | app booted, no must-fix or warning findings |
+| `🕷 DAST (ZAP): 🟡 <n> warnings` | `WARN`-level findings, no `FAIL`-level ones |
+| `🕷 DAST (ZAP): 🔴 <n> must-fix · <n> warnings` | at least one `FAIL`-level finding — the register marks it blocking |
 | `🕷 DAST (ZAP): ⚠️ not run — <reason>` | the app never came up |
 | `🕷 DAST (ZAP): ❌ scanner failed — <reason>` | broken scanner |
 | `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |

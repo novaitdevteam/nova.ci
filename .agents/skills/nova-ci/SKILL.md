@@ -319,9 +319,9 @@ Preserve these behaviors:
   fails closed on: no output file, exit > 1, unparseable JSON, and an empty
   `.paths.scanned`. Same class of trap as `gitleaks git --log-opts` exiting 0 on an
   unresolvable range.
-- The canary hit is excluded from the finding count **by rule ID, not by severity**. The
-  counted severity is a caller input with no enum behind it, so an `INFO` setting must
-  still not count the canary.
+- The canary hit is excluded from every bucket — `ERROR`, `WARNING`, `INFO` — **by rule
+  ID, not by severity**. Severity used to be a caller input; excluding by check_id
+  instead means the exclusion keeps working regardless of it.
 - **`warn-only` governs findings only.** Findings warn and the build stays green; a
   broken scanner reds the job. Never collapse the two — Semgrep has no environmental
   reason to fail (no database, no running app), so its failure means broken tooling.
@@ -356,17 +356,41 @@ Preserve these behaviors:
   canary config is mounted from the action's own directory, so it fires even when every
   registry pack failed to fetch — canary proves the engine ran, empty `.errors[]` proves
   the configs resolved. Removing either re-opens "zero rules, reported clean".
-- **ZAP warnings are counted from stdout, never from the `-w` report.** `-w` writes the
-  markdown "ZAP Scanning Report"; `WARN-NEW` is printed only to stdout, so counting the
-  file is a permanent zero and every run goes out `🟢 clean`. Keep the `tee` capture and
-  `${PIPESTATUS[0]}` — ZAP's own exit status, unambiguously; plain `$?` only agrees
-  because `pipefail` is set and would become `tee`'s status the moment that changed, or
-  whenever `tee` itself fails — the `^WARN-NEW: ` anchor (the tally line
-  starts `FAIL-NEW:`), and the console log deleted on exit and never uploaded. `-I`
-  means the exit code carries no signal, so the count is the only channel.
+- **Take the ZAP counts from the single tally line**, never from the `-w` report or from
+  a per-rule `WARN-NEW:`/`FAIL-NEW:` line. `-w` writes the markdown "ZAP Scanning
+  Report" and carries no count at all. One line, printed unconditionally at the end of
+  any completed scan, carries all six: `FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 11
+  WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30`. Anchor on `^FAIL-NEW: <digits>` + a
+  **literal tab byte** + `FAIL-INPROG: ` — the tally's *shape*, not the bare `FAIL-NEW: `
+  prefix, which a per-rule FAIL-level line also starts with and would be matched
+  instead, misreporting a real finding as a broken scanner. **Keep the pattern ANSI-C
+  quoted (`$'…\t…'`), never a plain `'…\t…'` string:** BSD grep expands `\t` inside a
+  pattern, GNU grep does not — it warns `stray \ before t` and matches a literal `t`.
+  Every runner is GNU, so the plainly quoted form matches nothing in production, every
+  completed scan reports a missing tally and reds the build, and a macOS harness run is
+  the one place it passes. A missing or non-numeric tally is a scanner error, never a
+  clean scan — the format moving under the pinned
+  digest is not a zero. Keep the `tee` capture and `${PIPESTATUS[0]}` — ZAP's own exit
+  status, unambiguously; plain `$?` only agrees because `pipefail` is set and would
+  become `tee`'s status the moment that changed, or whenever `tee` itself fails — and
+  the console log deleted on exit and never uploaded.
+- **Keep `0|1|2` in the ZAP exit-code `case`.** Exit 1 is `FAIL`-level findings present
+  and is a *finding*, not a broken scanner — `-I` gates exit 2 alone and does not
+  suppress 1. Moving 1 into the error arm reds a trunk build the first time the triage
+  register gains a `FAIL` entry.
+- **`.github/actions/dast/zap-baseline.conf` is the triage register** — TAB-separated,
+  at least three fields, levels `PASS`/`IGNORE`/`INFO`/`WARN`/`FAIL`/`OUTOFSCOPE`. The
+  reason column is a **review-time obligation, not a parsed one** — an empty third field
+  is accepted, because ZAP accepts it and this validator must never reject a register
+  ZAP would load; do not add a check that enforces it. Ships with zero entries; adding
+  one is a risk-acceptance decision, not a CI change. `scan.sh` validates line shape and
+  level before anything boots and treats a malformed or missing register as a scanner
+  error, but **cannot validate rule
+  IDs** — a mistyped one is silently inert.
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
-  vendored into `security/`. `ERROR` severity only on this rollout; `WARNING` once the
-  real count is known.
+  vendored into `security/`. `ERROR` and `WARNING` are both counted and both listed in
+  the report body — there is no `severity` input to narrow that. `INFO` is counted for
+  the job summary only, kept out of the report body.
 - **DAST scope is nine repositories** — `novatalks.ui`, `novatalks.core`,
   `nova.botflow`, `nova.chatsconnector.telegram-client-api`,
   `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api`,
