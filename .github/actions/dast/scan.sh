@@ -91,6 +91,7 @@ not_run() { # not_run <reason>
     echo "::warning::DAST did not run: $1"
     emit outcome not-run
     emit findings 0
+    emit failures 0
     emit_message "🕷 DAST (ZAP): ⚠️ not run — $1"
     summary WARNING "Scan did not run: $1. This is not a clean result."
     { echo "=== DAST: not run ==="; echo "$1"; } > "$DAST_REPORT_FILE"
@@ -101,6 +102,7 @@ scanner_error() { # scanner_error <reason>
     echo "::error::DAST scanner failed: $1"
     emit outcome error
     emit findings 0
+    emit failures 0
     emit_message "🕷 DAST (ZAP): ❌ scanner failed — $1"
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
@@ -378,11 +380,19 @@ docker run --rm --network host --user "$(id -u):$(id -g)" \
 zap_rc=${PIPESTATUS[0]}
 set -e
 
-# zap-baseline.py: 0 = nothing, 2 = warnings present (with -I it never returns 1),
-# anything else means ZAP could not do its job.
+# The ladder, verified against zap-baseline.py:697-708 rather than assumed:
+#   0  passes only
+#   1  FAIL-level findings present — a finding, not a broken scanner. -I does NOT
+#      suppress this; it gates exit 2 alone (`elif (not ignore_warn) and warn_count`).
+#      An earlier comment here claimed -I made 1 unreachable, which was simply wrong,
+#      and would have reddened a trunk build for a finding the first time the triage
+#      register gained a FAIL entry.
+#   2  warnings with -I absent — unreachable while we pass -I, kept so that removing -I
+#      never silently turns a findings run into a broken-gate report.
+#   3  an exception, or nothing passed, warned or failed at all. Both are broken gates.
 case "$zap_rc" in
-    0|2) : ;;
-    *)   scanner_error "zap-baseline.py exited ${zap_rc}" ;;
+    0|1|2) : ;;
+    *)     scanner_error "zap-baseline.py exited ${zap_rc}" ;;
 esac
 
 [ -s "$zap_out" ] || scanner_error "ZAP produced no report"
@@ -390,10 +400,30 @@ esac
 # Counted from stdout, not from the -w report: that report is the traditional
 # "ZAP Scanning Report" markdown (## Summary of Alerts + per-risk sections) and contains
 # no WARN-NEW at all, so counting it there is a permanent zero — every run green,
-# including one with twenty warnings. `^WARN-NEW: ` matches the per-rule lines only; the
-# trailing tally line starts with FAIL-NEW:.
-findings=$(grep -cE '^WARN-NEW: ' "$zap_console" || true)
-findings="${findings:-0}"
+# including one with twenty warnings.
+#
+# One tally line carries all six numbers and is printed unconditionally at the end of any
+# completed scan (zap-baseline.py:666-668), which is why it is read instead of the
+# per-rule `^WARN-NEW: ` lines: those give one of the six. Its absence means the scan did
+# not complete, and an unfinished scan reporting zero findings is precisely the failure
+# this job exists to avoid — fail closed, the same shape as the Semgrep canary.
+tally="$(grep -m1 -E '^FAIL-NEW: ' "$zap_console" || true)"
+[ -n "$tally" ] || scanner_error "ZAP printed no result tally — the scan did not complete"
+
+tally_at() { # tally_at <label>
+    printf '%s' "$tally" | tr '\t' '\n' | sed -n "s/^$1: //p" | head -1
+}
+failures="$(tally_at FAIL-NEW)"
+findings="$(tally_at WARN-NEW)"
+infos="$(tally_at INFO)"
+accepted="$(tally_at IGNORE)"
+passes="$(tally_at PASS)"
+
+# A tally that parsed to anything other than a number means the format moved under the
+# pinned digest. Guessing a zero there would report a clean scan.
+for n in "$failures" "$findings" "$infos" "$accepted" "$passes"; do
+    [[ "$n" =~ ^[0-9]+$ ]] || scanner_error "ZAP tally line is malformed: ${tally}"
+done
 
 {
     echo "=============================="
@@ -402,10 +432,24 @@ findings="${findings:-0}"
     echo " Target: ${target}"
     echo "=============================="
     echo ""
+    echo "must fix (FAIL):   ${failures}"
+    echo "warnings (WARN):   ${findings}"
+    echo "informational:     ${infos}"
+    echo "accepted (IGNORE): ${accepted}"
+    echo "passed:            ${passes}"
+    echo ""
     cat "$zap_out"
 } > "$DAST_REPORT_FILE"
 
-if [ "$findings" -gt 0 ]; then
+emit failures "$failures"
+
+if [ "$failures" -gt 0 ]; then
+    echo "::warning::ZAP baseline reported ${failures} must-fix and ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    emit outcome findings
+    emit findings "$findings"
+    emit_message "🕷 DAST (ZAP): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🔴 ${failures} must-fix and ${findings} warning(s) — the register marks these as blocking."
+elif [ "$findings" -gt 0 ]; then
     echo "::warning::ZAP baseline reported ${findings} warning(s). See ${DAST_REPORT_FILE}."
     emit outcome findings
     emit findings "$findings"
@@ -414,8 +458,8 @@ if [ "$findings" -gt 0 ]; then
 else
     emit outcome clean
     emit findings 0
-    emit_message "🕷 DAST (ZAP): 🟢 clean"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary NOTE "✅ No baseline warnings."
+    emit_message "🕷 DAST (ZAP): 🟢 clean · ${infos} info · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary NOTE "✅ No must-fix or warning findings. ${infos} informational, ${accepted} accepted by the triage register."
 fi
 
-echo "ZAP baseline — warnings: ${findings}"
+echo "ZAP baseline — must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"

@@ -87,6 +87,12 @@ printf 'MEMORY_RSS_THRESHOLD=\nWHITESPACE_ONLY=   \nLOG_LEVEL=debug\n' > "$WS_EM
 pass=0
 fail=0
 
+# A completed scan always prints exactly one tally line, so every fixture standing in
+# for a completed scan needs one. The scenarios that assert something about counting
+# spell their own out; these are the ones where the console content is irrelevant.
+ZAP_CLEAN_CONSOLE="PASS: everything
+FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40"
+
 # docker shim. Records every invocation so cleanup can be asserted, and dispatches on
 # the subcommand so "run the app" and "run ZAP" can fail independently. For the app
 # container specifically, it also snapshots whatever file --env-file points at, at
@@ -110,7 +116,8 @@ case "$1" in
 ## Summary of Alerts
 | Risk Level | Number of Alerts |
 | Informational | 0 |}" > "${SHIM_ZAP_OUT:?}"
-                printf '%s\n' "${SHIM_ZAP_CONSOLE:-PASS: everything}"
+                printf '%s\n' "${SHIM_ZAP_CONSOLE:-PASS: everything
+FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40}"
                 exit "${SHIM_ZAP_RC:-0}" ;;
             *nova-nats*)
                 # Separate control from SHIM_APP_RC: some scenarios need NATS to start
@@ -228,10 +235,10 @@ assert_no_db_containers() { # assert_no_db_containers <name>
 
 echo "=== dast scan.sh — $SCAN ==="
 
-SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "app boots, ZAP finds nothing" clean 0
 assert_cleanup "clean run tears containers down"
-assert_findings "a console with no WARN-NEW line counts zero" 0
+assert_findings "a tally of all zeroes counts zero" 0
 # /zap/wrk is a bind mount of RUNNER_TEMP on a pooled runner; the image's own uid 1000
 # may not be able to write there, and write_report failing would red a trunk build.
 if grep -qE '^run .*zaproxy.*' "$WORK/dockerlog" && grep -qE -- '--user [0-9]+:[0-9]+' "$WORK/dockerlog"; then
@@ -247,7 +254,7 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 3	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
     expect "ZAP warnings are findings, not failure" findings 0
 # Three per-rule lines, not four: the trailing tally line mentions WARN-NEW too but
 # starts with FAIL-NEW:, which is why the count anchors on `^WARN-NEW: `.
-assert_findings "only the per-rule WARN-NEW lines are counted, not the tally line" 3
+assert_findings "the tally line is the warning count, not the per-rule lines" 3
 assert_cleanup "findings run tears containers down"
 
 # The regression this whole rewiring exists for. zap-baseline.py -w writes the
@@ -272,7 +279,8 @@ SHIM_ZAP_MD="# ZAP Scanning Report
 ### X-Content-Type-Options Header Missing" \
 SHIM_ZAP_CONSOLE="WARN-NEW: Content Security Policy (CSP) Header Not Set [10038] x 4
 WARN-NEW: Missing Anti-clickjacking Header [10020] x 1
-WARN-NEW: X-Content-Type-Options Header Missing [10021] x 6" \
+WARN-NEW: X-Content-Type-Options Header Missing [10021] x 6
+FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 3	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
     expect "warnings are counted from the console stream, not the -w markdown report" findings 0
 assert_findings "a markdown report with alert text but no WARN-NEW still counts 3" 3
 if grep -q 'Summary of Alerts' "$WORK/report"; then
@@ -318,14 +326,14 @@ SHIM_CURL_RC=0 SHIM_APP_RC=1 \
 assert_cleanup "app-refuses-to-start run still tears containers down"
 
 # novatalks.ui's production path: static assets behind nginx, no database at all.
-DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: nothing to see" \
+DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "no-database app still boots and scans clean" clean 0
 assert_cleanup "no-db run still tears containers down"
 assert_no_db_containers "no-db run never starts postgres or redis"
 
 # novatalks.core's production path: FILE_DRIVER=s3 and friends live in .env.example,
 # not in this repo, so they must reach the app container without ever being typed here.
-GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an existing .env.example is passed via --env-file" clean 0
 assert_cleanup "env-file run tears containers down"
 if grep -qE -- '--name nova-app.*--env-file [^ ]*dast\.env.* -e DATABASE_HOST=127\.0\.0\.1' "$WORK/dockerlog"; then
@@ -347,7 +355,7 @@ else
     echo "FAIL the temporary env file was left behind after the process exited"; fail=$((fail + 1))
 fi
 
-GITHUB_WORKSPACE="$WS_WITHOUT_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_WITHOUT_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "no .env.example — scan proceeds exactly as before" clean 0
 assert_cleanup "no-env-file run still tears containers down"
 if grep -qE -- '--name nova-app.*--env-file' "$WORK/dockerlog"; then
@@ -360,7 +368,7 @@ fi
 # may carry credentials, and self-hosted runners are pooled/reused, not thrown away
 # between jobs), so these two assertions read the docker shim's snapshot — taken at
 # `docker run` invocation time, before that trap ever fires — rather than $WORK/dast.env.
-GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "comment and bare-key lines are stripped before reaching the app container" clean 0
 if [ -f "$WORK/envfile-snapshot" ] && ! grep -q '^#' "$WORK/envfile-snapshot" && grep -q '^FILE_DRIVER=s3$' "$WORK/envfile-snapshot"; then
     echo "ok   comment stripped, KEY=value lines survive"; pass=$((pass + 1))
@@ -379,7 +387,7 @@ fi
 # .env.example exists but both filters leave nothing (only comments and bare keys):
 # scan.sh's `|| true` guard on the filter pipeline covers exactly this — the run must
 # still succeed, and whatever --env-file ends up pointing at must carry nothing.
-GITHUB_WORKSPACE="$WS_ALL_FILTERED" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_ALL_FILTERED" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an .env.example with only comments/bare keys leaves nothing to pass through" clean 0
 assert_cleanup "all-filtered run tears containers down"
 if [ -s "$WORK/envfile-snapshot" ]; then
@@ -396,7 +404,7 @@ fi
 # Sequelize CLI found no config section by that name — the engine never booted. Two
 # rules, checked independently: any line with a trailing ` //` or ` #` comment is
 # dropped outright, and NODE_ENV is dropped by name regardless of its own formatting.
-GITHUB_WORKSPACE="$WS_TRAILING_COMMENT" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_TRAILING_COMMENT" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an env file with trailing comments and NODE_ENV still boots clean" clean 0
 assert_cleanup "trailing-comment run tears containers down"
 if grep -q '^LOG_LEVEL=' "$WORK/envfile-snapshot" 2>/dev/null; then
@@ -438,7 +446,7 @@ fi
 # `.number()` check then rejected outright, and the app never booted. Same family as
 # NODE_ENV, the trailing comment and the port: the action must not let a blank template
 # line become a literal empty-string override.
-GITHUB_WORKSPACE="$WS_EMPTY_VALUE" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_EMPTY_VALUE" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an env file with an empty and a whitespace-only value still boots clean" clean 0
 assert_cleanup "empty-value run tears containers down"
 if grep -q '^MEMORY_RSS_THRESHOLD=' "$WORK/envfile-snapshot" 2>/dev/null; then
@@ -473,7 +481,7 @@ fi
 # --env-file does not strip quotes the way dotenv does, so the container received a
 # value whose first character is '"', and Prisma refused it outright — the engine never
 # booted. Strip a matching pair of surrounding quotes only, nothing else.
-GITHUB_WORKSPACE="$WS_QUOTED" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_QUOTED" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an env file with quoted values still boots clean" clean 0
 assert_cleanup "quoted-values run tears containers down"
 if grep -qx 'DATABASE_URL=postgresql://user:!1q2w3e@localhost:5432/novatalks_db' "$WORK/envfile-snapshot" 2>/dev/null; then
@@ -511,7 +519,7 @@ fi
 # and a perfectly healthy boot reported "not run". The action must own the port exactly
 # like it owns NODE_ENV and quoting: force PORT and APP_PORT to DAST_PORT after
 # --env-file so the seeded template can never win.
-GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_WITH_ENV" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "PORT and APP_PORT are forced to the configured port" clean 0
 if grep -qE -- '--name nova-app.*-e PORT=3000( |$)' "$WORK/dockerlog" && grep -qE -- '--name nova-app.*-e APP_PORT=3000( |$)' "$WORK/dockerlog"; then
     echo "ok   both PORT and APP_PORT are passed to the app container, both equal to DAST_PORT"; pass=$((pass + 1))
@@ -533,7 +541,7 @@ fi
 # comment/bare-key/NODE_ENV/quote filters above have no reason to touch it), but the
 # forced -e APP_PORT=3000 comes later on the command line and wins — docker's own
 # last-value-wins rule for repeated -e flags of the same name.
-GITHUB_WORKSPACE="$WS_WRONG_PORT" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_WRONG_PORT" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an APP_PORT seeded from .env.example does not change what is passed" clean 0
 if grep -q '^APP_PORT=5555$' "$WORK/envfile-snapshot" 2>/dev/null; then
     echo "ok   the seeded APP_PORT=5555 still reaches --env-file unmodified"; pass=$((pass + 1))
@@ -567,7 +575,7 @@ fi
 # have no discrete DATABASE_* vars to bind to, so an explicit DATABASE_URL — built from
 # the very same values used for the discrete vars and for the postgres container this
 # script starts — must reach the app container and win over whatever the example said.
-SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "DATABASE_URL is passed to the app container when the database is up" clean 0
 if grep -qE -- '--name nova-app.*-e DATABASE_URL=postgresql://postgres:password@127\.0\.0\.1:5432/db_name( |$)' "$WORK/dockerlog"; then
     echo "ok   DATABASE_URL matches the user/password/db/port of the postgres this script started"; pass=$((pass + 1))
@@ -577,7 +585,7 @@ else
     fail=$((fail + 1))
 fi
 
-DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: nothing to see" \
+DAST_NEEDS_DB=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "DATABASE_URL is withheld when no database is started" clean 0
 if grep -qE -- '--name nova-app.*-e DATABASE_URL=' "$WORK/dockerlog"; then
     echo "FAIL DATABASE_URL was passed despite DAST_NEEDS_DB=false"
@@ -594,7 +602,7 @@ fi
 # is not a valid URL). extra-env applies -e flags after --env-file, so it overrides
 # the seeded value of the same name rather than adding alongside a stale one.
 GITHUB_WORKSPACE="$WS_WITH_ENV" DAST_EXTRA_ENV="FILE_DRIVER=override-value" \
-    SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "an extra-env line reaches the application container as a -e flag" clean 0
 if grep -qE -- '--name nova-app.*-e FILE_DRIVER=override-value( |$)' "$WORK/dockerlog"; then
     echo "ok   extra-env line reaches the app container as a -e flag"; pass=$((pass + 1))
@@ -618,7 +626,7 @@ else
     fail=$((fail + 1))
 fi
 
-DAST_EXTRA_ENV="KEY=a=b=c" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+DAST_EXTRA_ENV="KEY=a=b=c" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "a value containing = survives intact" clean 0
 if grep -qE -- '-e KEY=a=b=c( |$)' "$WORK/dockerlog"; then
     echo "ok   a value containing = is passed through verbatim"; pass=$((pass + 1))
@@ -629,7 +637,7 @@ else
 fi
 
 DAST_EXTRA_ENV=$'\n\n   S3_ENDPOINT=https://s3.example.com\n\n' \
-    SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+    SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "blank lines in extra-env are skipped" clean 0
 extra_env_hits=$(grep -oE -- '-e S3_ENDPOINT=https://s3\.example\.com' "$WORK/dockerlog" | wc -l | tr -d ' ' || true)
 if [ "$extra_env_hits" = "1" ]; then
@@ -644,11 +652,11 @@ fi
 # run with DAST_EXTRA_ENV explicitly set to empty — the input must be a strict no-op
 # when unset, exactly as every arm of Resolve DAST target that has nothing to override.
 unset DAST_EXTRA_ENV
-SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "baseline nova-app invocation with no extra-env" clean 0
 without_extra_env=$(grep -E '^run .*--name nova-app' "$WORK/dockerlog")
 
-DAST_EXTRA_ENV="" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+DAST_EXTRA_ENV="" SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "empty extra-env changes nothing about the command line" clean 0
 with_empty_extra_env=$(grep -E '^run .*--name nova-app' "$WORK/dockerlog")
 if [ "$without_extra_env" = "$with_empty_extra_env" ] && [ -n "$without_extra_env" ]; then
@@ -666,7 +674,7 @@ fi
 # brings up a bare, unconfigured NATS server (no config file, no auth, no TLS, no
 # JetStream) the same way needs-db brings up postgres/redis, gated on its own flag so the
 # other eight repositories, which never asked for NATS, never pay for it.
-DAST_NEEDS_NATS=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+DAST_NEEDS_NATS=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "needs-nats true starts a nova-nats container" clean 0
 if grep -qE -- '^run .*--name nova-nats\b' "$WORK/dockerlog"; then
     echo "ok   a nova-nats container is started when needs-nats is true"; pass=$((pass + 1))
@@ -695,7 +703,7 @@ else
 fi
 assert_cleanup "needs-nats run tears all four containers down"
 
-DAST_NEEDS_NATS=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+DAST_NEEDS_NATS=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "needs-nats false starts no NATS container" clean 0
 if grep -qE -- '^run .*--name nova-nats\b' "$WORK/dockerlog"; then
     echo "FAIL a nova-nats container was started despite needs-nats being false"
@@ -709,7 +717,7 @@ fi
 # is IPv6 resolution of `localhost`, and a server bound to 0.0.0.0 still refuses that.
 # Naming 127.0.0.1 explicitly removes the resolution question, and it must come after
 # --env-file so it wins over anything a seeded .env.example named.
-GITHUB_WORKSPACE="$WS_WITH_ENV" DAST_NEEDS_NATS=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \
+GITHUB_WORKSPACE="$WS_WITH_ENV" DAST_NEEDS_NATS=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "NATS_SERVERS is forced on the application container" clean 0
 if grep -qE -- '--name nova-app.*--env-file [^ ]*dast\.env.*-e NATS_SERVERS=127\.0\.0\.1:4222( |$)' "$WORK/dockerlog"; then
     echo "ok   NATS_SERVERS=127.0.0.1:4222 is passed to the app container, after --env-file"; pass=$((pass + 1))
@@ -800,6 +808,64 @@ SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_ACTION_ROOT="$CONF_DIR" \
 SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
 DAST_ACTION_ROOT="$ROOT/.github/actions/dast" \
     expect "the register committed to this repository parses" clean 0
+
+# --- the tally line and the exit ladder --------------------------------------------
+assert_failures() { # assert_failures <name> <expected>
+    local got
+    got=$(sed -n 's/^failures=//p' "$WORK/output")
+    if [ "$got" = "$2" ]; then
+        echo "ok   $1"; pass=$((pass + 1))
+    else
+        echo "FAIL $1 — expected failures=$2, got failures=$got"; fail=$((fail + 1))
+    fi
+}
+
+# zap-baseline.py exits 1 when FAIL-level findings are present (zap-baseline.py:701) and
+# -I does not suppress it — -I gates exit 2 alone. Treating 1 as a broken scanner would
+# red a build for a finding the moment the register gets its first FAIL entry, which is
+# exactly the collapse `warn-only governs findings` exists to prevent.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 1	IGNORE: 3	PASS: 30" \
+    expect "a FAIL-level finding is a finding, not a broken scanner" findings 0
+assert_failures "FAIL-NEW is counted on its own" 2
+assert_findings "WARN-NEW keeps its own count alongside it" 5
+if grep -q 'must-fix' "$WORK/output"; then
+    echo "ok   the notification distinguishes must-fix from warnings"; pass=$((pass + 1))
+else
+    echo "FAIL the notification does not mention must-fix"; fail=$((fail + 1))
+fi
+
+# All six numbers come from one line, so a clean run can still say what was suppressed.
+# A register nobody can see is a register nobody audits.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30" \
+    expect "a clean run still reports info and accepted counts" clean 0
+assert_failures "a clean run reports zero failures" 0
+if grep -q '4 info' "$WORK/output" && grep -q '7 accepted' "$WORK/output"; then
+    echo "ok   the clean notification names what was suppressed"; pass=$((pass + 1))
+else
+    echo "FAIL the clean notification hides the info and accepted counts"
+    sed 's/^/     /' "$WORK/output"
+    fail=$((fail + 1))
+fi
+if grep -q 'accepted (IGNORE): 7' "$WORK/report"; then
+    echo "ok   the report breaks the run down by level"; pass=$((pass + 1))
+else
+    echo "FAIL the report has no per-level breakdown"; fail=$((fail + 1))
+fi
+
+# A completed scan always prints the tally (zap-baseline.py:666, unconditional). Its
+# absence means the scan did not finish, and an unfinished scan reporting zero findings
+# is the exact failure this whole job exists to avoid — the same shape as the Semgrep
+# canary and the `git rev-list --count` guard on the secret scan.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything looked fine" \
+    expect "a console with no tally line is a scanner error, never clean" error 2
+
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: none	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 1	IGNORE: 3	PASS: 30" \
+    expect "a non-numeric tally is a scanner error" error 2
+
+# Exit 3 is both "an exception was raised" and "nothing passed, warned or failed" — no
+# rule ran at all. Both are broken gates.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=3 \
+    expect "exit 3 stays a scanner error" error 2
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
