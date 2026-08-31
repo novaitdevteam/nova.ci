@@ -1137,7 +1137,6 @@ jobs:
           needs-db: ${{ steps.dast_target.outputs.needs_db }}
           needs-nats: ${{ steps.dast_target.outputs.needs_nats }}
           extra-env: ${{ steps.dast_target.outputs.extra_env }}
-          pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
 

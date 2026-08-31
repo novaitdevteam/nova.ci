@@ -23,7 +23,7 @@ inputs:
   pg-image:
     description: "Postgres image, when needs-db is true"
     required: false
-    default: "postgres:16"
+    default: "ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie"
   needs-nats:
     description: "Bring up a plain, unconfigured NATS server alongside the application"
     required: false

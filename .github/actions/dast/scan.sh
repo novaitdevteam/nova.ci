@@ -24,7 +24,12 @@ set -euo pipefail
 : "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}"
 
 DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
-DAST_PG_IMAGE="${DAST_PG_IMAGE:-postgres:16}"
+# Postgres and redis mirror what the platform actually runs, so a scan meets the same
+# database the application does — novatalks.charts, novatalks_v5/values.yaml
+# (cnpgClusterImage and redis.image). Update both together when the charts move; nothing
+# here can detect that drift, since a check inside this repo would only compare a
+# constant with itself.
+DAST_PG_IMAGE="${DAST_PG_IMAGE:-ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie}"
 DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_NATS_STREAM="${DAST_NATS_STREAM:-campaign}"
 DAST_NATS_SUBJECTS="${DAST_NATS_SUBJECTS:-campaign.*}"
@@ -108,7 +113,7 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
         -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
         -e POSTGRES_DB="${DATABASE_NAME:-db_name}" \
         "$DAST_PG_IMAGE" || not_run "postgres did not start"
-    docker run -d --name nova-redis -p 6379:6379 redis:8 || not_run "redis did not start"
+    docker run -d --name nova-redis -p 6379:6379 redis:8.6.4 || not_run "redis did not start"
     for _ in $(seq 1 30); do
         docker exec nova-pg pg_isready -U "${DATABASE_USERNAME:-postgres}" >/dev/null 2>&1 && break
         sleep 2
@@ -137,7 +142,7 @@ if [ "$DAST_NEEDS_NATS" = "true" ]; then
     # something the client was never configured to reach. `-m 8222` turns on the
     # monitoring endpoint the wait-loop below polls; it costs nothing else.
     #
-    # Tag-pinned, not digest-pinned, matching the existing postgres:16/redis:8 in this
+    # Tag-pinned, not digest-pinned, matching the postgres and redis images in this
     # script: infrastructure containers here follow that precedent, digest pinning is
     # reserved for the scanners themselves (Semgrep, ZAP).
     docker run -d --name nova-nats -p 4222:4222 -p 8222:8222 \
