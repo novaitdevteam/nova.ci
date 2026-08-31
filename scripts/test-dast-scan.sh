@@ -250,18 +250,20 @@ fi
 SHIM_CURL_RC=0 SHIM_ZAP_RC=2 SHIM_ZAP_CONSOLE="WARN-NEW: 3 things
 WARN-NEW: x
 WARN-NEW: y
-FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 3	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
+FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 4	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
     expect "ZAP warnings are findings, not failure" findings 0
-# Three per-rule lines, not four: the trailing tally line mentions WARN-NEW too but
-# starts with FAIL-NEW:, which is why the count anchors on `^WARN-NEW: `.
-assert_findings "the tally line is the warning count, not the per-rule lines" 3
+# Deliberately disagreeing: three per-rule WARN-NEW lines but a tally of 4. If the count
+# ever came from the per-rule lines again, this would read 3 and the assertion below
+# would catch it — matching fixtures (three lines, a tally of 3) let a reversion to
+# counting per-rule lines pass unnoticed, which is exactly what happened here before.
+assert_findings "the tally line is the warning count, not the per-rule lines" 4
 assert_cleanup "findings run tears containers down"
 
 # The regression this whole rewiring exists for. zap-baseline.py -w writes the
 # traditional markdown report, which names alerts but never prints WARN-NEW; the
 # WARN-NEW lines are on stdout only. Counting the -w file therefore yields a permanent
 # zero — every run "🟢 clean", including one with twenty warnings. The md fixture below
-# is deliberately full of alert text and free of WARN-NEW: a scan.sh that counts the
+# is deliberately full of alert text and free of any tally line: a scan.sh that counts the
 # file rather than the console stream reports clean here and fails this scenario.
 SHIM_CURL_RC=0 SHIM_ZAP_RC=2 \
 SHIM_ZAP_MD="# ZAP Scanning Report
@@ -824,7 +826,16 @@ assert_failures() { # assert_failures <name> <expected>
 # -I does not suppress it — -I gates exit 2 alone. Treating 1 as a broken scanner would
 # red a build for a finding the moment the register gets its first FAIL entry, which is
 # exactly the collapse `warn-only governs findings` exists to prevent.
-SHIM_CURL_RC=0 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 1	IGNORE: 3	PASS: 30" \
+#
+# The console carries a realistic per-rule FAIL-NEW line and per-rule WARN-NEW line
+# ahead of the tally, exactly as print_rule (zap_common.py:205) actually emits them —
+# not the tally alone, which real ZAP never produces on its own. A per-rule FAIL-NEW
+# line starts with the same `FAIL-NEW: ` prefix as the tally, so this is also the
+# regression fixture for the tally-line anchor: a `grep -m1 -E '^FAIL-NEW: '` with no
+# further shape check would take the per-rule line instead of the tally.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
+WARN-NEW: Some Warning Alert [10038] x 5
+FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 1	IGNORE: 3	PASS: 30" \
     expect "a FAIL-level finding is a finding, not a broken scanner" findings 0
 assert_failures "FAIL-NEW is counted on its own" 2
 assert_findings "WARN-NEW keeps its own count alongside it" 5

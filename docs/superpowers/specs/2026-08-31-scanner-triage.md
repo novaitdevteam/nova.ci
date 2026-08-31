@@ -113,10 +113,14 @@ scan:
 FAIL-NEW: n	FAIL-INPROG: n	WARN-NEW: n	WARN-INPROG: n	INFO: n	IGNORE: n	PASS: n
 ```
 
-Anchored on `^FAIL-NEW: `. Its absence means the scan did not complete and is a
-`scanner_error` — the same fail-closed shape as the Semgrep canary and the
-`git rev-list --count` guard. This replaces `grep -cE '^WARN-NEW: '`, which is correct
-today but only counts one of the six numbers.
+Anchored on `^FAIL-NEW: [0-9]+\tFAIL-INPROG: `, not on the bare `^FAIL-NEW: ` prefix:
+`print_rule` (`zap_common.py:205`) emits one per-rule line per FAIL-level finding shaped
+`FAIL-NEW: <alert name> [<id>] x <n>`, which starts with that same prefix and precedes the
+tally whenever a FAIL entry exists — a bare-prefix `grep -m1` would take the per-rule line
+instead and misreport a real finding as a broken scanner. Its absence means the scan did
+not complete and is a `scanner_error` — the same fail-closed shape as the Semgrep canary
+and the `git rev-list --count` guard. This replaces `grep -cE '^WARN-NEW: '`, which is
+correct today but only counts one of the six numbers.
 
 The `tee` capture and `${PIPESTATUS[0]}` stay exactly as they are. The reasons in the
 existing comment are unchanged and still load-bearing: the `-w` report contains no
