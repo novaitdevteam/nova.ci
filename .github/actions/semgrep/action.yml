@@ -35,11 +35,24 @@ runs:
     # moved, and `latest` would let an upstream change silently alter what a security
     # gate reports. To upgrade: bump the tag, then re-read the digest with
     #   docker buildx imagetools inspect semgrep/semgrep:<tag>
+    # Take the manifest-list digest that prints, not a per-architecture one.
+    #
+    # The harness stubs `docker`, so it proves the decision logic and nothing about the
+    # image. A version bump therefore needs three live checks the harness cannot make,
+    # against a fixture that actually produces findings:
+    #   1. the JSON shape scan.sh reads is unchanged — .results[].extra.severity,
+    #      .results[].check_id, .paths.scanned, .errors[];
+    #   2. the same fixture yields the same rule IDs and severities as the old pin, so a
+    #      jump in reported counts is a real change in the code, not in the scanner;
+    #   3. a deliberately bogus --config still lands a path-less entry in .errors[].
+    # The third matters most: it is the only guard that separates "the packs loaded and
+    # found nothing" from "the packs never loaded". The canary cannot cover it — it is
+    # mounted from this directory and fires either way.
     - name: Scan source
       id: scan
       shell: bash
       env:
-        SEMGREP_IMAGE: "semgrep/semgrep:1.99.0@sha256:ae27024c16f7848cdbfd49c24ed0b78b13f13b85fcd7b87c679aaa8b0c0dce98"
+        SEMGREP_IMAGE: "semgrep/semgrep:1.175.0@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796"
         SEMGREP_CONFIGS: ${{ inputs.configs }}
         SEMGREP_SRC: ${{ github.workspace }}
         SEMGREP_REPORT_FILE: ${{ inputs.report-file }}
