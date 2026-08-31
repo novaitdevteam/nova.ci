@@ -62,6 +62,8 @@ change is greppable from git history. They are records, not queues — the work 
 - [`plans/2026-08-27-nc2-2742-secret-detection.md`](superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — the six commits, step by step, including the two approaches abandoned along the way
 - [`specs/2026-08-28-sast-dast-scanning.md`](superpowers/specs/2026-08-28-sast-dast-scanning.md) — why Semgrep and a ZAP baseline rather than CodeQL or SonarQube Community, the fourteen decisions, and the assumptions settled during implementation
 - [`plans/2026-08-28-sast-dast-scanning.md`](superpowers/plans/2026-08-28-sast-dast-scanning.md) — the eight tasks, step by step
+- [`specs/2026-08-31-scanner-triage.md`](superpowers/specs/2026-08-31-scanner-triage.md) — the eleven decisions behind two-level Semgrep counting, the ZAP triage register and the corrected exit ladder, each citing the upstream `zap-baseline.py` / `zap_common.py` lines it was read from
+- [`plans/2026-08-31-scanner-triage.md`](superpowers/plans/2026-08-31-scanner-triage.md) — the four tasks, step by step
 
 </details>
 

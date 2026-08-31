@@ -253,9 +253,21 @@ run. `nova.chatsconnector.telegram-client-api`'s arm does the same for
 `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN` and
 `ENCRYPTION_SECRET` (`"TELEGRAM_API_ID" is not allowed to be empty` was the first
 error); `TELEGRAM_API_ID` is numeric and `TELEGRAM_API_HASH` is 32 hex characters so a
-validator checking shape, not just presence, accepts them. All of these are dummy
-values, not credentials — they exist only so a scanned container reaches its HTTP
-listener; if one ever needs to be real, it belongs in a secret, not in this step.
+validator checking shape, not just presence, accepts them. `TELEGRAM_API_HASH` is
+thirty-two *identical* hex characters rather than a realistic-looking one on purpose:
+`generic-api-key` is Gitleaks' heuristic entropy rule, and a plausible 32-character hash
+written into this workflow would trip it and red the required
+[secret-scan](secret-detection.md) check. Do not "improve" the placeholder's realism.
+All of these are dummy values, not credentials — they exist only so a scanned container
+reaches its HTTP listener; if one ever needs to be real, it belongs in a secret, not in
+this step.
+
+`novatalks.dialer`'s arm seeds five `AWS_S3_*` values for a different reason again —
+not a validator rejecting a blank, but object storage wired at boot: `multer-s3` throws
+`bucket is required` without one, and `FILE_DRIVER=s3` is the only driver that
+repository supports, so storage cannot simply be switched off for the scan.
+`AWS_S3_ENDPOINT` uses the same IANA-reserved `example.com` as the signal arm and is
+never contacted by a baseline scan.
 
 Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
 values instead of passing them through. `S3_PUBLIC_URL` is declared
@@ -505,7 +517,7 @@ repository-scoped-exception pattern already used for the
 | `nova.chatsconnector.telegram-client-api` | 3000 | `/` | true | false | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `NOVATALKS_ACCESS_TOKEN`, `ENCRYPTION_SECRET` |
 | `nova.chatsconnector.whatsapp-client-api` | 3000 | `/` | true | false | — |
 | `nova.chatsconnector.signal-client-api` | 3000 | `/` | true | false | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `WEBHOOK_SECRET`, `SIGNAL_MAX_FILE_SIZE` |
-| `novatalks.dialer` | 3000 | `/livez` | true | true | — |
+| `novatalks.dialer` | 3000 | `/livez` | true | true | `AWS_S3_ACCESS_KEY_ID`, `AWS_S3_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `AWS_S3_REGION`, `AWS_S3_ENDPOINT` |
 | `novatalks.uspacy.connector` | 3000 | `/` | true | false | — |
 | `novatalks.geoip-api` | 3000 | `/` | false | false | — |
 
