@@ -263,7 +263,7 @@ And delete the `SEMGREP_SEVERITY` line from the step's `env:` block:
 - [ ] **Step 9: Run the harness to verify it passes**
 
 Run: `./scripts/test-sast-scan.sh`
-Expected: PASS, `--- 27 passed, 0 failed`.
+Expected: PASS, `--- 29 passed, 0 failed`. If the number differs, recount the checks you added rather than forcing the figure — report the real total in the commit body.
 
 - [ ] **Step 10: Prove the new counting is not vacuous**
 
@@ -510,7 +510,7 @@ to:
 - [ ] **Step 9: Run the harness to verify it passes**
 
 Run: `./scripts/test-dast-scan.sh`
-Expected: PASS, `--- 102 passed, 0 failed`.
+Expected: PASS, `--- 99 passed, 0 failed`. If the number differs, recount the checks you added rather than forcing the figure — report the real total in the commit body.
 
 - [ ] **Step 10: Prove the validation is not vacuous**
 
