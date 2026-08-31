@@ -676,6 +676,16 @@ else
     sed 's/^/     /' "$WORK/dockerlog"
     fail=$((fail + 1))
 fi
+
+# JetStream, not plain NATS. The dialer's client calls $JS.API.INFO during startup,
+# and a server without -js answers 503 (no responders), which reads in the app log as
+# a missing peer service rather than a missing server feature — it cost a wrong
+# diagnosis once. Production NATS runs JetStream too, so this matches it.
+if grep -qE -- '^run .*--name nova-nats\b.* -js( |$)' "$WORK/dockerlog"; then
+    echo "ok   the nova-nats container enables JetStream"; pass=$((pass + 1))
+else
+    echo "FAIL nova-nats started without -js; \$JS.API.INFO would answer 503"; fail=$((fail + 1))
+fi
 assert_cleanup "needs-nats run tears all four containers down"
 
 DAST_NEEDS_NATS=false SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="PASS: everything" \

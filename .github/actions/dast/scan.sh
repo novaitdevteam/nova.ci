@@ -136,7 +136,7 @@ if [ "$DAST_NEEDS_NATS" = "true" ]; then
     # script: infrastructure containers here follow that precedent, digest pinning is
     # reserved for the scanners themselves (Semgrep, ZAP).
     docker run -d --name nova-nats -p 4222:4222 -p 8222:8222 \
-        nats:2.10-alpine -m 8222 || not_run "NATS did not start"
+        nats:2.10-alpine -js -m 8222 || not_run "NATS did not start"
     nats_ready=no
     for _ in $(seq 1 30); do
         code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8222/healthz || true)"
