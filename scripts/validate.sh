@@ -9,7 +9,8 @@
 #   - docs assets (every page has a diagram; every referenced asset exists)
 #   - ci-build-create-runner.sh scenario self-check (offline, curl stubbed)
 #   - secret-scan scan.sh scenario self-check (git fixtures, pinned gitleaks)
-#   - Gitleaks invocation guard (no workflow may run the scanner itself)
+#   - SAST scan.sh scenario self-check (docker stubbed)
+#   - scanner invocation guard (no workflow may run Gitleaks or Semgrep itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
 #   - actionlint (when installed)
 #
@@ -139,7 +140,38 @@ case "$scan_rc" in
     ;;
 esac
 
-section "Gitleaks invocation"
+section "SAST scan self-check"
+# Semgrep's scan.sh decides whether a build reports findings, a clean scan or a broken
+# scanner, and conflating the last two is the failure this guard exists to prevent.
+# The harness stubs docker, so it needs no image and no network.
+if command -v jq >/dev/null 2>&1; then
+  if out="$(./scripts/test-sast-scan.sh 2>&1)"; then
+    printf '%s\n' "$out" | tail -1
+    echo "OK: all semgrep scan.sh scenarios passed"
+  else
+    printf '%s\n' "$out"
+    echo "ERROR: semgrep scan.sh self-check failed"
+    fail=1
+  fi
+else
+  echo "skip: jq not installed"
+fi
+
+section "DAST scan self-check"
+# The four DAST outcomes must stay distinct: a build that could not boot its own image
+# is not a clean scan. The harness stubs docker and curl, so no image is pulled. Unlike
+# the SAST self-check above, nothing here parses JSON, so there is no jq dependency to
+# gate on — gating it anyway would silently skip a check that has no reason to skip.
+if out="$(./scripts/test-dast-scan.sh 2>&1)"; then
+  printf '%s\n' "$out" | tail -1
+  echo "OK: all dast scan.sh scenarios passed"
+else
+  printf '%s\n' "$out"
+  echo "ERROR: dast scan.sh self-check failed"
+  fail=1
+fi
+
+section "Scanner invocation"
 # The install-and-scan logic lives in .github/actions/gitleaks only. A workflow that
 # calls the binary or the upstream action itself is the copy-paste that action exists
 # to prevent, and would bypass the central config and the redaction flag.
@@ -159,6 +191,43 @@ else
   fail=1
 fi
 
+# Same argument as Gitleaks: the pin, the canary guard and the harness all live in
+# .github/actions/semgrep, and an inline `docker run semgrep` bypasses all three at once.
+# `ci` is as real a subcommand as `scan` for gating purposes, so both are covered.
+# The docker-image pattern names the actual images rather than the bare word
+# "semgrep", so the sanctioned `uses: .../.github/actions/semgrep@main` line, which
+# also contains that word, does not trip it.
+# Residual gap (shared with the Gitleaks guard above, not fixed here): this is a
+# per-line grep, so a `docker run` invocation split across a line-broken YAML block
+# scalar is not caught. It stops careless copy-paste, not a determined bypass.
+semgrep_offenders="$(grep -nE 'semgrep +(scan|ci)\b|uses:.*semgrep|docker +run.*(semgrep/semgrep|returntocorp/semgrep)' .github/workflows/*.yaml \
+  | grep -vE 'uses:.*/\.github/actions/semgrep(@|$)' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$semgrep_offenders" ]; then
+  echo "OK: every workflow scans through .github/actions/semgrep"
+else
+  printf '%s\n' "$semgrep_offenders" | sed 's/^/       /'
+  echo "ERROR: these lines invoke Semgrep directly; use .github/actions/semgrep"
+  fail=1
+fi
+
+# Same argument again: the pin and the harness live in .github/actions/dast, and a
+# workflow that shells out to zap-baseline.py or zap-full-scan.py directly, or uses a
+# third-party zaproxy action, bypasses the digest pin and the not-run/error distinction.
+# Narrower than the Semgrep guard above on purpose-not-yet-done: it does NOT match a bare
+# `docker run ghcr.io/zaproxy/zaproxy`, because ZAP is normally driven through one of the
+# two scripts above. Say so rather than claim coverage this pattern does not have - a
+# guard described as stronger than it is, is worse than an honestly narrow one.
+zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$zap_offenders" ]; then
+  echo "OK: no workflow runs ZAP directly"
+else
+  printf '%s\n' "$zap_offenders" | sed 's/^/       /'
+  echo "ERROR: these lines invoke ZAP directly; use .github/actions/dast"
+  fail=1
+fi
+
 section "Notifier transport"
 # The Telegram and Google Chat transport lives in .github/actions/notify only. A
 # workflow that reaches either API itself is the copy-paste that action replaced.
@@ -172,6 +241,30 @@ if [ -z "$offenders" ]; then
 else
   printf '%s\n' "$offenders" | sed 's/^/       /'
   echo "ERROR: these lines reach Telegram or Google Chat directly; use .github/actions/notify"
+  fail=1
+fi
+
+section "Self-reference pins"
+# Every uses: that points back into nova.ci must pin @main. A branch ref here is a
+# TEMPORARY testing state: it lets a product repo's test branch exercise unmerged CI,
+# and it must never reach main, where it would make the pipeline reference a branch
+# that no longer exists — or, worse, one that still does and has since moved.
+#
+# This check failing is not a bug. While a test ref is in place validate.sh is red on
+# purpose, and that red is what makes the temporary state impossible to merge by
+# accident. Restore the refs to @main and it goes green.
+#
+# Commented lines are skipped: the legacy branch-push route is kept commented, not
+# deleted, and its ref is inert.
+selfrefs="$(grep -nE 'uses: *novaitdevteam/nova\.ci/[^@]+@' .github/workflows/*.yaml \
+  | grep -vE '@main([[:space:]]|$)' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$selfrefs" ]; then
+  echo "OK: every nova.ci self-reference pins @main"
+else
+  printf '%s\n' "$selfrefs" | sed 's/^/       /'
+  echo "ERROR: these lines pin a non-main nova.ci ref."
+  echo "       If this is a deliberate test state, restore them to @main before merging."
   fail=1
 fi
 

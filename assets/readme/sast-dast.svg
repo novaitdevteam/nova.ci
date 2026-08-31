@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="580" viewBox="0 0 1200 580"
+     role="img" aria-labelledby="sdaTitle sdaDesc">
+  <title id="sdaTitle">Semgrep and ZAP answer questions Trivy and ESLint do not, and a scanner that could not run is never reported clean</title>
+  <desc id="sdaDesc">Three scanners ask three different questions: Trivy reads the container image, Semgrep reads our own source at ERROR severity behind a canary guard, and an OWASP ZAP baseline probes the running application on novatalks.ui and novatalks.core. Gitleaks covers secrets and ESLint answers none of these. Each scan reports clean, findings or error, and DAST alone has a fourth outcome, not run. Findings only warn and the build stays green; an application that never booted is a loud skip that also stays green; the scanner itself breaking turns the job red. All three reports are attached to the one release the build already creates, whose tag still carries the historical TRIVY.SCAN_ prefix so existing download URLs keep working, and each scanner adds one line to the build notification.</desc>
+
+  <rect width="1200" height="580" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">SAST AND DAST</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">semgrep · owasp zap baseline · pinned by digest</text>
+
+  <text x="40" y="88" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" letter-spacing="1.6" fill="#6E7A87">THREE DIFFERENT QUESTIONS</text>
+  <text x="506" y="88" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" letter-spacing="1.6" fill="#6E7A87">FOUR OUTCOMES</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <g id="sda-questions">
+      <rect x="40" y="110" width="430" height="76" rx="10" fill="#14181D" stroke="#39424B" stroke-width="1.5"/>
+      <text x="64" y="142" font-size="20" fill="#F4F6F8">Trivy · the container image</text>
+      <text x="64" y="168" font-size="18" fill="#8B96A2">OS packages and libraries</text>
+
+      <rect x="40" y="196" width="430" height="76" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="64" y="228" font-size="20" fill="#F4F6F8">Semgrep · our own source</text>
+      <text x="64" y="254" font-size="18" fill="#8B96A2">SAST · ERROR only · canary guard</text>
+
+      <rect x="40" y="282" width="430" height="76" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="64" y="314" font-size="20" fill="#F4F6F8">ZAP · the running app</text>
+      <text x="64" y="340" font-size="18" fill="#8B96A2">novatalks.ui · novatalks.core</text>
+    </g>
+
+    <text x="40" y="388" font-size="18" fill="#6E7A87">Gitleaks covers secrets. ESLint answers none of these.</text>
+
+    <g id="sda-outcomes">
+      <rect x="506" y="110" width="654" height="248" rx="14" fill="#14181D" stroke="#39424B" stroke-width="1.5"/>
+      <text x="530" y="148" font-size="20" fill="#F4F6F8">a scanner that could not run is not a clean scan</text>
+
+      <rect x="530" y="172" width="132" height="34" rx="8" fill="#161B20" stroke="#3FB950" stroke-width="1.5"/>
+      <text x="596" y="195" text-anchor="middle" font-size="18" fill="#3FB950">clean</text>
+      <text x="686" y="195" font-size="18" fill="#8B96A2">nothing found · the engine proved it ran</text>
+
+      <rect x="530" y="216" width="132" height="34" rx="8" fill="#161B20" stroke="#E3862B" stroke-width="1.5"/>
+      <text x="596" y="239" text-anchor="middle" font-size="18" fill="#E3862B">findings</text>
+      <text x="686" y="239" font-size="18" fill="#8B96A2">warn-only · reported, build stays green</text>
+
+      <rect x="530" y="260" width="132" height="34" rx="8" fill="#161B20" stroke="#E3862B" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <text x="596" y="283" text-anchor="middle" font-size="18" fill="#E3862B">not run</text>
+      <text x="686" y="283" font-size="18" fill="#8B96A2">app never booted · loud skip, green</text>
+
+      <rect x="530" y="304" width="132" height="34" rx="8" fill="#161B20" stroke="#F85149" stroke-width="1.5"/>
+      <text x="596" y="327" text-anchor="middle" font-size="18" fill="#F85149">error</text>
+      <text x="686" y="327" font-size="18" fill="#8B96A2">the scanner itself broke · job goes red</text>
+    </g>
+
+    <text x="40" y="430" font-size="18" letter-spacing="1.6" fill="#6E7A87">ONE RELEASE PER BUILD</text>
+    <text x="1160" y="430" text-anchor="end" font-size="18" fill="#6E7A87">tag prefix TRIVY.SCAN_ · historical, kept for stable URLs</text>
+
+    <g id="sda-reports">
+      <rect x="40" y="446" width="356" height="72" rx="10" fill="#161B20" stroke="#39424B" stroke-width="1.5"/>
+      <text x="64" y="478" font-size="20" fill="#F4F6F8">trivy-….report</text>
+      <text x="64" y="504" font-size="18" fill="#8B96A2">container image</text>
+
+      <rect x="422" y="446" width="356" height="72" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="446" y="478" font-size="20" fill="#F4F6F8">semgrep-….report</text>
+      <text x="446" y="504" font-size="18" fill="#8B96A2">our own source</text>
+
+      <rect x="804" y="446" width="356" height="72" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="828" y="478" font-size="20" fill="#F4F6F8">zap-….report</text>
+      <text x="828" y="504" font-size="18" fill="#8B96A2">the running app</text>
+    </g>
+
+    <text x="40" y="556" font-size="18" fill="#6E7A87">one notifier line per scanner, with not-run spelled out — silence would read as clean</text>
+  </g>
+</svg>

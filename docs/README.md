@@ -22,6 +22,7 @@ Start at [Quick start](quick-start.md) if you are wiring a new repository into C
 | Page | What it answers |
 | --- | --- |
 | [Container scanning (Trivy)](container-scanning.md) | When the scan runs, what it produces, and how to fail on findings. |
+| [SAST and DAST](sast-dast.md) | What Semgrep and the ZAP baseline each cover, the four outcomes, and why a failed boot is not a clean scan. |
 | [Runners](runners.md) | How a run gets a Hetzner runner: reuse, caps, create lock, sizing. |
 | [Notifications](notifications.md) | What the Telegram and Google Chat messages carry. |
 

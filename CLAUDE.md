@@ -16,6 +16,7 @@ Human-facing documentation is canonical and lives in [`docs/`](docs/README.md). 
 | Unit and integration suites | [`docs/tests.md`](docs/tests.md) | [`ci-build-ntk-on-push-tags-run-test.yaml`](.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) |
 | Secret detection | [`docs/secret-detection.md`](docs/secret-detection.md) | the `secret-scan` job + [`gitleaks/action.yml`](.github/actions/gitleaks/action.yml) |
 | Trivy scan and policy | [`docs/container-scanning.md`](docs/container-scanning.md) | the `trivy-scan` job |
+| SAST and DAST | [`docs/sast-dast.md`](docs/sast-dast.md) | the `sast-scan` / `dast-scan` jobs + [`semgrep/action.yml`](.github/actions/semgrep/action.yml), [`dast/action.yml`](.github/actions/dast/action.yml) |
 | Runner reuse, caps, lock, sizing | [`docs/runners.md`](docs/runners.md) | [`ci-build-create-runner.sh`](.github/workflows/ci-build-create-runner.sh) |
 | Notifier message and summary | [`docs/notifications.md`](docs/notifications.md) | the notifier jobs |
 | Harness and CI self-check | [`docs/validation.md`](docs/validation.md) | [`ci-self-validate.yaml`](.github/workflows/ci-self-validate.yaml) |
@@ -70,6 +71,20 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 - Keep auto-scan limited to `main`/`master`/`development` plus the `scan*` trigger, and `warn-only` as the default policy.
 - Keep the pinned `aquasecurity/trivy-action`, the ~5-hour DB cache bucket, and the `.report` file with OS and Node.js sections published as artifact and release asset.
 
+**Code scanning (SAST/DAST)**
+
+- `warn-only` governs **findings**. A scanner that could not run reds the job. Never collapse the two.
+- A DAST application that fails to boot is a **loud skip** — green build, an explicit `⚠️ not run — <reason>` in the report, the job summary and the notification. Never silence it, never red it: boot failures come from `.env` drift or a missing migration, not from a vulnerability, and a job that is usually red for non-security reasons is a job people stop reading.
+- Keep Semgrep and the ZAP image pinned by tag **and** digest, never `latest`. **Do not remove the Semgrep canary rule guard, and do not remove the `.errors[]` check next to it** — the two are halves of one guard. Semgrep reporting zero findings and Semgrep having loaded zero rules are indistinguishable without them, exactly like `gitleaks git --log-opts` exiting 0 on an unresolvable range. The canary alone is not enough: it is mounted from the action's own directory, so it fires even when every registry pack failed to fetch. The canary proves the engine ran, the empty `.errors[]` proves the configs resolved. The guard also asserts a non-empty `.paths.scanned`, and excludes the canary hit from the finding count **by rule ID, not by severity** — the counted severity is a caller input with no enum behind it.
+- **Count ZAP warnings from `zap-baseline.py`'s stdout, never from its `-w` report.** `-w` writes the traditional "ZAP Scanning Report" markdown; `WARN-NEW` appears only on stdout, so counting the file is a permanent `0` and every run reports `🟢 clean`. Keep the `tee` capture with `${PIPESTATUS[0]}` — it is ZAP's own exit status, unambiguously, where plain `$?` only happens to agree because `pipefail` is set and would silently become `tee`'s status the moment that changed (or whenever `tee` itself fails) — keep the `^WARN-NEW: ` anchor (the tally line starts `FAIL-NEW:`), and keep the console log deleted on exit and out of every artifact — `-I` makes the exit code carry no signal either, so this count is the only channel there is.
+- Keep the scan scoped by the `build-image` `IS_TRUNK` output plus the `scan*` trigger, and off `pull_request` entirely — there is no release to attach a report to. `trivy-scan` keeps its own `Resolve scan policy` step on purpose; see spec D6 before "simplifying" two sources of truth into one.
+- Keep all three reports on the **one** release the build already creates. The `TRIVY.SCAN_` tag prefix is historical and stays: renaming it breaks the stable URLs in `docs/container-scanning.md`, and one release per scanner triples the walk for the quarterly evidence aggregation.
+- DAST is scoped to six repositories: `novatalks.ui`, `novatalks.core`, `nova.botflow`, `nova.chatsconnector.telegram-client-api`, `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api`. A repository is added only with an explicit request **and its port and health path verified against something authoritative** (the deployment chart, the Dockerfile) — never guessed. Port, health path, boot timeout and database needs are per-repository inputs, not constants to copy. Resolve them in the `Resolve DAST target` step's `case` statement in `dast-scan`, one arm per repository with every value set explicitly; the default arm fails loudly (`::error::` + non-zero exit) rather than falling back to a guess.
+- The `medium` sizing branch for `novatalks.core` exists for the DAST stack, not for faster builds: `medium` is sized for postgres, redis, the application and ZAP on one VM — the load `int-test` already gets `large` for. Narrowing it to feature-branch builds would leave trunk builds, the ones that actually run DAST, on `small`; widening it to every core build puts ordinary builds into the medium pool, where they contend with unit tests.
+- Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or `scripts/test-dast-scan.sh` in the same change.
+- No workflow may invoke Semgrep or ZAP directly; `validate.sh` fails on it, exactly as it does for Gitleaks.
+- Be honest about reach in the docs: the unauthenticated ZAP baseline finds header and cookie hygiene, not logic flaws. Nobody should read the green check as a penetration test.
+
 **Runners**
 
 - Keep the `small`/`medium`/`large` sizing matrix scoped to `novatalks.core`; every other repository always resolves to `small`.
@@ -105,7 +120,7 @@ Run the harness after any workflow, action or documentation change:
 ./scripts/validate.sh   # or: make validate
 ```
 
-It parses every workflow and action YAML, runs `git diff --check`, verifies the `.agents` ↔ `.claude` skill mirror, runs the offline `ci-build-create-runner.sh` self-check (`scripts/test-create-runner.sh`, 16 scenarios, `curl` stubbed), runs the secret-scan self-check (`scripts/test-secret-scan.sh`, 24 assertions against real git fixtures and the pinned Gitleaks binary), guards that no workflow invokes Gitleaks directly, and runs `actionlint` when installed (advisory — the repo has a pre-existing backlog; set `STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI on pull requests and pushes to `main`.
+It parses every workflow and action YAML, runs `git diff --check`, verifies the `.agents` ↔ `.claude` skill mirror, runs the offline `ci-build-create-runner.sh` self-check (`scripts/test-create-runner.sh`, 22 checks, `curl` stubbed), runs the secret-scan self-check (`scripts/test-secret-scan.sh`, 24 checks against real git fixtures and the pinned Gitleaks binary), runs the SAST and DAST self-checks (`scripts/test-sast-scan.sh`, 14 checks, and `scripts/test-dast-scan.sh`, 36 checks, `docker` and `curl` stubbed), guards that no workflow invokes Gitleaks, Semgrep or ZAP directly, and runs `actionlint` when installed (advisory — the repo has a pre-existing backlog; set `STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI on pull requests and pushes to `main`.
 
 Then review the diff:
 

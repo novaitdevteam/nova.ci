@@ -21,15 +21,33 @@ fi
 # project server limit once that limit is known.
 MAX_TOTAL_RUNNERS="${MAX_TOTAL_RUNNERS:-6}"
 
+# Tag pushes carry no branch in GITHUB_REF, but the event payload does — and the build
+# workflow already derives SHORT_REF_NAME from the same field, so sizing and scanning
+# agree by construction. Read here rather than taken as an input, because a new input
+# would mean editing every product-repository caller.
+BASE_REF="$(jq -r '.base_ref // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)"
+BASE_BRANCH="${BASE_REF#refs/heads/}"
+
 # Runner sizing matrix.
 # novatalks.core differentiates test sizing: unit tests are light and DB-less (medium),
-# while integration/both need postgres + redis + the app (large). build stays small.
-# All other repositories always use small, regardless of tag: the switcher only routes
-# test tags to the large test matrix for novatalks.core, so a large VM for any other
-# repo's test tag would be pure waste.
+# while integration/both need postgres + redis + the app (large). A scan* tag runs DAST
+# on any branch, and a trunk build tag also runs DAST (postgres + redis + the app + ZAP)
+# — both get medium; a feature-branch build stays small so it never contends with the
+# medium unit-test pool. All other repositories always use small, regardless of tag: the
+# switcher only routes test/scan tags to the larger matrices for novatalks.core, so a
+# bigger VM for any other repo's tag would be pure waste.
 if [[ "$REPO" == "novatalks.core" ]]; then
-    if [[ "$TAG" == *build* ]]; then
-        REQUIRED_SIZE="small"
+    if [[ "$TAG" == scan* ]]; then
+        # A scan tag runs DAST on any branch, and DAST means postgres + redis + the
+        # app + ZAP on one VM — the same load int-test gets large for.
+        REQUIRED_SIZE="medium"
+    elif [[ "$TAG" == *build* ]]; then
+        case "$BASE_BRANCH" in
+            # Trunk builds run DAST; feature builds do not, and must stay out of the
+            # medium pool so they never contend with unit-test runs.
+            main|master|development) REQUIRED_SIZE="medium" ;;
+            *)                       REQUIRED_SIZE="small" ;;
+        esac
     elif [[ "$TAG" == *unit-test* ]]; then
         REQUIRED_SIZE="medium"
     elif [[ "$TAG" == *test* ]]; then

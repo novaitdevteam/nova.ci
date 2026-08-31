@@ -319,6 +319,7 @@ jobs:
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
+      IS_TRUNK: ${{ steps.prep.outputs.IS_TRUNK }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -348,10 +349,18 @@ jobs:
 
           short_ref_name="$(printf '%s' "$short_ref_name" | sed 's#[^A-Za-z0-9_.-]#-#g')"
 
+          # Trunk drives every scan gate. Resolved once here, where SHORT_REF_NAME is
+          # already known, because a job-level `if` cannot reach into another job's step.
+          case "$short_ref_name" in
+            main|master|development) is_trunk=true ;;
+            *)                       is_trunk=false ;;
+          esac
+
           echo "REP_NAME=${rep_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_SHA=${short_sha}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "RELEASE=${release}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "IS_TRUNK=${is_trunk}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
         if: ${{ github.ref_type == 'tag' && inputs.build_target == '' }}
@@ -408,7 +417,20 @@ jobs:
         id: set_dockerfile
         env:
           BUILD_TARGET: ${{ inputs.build_target || github.ref_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
+          # A scan* tag names a trigger, not a build target, so it falls through to the
+          # else branch and server.Dockerfile — which novatalks.core does not have: it
+          # ships engine, reporting, restore-historical and message-source-id instead, so
+          # a scan tag there failed the build outright. The engine is the representative
+          # image for that repository — the other components build from the same shared
+          # libraries, so scanning it covers them. Every other repository has a single
+          # server.Dockerfile and is untouched by this, as is any explicit build target.
+          if [[ "$REPO_NAME" == "novatalks.core" && "$BUILD_TARGET" == scan* ]]; then
+            echo "scan tag on novatalks.core: building the engine as the representative image"
+            BUILD_TARGET="build-engine"
+          fi
+
           if [[ "$BUILD_TARGET" == "build-engine" ]]; then
             echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_engine" >> $GITHUB_ENV
@@ -789,11 +811,282 @@ jobs:
             echo "::warning::Trivy found $crit CRITICAL and $high HIGH vulnerabilities. See $REPORT_FILE."
           fi
 
+  sast-scan:
+    name: SAST Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Same gate as the image scan: a report is only useful where there is a release to
+    # attach it to, and pull requests never build one. Sequential after trivy-scan —
+    # three parallel scan jobs would only queue against the per-size cap of 2.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-image.result == 'success'
+      && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')) }}
+    needs: [build-image, trivy-scan]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.semgrep.outputs.outcome }}
+      FINDINGS: ${{ steps.semgrep.outputs.findings }}
+      MESSAGE: ${{ steps.semgrep.outputs.message }}
+    env:
+      REPORT_FILE: semgrep-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+    steps:
+      - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which has already finished by the time this job runs.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Semgrep
+        id: semgrep
+        uses: novaitdevteam/nova.ci/.github/actions/semgrep@main
+        with:
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      # Upsert into the release trivy-scan already created for this build: one release
+      # per build carrying every scanner's report. The TRIVY.SCAN_ prefix is historical
+      # — see docs/container-scanning.md.
+      - name: Publish report release
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
+  dast-scan:
+    name: DAST Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Same gate as SAST, narrowed to the repositories whose images are known to boot
+    # in CI. Everything else reaches DAST only by explicit request.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-image.result == 'success'
+      && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan'))
+      && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api"]'), github.event.repository.name) }}
+    needs: [build-image, sast-scan]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.dast.outputs.outcome }}
+      FINDINGS: ${{ steps.dast.outputs.findings }}
+      MESSAGE: ${{ steps.dast.outputs.message }}
+    env:
+      DAST_TARGET_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+      REPORT_FILE: zap-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+    steps:
+      - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which has already finished by the time this job runs.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Resolve DAST target
+        id: dast_target
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+
+          case "$REPO_NAME" in
+            novatalks.ui)
+              # nginx serving the static Vue app. Port and health path from the
+              # production Helm chart (novatalks.charts, novatalks_v5/values.yaml) —
+              # authoritative because it is what runs in prod.
+              port=8000
+              health_path=/livez
+              needs_db=false
+              extra_env=""
+              ;;
+            novatalks.core)
+              # NestJS engine. Same chart source as above.
+              port=3000
+              health_path=/livez
+              needs_db=true
+              extra_env=""
+              ;;
+            nova.botflow)
+              # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is
+              # correct here: the boot wait-loop accepts any HTTP response, 404 included,
+              # because it is only testing whether the process is listening, not whether
+              # a route exists. Do not "fix" this to /livez.
+              port=1880
+              health_path=/
+              # Needs redis or postgres depending on its storage configuration; bringing
+              # up both is simpler than modelling the choice, and an unused container
+              # costs a few seconds.
+              needs_db=true
+              extra_env=""
+              ;;
+            nova.chatsconnector.telegram-client-api)
+              # No dedicated HTTP health route — tcpSocket probe in the chart. See the
+              # nova.botflow note above for why "/" is correct rather than a guess.
+              port=3000
+              health_path=/
+              needs_db=true
+              # .env.example leaves TELEGRAM_API_ID, TELEGRAM_API_HASH,
+              # NOVATALKS_ACCESS_TOKEN and ENCRYPTION_SECRET blank as template
+              # placeholders. NestJS's config validator rejects an empty value one at a
+              # time ("TELEGRAM_API_ID" is not allowed to be empty, then the next, five
+              # minutes per CI run to find each), so all four are seeded together instead.
+              # These are dummy values, not credentials — they exist only so a scanned
+              # container reaches its HTTP listener. TELEGRAM_API_ID is numeric and
+              # TELEGRAM_API_HASH is 32 hex zeros: 32 characters so a shape-checking validator
+              # accepts it, and all-identical so the secret-scan entropy heuristic does not.
+              # A realistic-looking placeholder reds the required check: a 32-character string
+              # of 16 distinct hex digits scores exactly 4.0, over the 3.5 entropy threshold.
+              #
+              # Deliberately still blank:
+              # - REDIS_PASSWORD: this action's redis has no password, so setting one
+              #   would break the connection that already works.
+              # - PROXY_IP/PROXY_PORT/PROXY_USERNAME/PROXY_PASSWORD/PROXY_SECRET: an
+              #   outbound proxy that doesn't exist is worse than none, and the validator
+              #   has not complained about them.
+              #
+              # If any of these ever needs to be a real value, it belongs in a secret,
+              # not here.
+              extra_env="TELEGRAM_API_ID=12345
+              TELEGRAM_API_HASH=00000000000000000000000000000000
+              NOVATALKS_ACCESS_TOKEN=dast-dummy-token
+              ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy"
+              ;;
+            nova.chatsconnector.whatsapp-client-api)
+              # Same shape as the telegram connector above.
+              port=3000
+              health_path=/
+              needs_db=true
+              extra_env=""
+              ;;
+            nova.chatsconnector.signal-client-api)
+              # Same shape as the telegram connector above. Its own default branch is a
+              # feature branch, not a trunk name, so in practice this only runs off an
+              # explicit scan* tag — that needs no special-casing here.
+              port=3000
+              health_path=/
+              needs_db=true
+              # .env.example line 61 documents S3_ENDPOINT as
+              # https://<account-id>.r2.cloudflarestorage.com — a template placeholder,
+              # not a value meant to be used as-is. The angle brackets make it an invalid
+              # URL, and NestJS's config validator refuses to boot on it even though
+              # postgres came up and migrations ran clean; the other S3_* vars are blank
+              # and pass unchallenged. example.com is IANA-reserved for exactly this kind
+              # of placeholder, satisfies the validator, is never contacted during a
+              # baseline scan, and is not a credential.
+              #
+              # Past that, the validator rejects empty S3_ACCESS_KEY_ID next, then the
+              # next blank, one at a time ("S3_ACCESS_KEY_ID" is not allowed to be
+              # empty), so the rest of the S3_* set and WEBHOOK_SECRET are seeded
+              # together rather than iterating one five-minute CI run per variable.
+              # These are dummy values, not credentials — they exist only so a scanned
+              # container reaches its HTTP listener.
+              #
+              # Deliberately still blank:
+              # - REDIS_PASSWORD: this action's redis has no password, so setting one
+              #   would break the connection that already works.
+              # - DATABASE_SSL_CA_CERT: a bogus CA certificate would break TLS
+              #   negotiation rather than satisfy it.
+              #
+              # If any of these ever needs to be a real value, it belongs in a secret,
+              # not here.
+              extra_env="S3_ENDPOINT=https://s3.example.com
+              S3_ACCESS_KEY_ID=dast-dummy-key
+              S3_SECRET_ACCESS_KEY=dast-dummy-secret
+              S3_BUCKET=dast-dummy-bucket
+              S3_PUBLIC_URL=https://s3.example.com
+              WEBHOOK_SECRET=dast-dummy-webhook-secret
+              SIGNAL_MAX_FILE_SIZE=104857600"
+              ;;
+            *)
+              echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
+              exit 1
+              ;;
+          esac
+
+          echo "port=$port" | tee -a "$GITHUB_OUTPUT"
+          echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
+          echo "needs_db=$needs_db" | tee -a "$GITHUB_OUTPUT"
+          {
+            echo "extra_env<<DAST_EXTRA_ENV_EOF"
+            printf '%s\n' "$extra_env"
+            echo "DAST_EXTRA_ENV_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull built image
+        run: docker pull --platform linux/amd64 "$DAST_TARGET_IMAGE"
+
+      - name: ZAP baseline
+        id: dast
+        uses: novaitdevteam/nova.ci/.github/actions/dast@main
+        with:
+          image: ${{ env.DAST_TARGET_IMAGE }}
+          port: ${{ steps.dast_target.outputs.port }}
+          health-path: ${{ steps.dast_target.outputs.health_path }}
+          # Derived from the engine chart's startupProbe: initialDelaySeconds 5 +
+          # failureThreshold 15 * periodSeconds 30 ≈ 455s before k8s gives up on startup.
+          # 300 sits between that and the action's 180 default, which risks a false
+          # "not run" on a cold start.
+          boot-timeout: 300
+          needs-db: ${{ steps.dast_target.outputs.needs_db }}
+          extra-env: ${{ steps.dast_target.outputs.extra_env }}
+          pg-image: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      - name: Publish report release
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter, trivy-scan, unit-test]
+    needs: [build-image, linter, trivy-scan, unit-test, sast-scan, dast-scan]
     steps:
       - name: Compose Trivy line
         id: trivy_line
@@ -833,6 +1126,57 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Compose SAST line
+        id: sast_line
+        env:
+          RESULT: ${{ needs.sast-scan.result }}
+          SCANNED: ${{ needs.sast-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.sast-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # A job that died before scan.sh ran leaves MESSAGE empty. Silence there would
+          # read as a clean scan, so say so explicitly instead.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="🔍 SAST (Semgrep): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compose DAST line
+        id: dast_line
+        env:
+          RESULT: ${{ needs.dast-scan.result }}
+          SCANNED: ${{ needs.dast-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.dast-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # Four states reach here and none of them may be silent: not scanned at all,
+          # scanned with a verdict scan.sh already worded, or a job that died before
+          # scan.sh could word anything.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="🕷 DAST (ZAP): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -855,6 +1199,10 @@ jobs:
             Unit Tests Status: ${{ needs.unit-test.outputs.UNIT_CHECK }}
 
             ${{ steps.trivy_line.outputs.value }}
+
+            ${{ steps.sast_line.outputs.value }}
+
+            ${{ steps.dast_line.outputs.value }}
 
             Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}

@@ -31,20 +31,26 @@ The create decision (this script) and the actual VM creation (the caller's next 
 
 Different tag types have very different resource needs, so `novatalks.core` uses a differentiated matrix:
 
-| Tag substring | `test_mode` | Size | Hetzner type | Why |
-| --- | --- | --- | --- | --- |
-| `build` | — | `small` | cx33 | lint + build only |
-| `unit-test` | `unit` | `medium` | cx43 | CPU-bound, no DB services |
-| `int-test` / `full-test` | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
-| anything else | — | `small` | cx33 | default |
+| Tag substring | `base_ref` | `test_mode` | Size | Hetzner type | Why |
+| --- | --- | --- | --- | --- | --- |
+| `scan*` | any branch | — | `medium` | cx43 | runs [DAST](sast-dast.md): postgres + redis + app + ZAP |
+| `build` | `main` / `master` / `development` | — | `medium` | cx43 | trunk builds run DAST |
+| `build` | any other branch | — | `small` | cx33 | lint + build only |
+| `unit-test` | — | `unit` | `medium` | cx43 | CPU-bound, no DB services |
+| `int-test` / `full-test` | — | `integration` / `both` | `large` | cx53 | needs postgres + redis + app |
+| anything else | — | — | `small` | cx33 | default |
 
-`unit-test` is matched before the generic `test` check, so unit-only runs get `medium` while `int-test` and `full-test` get `large`.
+`scan*` is matched first, and `unit-test` before the generic `test` check, so unit-only runs get `medium` while `int-test` and `full-test` get `large`.
 
-The matrix applies **only to real tag pushes** (`refs/tags/*`). Branch pushes and PR events always resolve to `small`, so a branch named `NC2-123-fix-test-timeout` never provisions a large VM for a plain build.
+**The `medium` branch for trunk builds exists for the DAST stack, not to make builds faster.** It mirrors the DAST gate exactly rather than approximating it: a `scan*` tag runs DAST on any branch and used to fall through to `small`, and a `build` tag only runs DAST when its `base_ref` is a trunk branch. `medium` is sized for the DAST stack — postgres, redis, the application and ZAP on one VM, the same load `int-test` already earns `large` for — so narrowing it back to feature-branch builds would leave trunk builds, the ones that actually run DAST, on `small`. Widening it to every `novatalks.core` build moves ordinary feature builds into the `medium` pool, where they start contending with unit-test runs.
+
+A tag push carries no branch in `GITHUB_REF`, so `base_ref` is read from the event payload with `jq` inside the script — the same field `build-image` derives `SHORT_REF_NAME` from, so sizing and scanning agree by construction. It is not a new input, because that would mean editing every product-repository caller.
+
+The matrix applies **only to real tag pushes** (`refs/tags/*`). Branch pushes and pull request events carry no sizing intent — `GITHUB_REF` is `refs/heads/<branch>` or `refs/pull/<n>/merge`, not `refs/tags/*` — so they always resolve to `small`, and a branch named `NC2-123-fix-test-timeout` never provisions a large VM. This is about the *ref that triggered the run*, not about the branch a tag points at: a `build` tag pushed on trunk is still a tag push, and still gets `medium`.
 
 One tag push provisions one runner size for the whole run, so a `full-test` tag runs both suites on the `large` runner (acceptable — only unit-only runs get `medium`), sequentially, since `integration-tests` needs `unit-tests`.
 
-Each size class has its own **max-2** cap, measured from Hetzner server state rather than GitHub registrations, so in-flight creations count and offline ghost registrations do not. `medium` and `large` are independent pools, so unit-test and integration-test runs never contend. All pools also share the global `MAX_TOTAL_RUNNERS` cap.
+Each size class has its own **max-2** cap, measured from Hetzner server state rather than GitHub registrations, so in-flight creations count and offline ghost registrations do not. `medium` and `large` are independent pools, so unit-test and integration-test runs never contend. Trunk and `scan*` builds do share the `medium` pool with unit-test runs — that is the cost of the DAST sizing branch, and the reason it is kept as narrow as it is. All pools also share the global `MAX_TOTAL_RUNNERS` cap.
 
 **All other repositories always use `small`, regardless of tag.**
 

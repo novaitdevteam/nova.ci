@@ -10,7 +10,9 @@ After a successful `build-image`, the `trivy-scan` job scans the exact image tha
 ghcr.io/<owner>/<repo>:<release>_<short-ref-name><image-suffix>_<short-sha>
 ```
 
-Like the rest of the pipeline, it never runs on `pull_request` events.
+Like the rest of the pipeline, it never runs on `pull_request` events. It covers the
+image only — our own source and the running application are
+[Semgrep's and ZAP's](sast-dast.md) jobs, on the same gate and the same release.
 
 **When it runs.** The `Resolve scan policy` step enables the scan automatically when the build source branch (`SHORT_REF_NAME`) is `main`, `master`, or `development`, and on demand when the triggering tag ref **starts with** `scan` (`scan`, `scan-NC2-1234`, …). Otherwise the image is built and the scan is skipped with a logged reason. The tag name is only a trigger keyword — branch, repository and commit always come from push metadata (`base_ref`, `GITHUB_REPOSITORY`, `GITHUB_SHA`).
 
@@ -48,6 +50,14 @@ The image is built and pushed before the scan in every mode, so a failing scan m
   https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><suffix>_<sha>/trivy-<repo>-<ref><suffix>-<sha>.report
   ```
 
+  > [!NOTE]
+  > **That release now carries three reports, and the `TRIVY.SCAN_` prefix is
+  > historical.** The [SAST and DAST](sast-dast.md) jobs upsert their own `.report`
+  > files onto the same tag — `softprops/action-gh-release@v2` appends by tag — so one
+  > build produces one release with the image, source and running-application reports
+  > side by side. Renaming the tag to something neutral would break every stable URL
+  > above for cosmetic gain, so the prefix stays.
+
 - **Artifact** — the same `.report`, run-scoped.
 - **Job summary** — severity counts plus a direct link.
 - **Job logs** — the `Assemble report` and `Publish scan summary and apply policy` steps.
@@ -55,4 +65,4 @@ The image is built and pushed before the scan in every mode, so a failing scan m
 
 ---
 
-[← Build pipeline](build-pipeline.md) · [Docs index](README.md) · [Tests →](tests.md)
+[← Build pipeline](build-pipeline.md) · [Docs index](README.md) · [SAST and DAST →](sast-dast.md)

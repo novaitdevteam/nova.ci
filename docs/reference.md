@@ -1,7 +1,7 @@
 # Reference
 
 <p align="center">
-  <img src="../assets/readme/reference.svg" width="100%" alt="one dispatcher workflow, the build and test workflows, the web and mobile workflows, the branch and meta workflows, two internal actions and the runner script" />
+  <img src="../assets/readme/reference.svg" width="100%" alt="one dispatcher workflow, the build and test workflows, the web and mobile workflows, the branch and meta workflows, six internal actions and the runner script" />
 </p>
 
 <details>
@@ -10,7 +10,7 @@
 | Workflow | Purpose |
 | --- | --- |
 | [`ci-build-trigger-switcher.yaml`](../.github/workflows/ci-build-trigger-switcher.yaml) | central dispatcher, plus the inline `secret-scan` and `secret-scan-notify` jobs |
-| [`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) | lint, unit gate, build, publish, scan, notify |
+| [`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) | lint, unit gate, build, publish, the `trivy-scan` / `sast-scan` / `dast-scan` jobs, notify |
 | [`ci-build-ntk-on-push-tags-run-test.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) | test runner for `int-test`, `unit-test`, `full-test` tags |
 | [`ci-build-ntk-on-push-tags-run-e2e.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-e2e.yaml) | reusable E2E test flow |
 | [`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) | Playwright E2E flow for tagged test runs |
@@ -34,6 +34,8 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 - [`action-cond/action.yml`](../.github/actions/action-cond/action.yml) — composite replacement for the deprecated `haya14busa/action-cond`. Preserves the original interface: inputs `cond`, `if_true`, `if_false`; output `value`. Notifier workflows use it to select success or failure text.
 - [`install-docker/action.yml`](../.github/actions/install-docker/action.yml) — ensures the Docker CLI and daemon are available before Docker-based actions or Buildx steps run on self-hosted runners.
 - [`gitleaks/action.yml`](../.github/actions/gitleaks/action.yml) — installs a version- and checksum-pinned Gitleaks and runs [`scan.sh`](../.github/actions/gitleaks/scan.sh) over the commits a pull request or push adds, with the central config from [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml). The only place any workflow may invoke Gitleaks; `validate.sh` fails on a direct call.
+- [`semgrep/action.yml`](../.github/actions/semgrep/action.yml) — runs SAST over the checkout with a tag- and digest-pinned Semgrep OSS image and the registry rule packs, via [`scan.sh`](../.github/actions/semgrep/scan.sh). Emits `clean` / `findings` / `error`, never treating an empty result as clean unless the [`canary.yaml`](../.github/actions/semgrep/canary.yaml) rule fired and Semgrep reported no config errors. The only place any workflow may invoke Semgrep. See [SAST and DAST](sast-dast.md).
+- [`dast/action.yml`](../.github/actions/dast/action.yml) — boots the built image with its dependencies, runs an OWASP ZAP baseline against it and tears everything down, via [`scan.sh`](../.github/actions/dast/scan.sh). Emits `clean` / `findings` / `not-run` / `error`: an application that failed to boot is a loud skip, not a clean scan. Port, health path, boot timeout and database needs are per-repository inputs. The only place any workflow may invoke ZAP.
 - [`notify/action.yml`](../.github/actions/notify/action.yml) — sends a composed notification to Telegram and Google Chat. Optional per channel; secrets and message text cross into the script through step `env:`, never through expression interpolation.
 
 </details>
@@ -44,6 +46,8 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 - [`validate.sh`](../scripts/validate.sh) — the one harness to run after any change; see [Validation](validation.md)
 - [`test-create-runner.sh`](../scripts/test-create-runner.sh) — offline scenario self-check for the runner script
 - [`test-secret-scan.sh`](../scripts/test-secret-scan.sh) — offline scenario self-check for the secret scan, against real git fixtures and the pinned Gitleaks binary
+- [`test-sast-scan.sh`](../scripts/test-sast-scan.sh) — offline scenario self-check for the Semgrep scan (`docker` stubbed), covering the canary guard and every fail-closed case
+- [`test-dast-scan.sh`](../scripts/test-dast-scan.sh) — offline scenario self-check for the ZAP baseline scan (`docker` and `curl` stubbed), covering all four outcomes and teardown
 - [`gitleaks-baseline.sh`](../scripts/gitleaks-baseline.sh) — one-time full-history secret audit across the product repositories; deliberately not a CI job
 
 </details>
@@ -56,6 +60,8 @@ change is greppable from git history. They are records, not queues — the work 
 
 - [`specs/2026-08-27-nc2-2742-secret-detection.md`](superpowers/specs/2026-08-27-nc2-2742-secret-detection.md) — decisions, verified Gitleaks behaviours, discovered constraints, acceptance-criteria mapping
 - [`plans/2026-08-27-nc2-2742-secret-detection.md`](superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — the six commits, step by step, including the two approaches abandoned along the way
+- [`specs/2026-08-28-sast-dast-scanning.md`](superpowers/specs/2026-08-28-sast-dast-scanning.md) — why Semgrep and a ZAP baseline rather than CodeQL or SonarQube Community, the fourteen decisions, and the assumptions settled during implementation
+- [`plans/2026-08-28-sast-dast-scanning.md`](superpowers/plans/2026-08-28-sast-dast-scanning.md) — the eight tasks, step by step
 
 </details>
 
