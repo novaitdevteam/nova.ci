@@ -948,7 +948,11 @@ One line carries all of them, printed unconditionally at the end of any complete
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 11	WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30
 ```
 
-`scan.sh` anchors on `^FAIL-NEW: ` and reads all six. `FAIL-NEW` is the must-fix count,
+`scan.sh` anchors on `^FAIL-NEW: [0-9]+\tFAIL-INPROG: ` and reads all six. The anchor
+matches the tally's shape rather than its prefix on purpose: every `FAIL`-level finding
+also prints a per-rule line beginning `FAIL-NEW: `, before the tally, so a bare-prefix
+match would read an alert name where a number belongs and misreport a real finding as a
+broken scanner. `FAIL-NEW` is the must-fix count,
 `WARN-NEW` the warning count, and `INFO` / `IGNORE` are what the
 [triage register](#recording-a-decision-about-a-finding) suppressed — reported even on a
 clean run, because suppressions nobody can see are suppressions nobody audits.
