@@ -259,6 +259,24 @@ still fails on default-branch pushes. A notifier hookup is the compensating cont
 the plan is not changing — deliberately not wired up, since it needs a channel
 decision. nova.ci, being public, can enforce now.
 
+## Credentials In The Transcript
+
+- Never print a credential value. Read the secrets file redacted, or load it without
+  printing (`set -a; . ./.env; set +a`), then use the variable — never `echo` it, never
+  paste it into a file, commit, issue or wiki page. `scripts/guard-secret-echo.sh` runs
+  as a `PreToolUse` hook and refuses Bash commands that would dump one; run
+  `--self-test` after changing it, and keep both the block and the allow cases. It
+  over-blocked twice before it worked — once on `open(` in Python, once on a `tail -1`
+  in a different segment of the same command — and a security check that cries wolf
+  teaches people to route around it.
+- The hook covers one accident. It cannot see an editor `@file` reference, which pastes
+  the contents in before any tool runs — that is how three live credentials reached a
+  transcript on 2026-08-31 — nor a log line, an API response or a paste.
+- When a value reaches the transcript, say so **first**, before answering whatever was
+  asked, and say rotation is the only remedy. Deleting the line later fixes nothing, and
+  `nova.ci` is public: anything ever pushed stays fetchable after a force-push.
+- Ask for secret **names**, not values. Values belong in GitHub Secrets.
+
 ## Notification Semantics
 
 Notifier jobs use `.github/actions/action-cond/action.yml` to select message text.
