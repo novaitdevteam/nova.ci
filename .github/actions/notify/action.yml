@@ -46,8 +46,10 @@ runs:
             throw new Error(`Telegram sendMessage failed: ${response.status} ${await response.text()}`);
           }
 
+    # !cancelled() so a Telegram failure (or a skipped Telegram) does not skip this
+    # step: the two channels are independent, and either may be unconfigured.
     - name: Send to Google Chat
-      if: inputs.gchat_webhook != ''
+      if: ${{ !cancelled() && inputs.gchat_webhook != '' }}
       uses: actions/github-script@v8
       env:
         GCHAT_WEBHOOK: ${{ inputs.gchat_webhook }}
