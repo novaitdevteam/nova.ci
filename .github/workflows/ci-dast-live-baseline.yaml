@@ -1,0 +1,128 @@
+name: DAST Live Baseline
+
+# Scans the real deployment through Cloudflare — a surface the container-based DAST
+# (.github/actions/dast) structurally cannot see, because it boots the built image in
+# isolation with no Cloudflare/nginx in front of it. On the live host, nginx serves the
+# SPA with none of the security headers the app adds on its own routes. Unauthenticated
+# on purpose: the value here is the header surface, which needs no login to observe.
+#
+# Design decision (plan D5 / task-4 brief, Step 1, option (b)): an inline ZAP step in
+# this workflow, not a new target-url mode on the `dast` action. This is a one-off
+# workflow_dispatch scan with no image to boot, no env to seed, no database to bring up
+# — almost none of what `dast/action.yml` does applies, so bending that action to fit a
+# URL-target mode would be more surface than this inline step. The drift-dangerous part
+# — the tally-line anchor — still comes from dast/dast-common.sh's zap_tally_parse, so
+# it is never copied.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "URL to scan (must be on the allowlist below)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  live-baseline:
+    name: ZAP baseline (live)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # A free-text URL field with no allowlist is how a scanner eventually points
+      # somewhere it must not — this is the whole safety mechanism of this workflow.
+      # One host, accepted with and without a trailing slash; anything else fails
+      # loudly before anything is scanned.
+      - name: Validate target against allowlist
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            https://novatalks-security.cloud.novatalks.com.ua|https://novatalks-security.cloud.novatalks.com.ua/) : ;;
+            *) echo "::error::'$TARGET' is not an allowlisted DAST target. Add it here deliberately."; exit 1 ;;
+          esac
+
+      - name: ZAP baseline scan
+        env:
+          TARGET: ${{ inputs.target }}
+          # Same pin as .github/actions/dast/action.yml and .github/actions/dast-api/action.yml
+          # — copy that digest here too if it is ever rotated.
+          ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
+        run: |
+          set -euo pipefail
+
+          # dast-common.sh expects the caller to provide its own error function (the
+          # scanner_error each scan.sh defines) rather than owning one itself. This
+          # workflow is not one of those callers, so it supplies the same minimal
+          # contract inline: print an ::error:: and exit non-zero. zap_tally_parse
+          # itself — the anchor on the tally line's exact shape — is never re-implemented.
+          # shellcheck source=.github/actions/dast/dast-common.sh
+          . "${GITHUB_WORKSPACE}/.github/actions/dast/dast-common.sh"
+          scanner_error() { echo "::error::$1"; exit 1; }
+
+          work_dir="${RUNNER_TEMP:-/tmp}/zap-live"
+          mkdir -p "$work_dir"
+
+          # zap-baseline.py resolves -c relative to /zap/wrk/ only, same reason
+          # dast/scan.sh copies its own triage register in rather than mounting two
+          # volumes: the register and the bind-mounted work dir must be the same path.
+          cp "${GITHUB_WORKSPACE}/.github/actions/dast/zap-baseline.conf" "${work_dir}/zap-baseline.conf"
+
+          zap_console="${work_dir}/zap-console.log"
+
+          set +e
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "${work_dir}:/zap/wrk:rw" \
+            "$ZAP_IMAGE" zap-baseline.py -t "$TARGET" \
+            -I -c zap-baseline.conf -w report.md 2>&1 | tee "$zap_console"
+          # PIPESTATUS[0], not $?, for the same reason dast/scan.sh uses it: this is
+          # ZAP's own exit status, unambiguous regardless of tee's.
+          zap_rc=${PIPESTATUS[0]}
+          set -e
+
+          # Same ladder as dast/scan.sh, verified against zap-baseline.py:697-708:
+          # 0 passes only, 1 FAIL-level findings (-I does not suppress this), 2
+          # warnings with -I absent (unreachable while -I is passed), anything else an
+          # exception or a scan that never ran a single check — a broken gate.
+          case "$zap_rc" in
+            0|1|2) : ;;
+            *) scanner_error "zap-baseline.py exited ${zap_rc}" ;;
+          esac
+
+          [ -s "${work_dir}/report.md" ] || scanner_error "ZAP produced no report"
+
+          zap_tally_parse "$zap_console" scanner_error
+
+          {
+            echo "# DAST live baseline — ${TARGET}"
+            echo ""
+            echo "> [!NOTE]"
+            echo "> This host returns HTTP 200 for every path — it is an SPA served by nginx"
+            echo "> with client-side routing, so nginx never 404s. The ZAP spider therefore"
+            echo "> walks invented routes as if they were real pages, and the same header"
+            echo "> findings repeat once per invented path. A larger finding count below is"
+            echo "> duplication, not broader coverage: read this report for which headers or"
+            echo "> cookies are missing, not for how many times each was flagged."
+            echo ""
+            echo "must fix (FAIL):   ${failures}"
+            echo "warnings (WARN):   ${findings}"
+            echo "informational:     ${infos}"
+            echo "accepted (IGNORE): ${accepted}"
+            echo "passed:            ${passes}"
+            echo ""
+            cat "${work_dir}/report.md"
+          } > report.md
+
+          echo "ZAP live baseline — must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-live-baseline-report
+          path: report.md
+          if-no-files-found: warn

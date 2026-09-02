@@ -250,7 +250,17 @@ fi
 # `docker run ghcr.io/zaproxy/zaproxy`, because ZAP is normally driven through one of the
 # three scripts above. Say so rather than claim coverage this pattern does not have - a
 # guard described as stronger than it is, is worse than an honestly narrow one.
+#
+# One deliberate exemption: ci-dast-live-baseline.yaml, the same shape of carve-out as
+# ci-self-validate.yaml gets elsewhere in this file. It is a meta/ops workflow, not a
+# product build — a workflow_dispatch one-off that points the pinned ZAP image at a
+# single allowlisted live URL, not at a product image, so neither .github/actions/dast
+# (boots an image) nor .github/actions/dast-api (boots + logs in) applies. It still
+# pins the same digest and calls the shared zap_tally_parse from dast/dast-common.sh,
+# so the drift-dangerous parsing logic is not copied. Do not widen this exemption to
+# any other file.
 zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|zap-api-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
+  | grep -v '^\.github/workflows/ci-dast-live-baseline\.yaml:' \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$zap_offenders" ]; then
   echo "OK: no workflow runs ZAP directly"
