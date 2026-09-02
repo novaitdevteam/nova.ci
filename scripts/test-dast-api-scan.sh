@@ -192,6 +192,19 @@ if grep -q 'test-jwt-token-123' "$WORK/report" 2>/dev/null; then
 else
     echo "ok   the .report file never carries the JWT"; pass=$((pass + 1))
 fi
+# ZAP echoes the replacer rule (token included) to its own stdout, and `tee` sends that
+# stdout to the GitHub Actions step log — a file the runner persists the instant it is
+# written, unlike the console log copy, which the trap can and does delete. The only
+# thing that keeps the token out of that persisted, world-readable (nova.ci is public)
+# log is `::add-mask::`, emitted as soon as login confirms a token, before anything else
+# ever echoes it.
+if grep -q '::add-mask::test-jwt-token-123' "$WORK/log"; then
+    echo "ok   the JWT is masked from the step log via ::add-mask::"; pass=$((pass + 1))
+else
+    echo "FAIL no ::add-mask:: line for the JWT — it would reach the persisted step log"
+    sed 's/^/     /' "$WORK/log"
+    fail=$((fail + 1))
+fi
 
 # --- findings, including must-fix ----------------------------------------------------
 # One run, two counts: FAIL-NEW and WARN-NEW are read from the same tally line, and a

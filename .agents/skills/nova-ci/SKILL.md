@@ -477,8 +477,10 @@ Preserve these behaviors:
   `-S` is mandatory** — without it the tool active-scans, i.e. real writes against the
   seeded API; `scripts/test-dast-api-scan.sh` asserts `-S`. The admin password is
   `openssl rand`-generated per run and stored nowhere (`DEFAULT_ADMIN_USER` /
-  `DEFAULT_USER_PASSWORD`); the JWT reaches ZAP only as a header-replacer rule and its
-  console echo is deleted on exit. The engine needs `SWAGGER_ENABLE=true` or the spec is
+  `DEFAULT_USER_PASSWORD`); the JWT reaches ZAP only as a header-replacer rule. ZAP echoes
+  that rule, token included, back on its own stdout — a public repo's persisted step
+  log — so `scan.sh` masks it with `::add-mask::` the moment login confirms it, and the
+  local console file carrying the echo is deleted on exit. The engine needs `SWAGGER_ENABLE=true` or the spec is
   empty and the scan is a loud `not-run`. Same four outcomes and same tally parse as the
   baseline; its own triage register `dast-api/zap-api-scan.conf`, not the baseline's.
 - **The tally parse lives once, in `dast/dast-common.sh`.** `zap_tally_parse` (anchor +

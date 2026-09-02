@@ -8,12 +8,13 @@
 # and reporting that as clean is the failure this job exists to avoid.
 #
 # Zero secrets stored: the database is ours and dies with this job, so the admin
-# password is generated here, used once to log in, and never written anywhere. The JWT
-# that login returns reaches ZAP only as a replacer rule on the docker command line —
-# the same visibility the generated password already has — and is never echoed to
-# stdout/stderr. ZAP itself echoes that replacer config back on its own stdout, which is
-# exactly why the console log carrying it is deleted in the trap below and never
-# uploaded, same rule as the baseline's own console log.
+# password is generated here and used once to log in. The JWT that login returns reaches
+# ZAP as a replacer rule on the docker command line, and ZAP echoes that replacer config
+# — token included — back on its own stdout. This repo is public, so that stdout is a
+# world-readable, GitHub-persisted step log the instant it is written; deleting a local
+# file cannot undo that. The JWT is masked from the log with `::add-mask::` as soon as
+# login confirms it (see below), and the console file that carries it is still deleted
+# in the trap — belt and suspenders, not full containment on the file alone.
 #
 # Safe mode (-S) is mandatory: without it, zap-api-scan.py actively scans, i.e. sends
 # real POST/PUT/DELETE against the seeded API using the very session this script just
@@ -63,9 +64,10 @@ emit_message() {
 
 cleanup() {
     docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
-    # The console log carries the JWT in ZAP's own replacer echo, and the spec file is a
-    # scratch copy of a public route — neither belongs on a pooled, reused runner past
-    # this process's own lifetime.
+    # The console log carries the JWT in ZAP's own replacer echo — already masked out of
+    # the step log by ::add-mask:: below, but the local copy still doesn't belong on a
+    # pooled, reused runner past this process's own lifetime. The spec file is a scratch
+    # copy of a public route; same reasoning, lower stakes.
     rm -f "$zap_console" "$spec_file" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -205,6 +207,13 @@ if [ -z "$JWT" ]; then
         | sed -E 's/.*[Aa]uthentication=([^;]*).*/\1/' || true)"
 fi
 [ -n "$JWT" ] || not_run "login did not return a token"
+
+# Redact the JWT from the GitHub Actions step log. ZAP echoes the replacer rule
+# (token included) to stdout, and `tee` sends stdout to the persisted step log, which
+# deleting the console file cannot un-write. ::add-mask:: makes the runner replace this
+# exact string wherever it appears in later output — defence in depth, independent of
+# what echoes it. nova.ci is public, so the log is world-readable.
+echo "::add-mask::${JWT}"
 
 # --- fetch the engine's own OpenAPI spec -----------------------------------------------
 curl -s -o "$spec_file" "${target}/api-docs-json" || true

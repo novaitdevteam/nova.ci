@@ -663,12 +663,17 @@ git tag apiscan-NC2-1234
 git push origin apiscan-NC2-1234   # builds the engine, then the authenticated API scan
 ```
 
-- **Authenticated, with credentials that never leave the run.** The database is ours and
-  dies with the job, so the admin password is `openssl rand`-generated in `scan.sh`,
-  passed to the container through `DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`, used
-  once to log in, and written nowhere. The JWT that login returns reaches ZAP only as a
-  request-header replacer rule on the `docker run` command line, is never echoed, and the
-  console log that carries ZAP's own echo of it is deleted on exit and never uploaded.
+- **Authenticated, with a credential generated for this run only.** The database is ours
+  and dies with the job, so the admin password is `openssl rand`-generated in `scan.sh`,
+  passed to the container through `DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`, and used
+  once to log in. The JWT that login returns reaches ZAP only as a request-header replacer
+  rule on the `docker run` command line — and ZAP echoes that replacer rule, token
+  included, back on its own stdout. Since this repository is public, that stdout is a
+  GitHub-persisted, world-readable step log the instant it is written, so `scan.sh` masks
+  the JWT out of it with `::add-mask::` as soon as login confirms a token. The local
+  console file that carries ZAP's echo is also deleted on exit and never uploaded — belt
+  and suspenders alongside the mask, not the only thing standing between the token and the
+  log.
 - **Safe mode only (`-S`).** `zap-api-scan.py` runs passive — it observes requests and
   responses, it does not write. Without `-S` the same tool active-scans, sending real
   `POST`/`PUT`/`DELETE` against the seeded API using the very session this script just
