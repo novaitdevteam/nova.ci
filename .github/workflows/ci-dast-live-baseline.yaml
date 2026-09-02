@@ -89,6 +89,19 @@ jobs:
 
           work_dir="${RUNNER_TEMP:-/tmp}/zap-live"
           mkdir -p "$work_dir"
+          # World-writable on purpose, and it replaces the `--user $(id -u):$(id -g)` that
+          # dast/scan.sh passes. That flag exists there so ZAP can write its report into a
+          # bind mount owned by the runner user, and on a self-hosted runner it is harmless
+          # because that uid happens to be 1000 — the image's own `zap` user. On
+          # ubuntu-latest the runner is uid 1001, and zap-baseline.py's Automation
+          # Framework writes its plan to `Path.home()` (zap-baseline.py:465-467), i.e. the
+          # image's HOME=/home/zap, which uid 1001 cannot write:
+          #   PermissionError: [Errno 13] Permission denied: '/home/zap/zap.yaml'
+          # Overriding HOME instead would move ZAP's ~/.ZAP and orphan the add-ons the
+          # image ships. So: let the container run as its own `zap` user (real HOME, real
+          # add-ons) and make the bind mount writable for it. The directory holds a public
+          # scan report on an ephemeral runner — no secret is exposed by the mode.
+          chmod 777 "$work_dir"
 
           # zap-baseline.py resolves -c relative to /zap/wrk/ only, same reason
           # dast/scan.sh copies its own triage register in rather than mounting two
@@ -98,7 +111,7 @@ jobs:
           zap_console="${work_dir}/zap-console.log"
 
           set +e
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm \
             -v "${work_dir}:/zap/wrk:rw" \
             "$ZAP_IMAGE" zap-baseline.py -t "$TARGET" \
             -I -c zap-baseline.conf -w report.md 2>&1 | tee "$zap_console"
