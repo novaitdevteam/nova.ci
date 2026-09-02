@@ -267,6 +267,15 @@ runner_need=true' \
     refs/heads/NC2-123-some-feature
 
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "core apiscan tag gets medium on any branch: apiscan always runs the API scan" \
+    refs/tags/apiscan-NC2-1 novatalks.core \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=medium
+runner_need=true' \
+    refs/heads/NC2-123-some-feature
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
 check "ui trunk build stays small: static assets need no database" \
     refs/tags/build-NC2-1 novatalks.ui \
     'runner_size=cx33

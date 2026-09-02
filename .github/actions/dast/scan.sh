@@ -20,6 +20,9 @@
 #
 set -euo pipefail
 
+# shellcheck source=.github/actions/dast/dast-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/dast-common.sh"
+
 : "${DAST_IMAGE:?}" "${DAST_PORT:?}" "${DAST_HEALTH_PATH:?}" "${DAST_BOOT_TIMEOUT:?}"
 : "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}" "${DAST_ACTION_ROOT:?}"
 
@@ -425,23 +428,7 @@ esac
 # warns `stray \ before t` and matches a literal `t`, so the tally never matches, every
 # completed scan reports "no tally" and reds the build. Every runner is GNU; a macOS
 # harness run is the one place the broken form passes. Do not "tidy" it back.
-tally="$(grep -m1 -E $'^FAIL-NEW: [0-9]+\tFAIL-INPROG: ' "$zap_console" || true)"
-[ -n "$tally" ] || scanner_error "ZAP printed no result tally — the scan did not complete"
-
-tally_at() { # tally_at <label>
-    printf '%s' "$tally" | tr '\t' '\n' | sed -n "s/^$1: //p" | head -1
-}
-failures="$(tally_at FAIL-NEW)"
-findings="$(tally_at WARN-NEW)"
-infos="$(tally_at INFO)"
-accepted="$(tally_at IGNORE)"
-passes="$(tally_at PASS)"
-
-# A tally that parsed to anything other than a number means the format moved under the
-# pinned digest. Guessing a zero there would report a clean scan.
-for n in "$failures" "$findings" "$infos" "$accepted" "$passes"; do
-    [[ "$n" =~ ^[0-9]+$ ]] || scanner_error "ZAP tally line is malformed: ${tally}"
-done
+zap_tally_parse "$zap_console" scanner_error
 
 {
     echo "=============================="

@@ -31,15 +31,17 @@ BASE_BRANCH="${BASE_REF#refs/heads/}"
 # Runner sizing matrix.
 # novatalks.core differentiates test sizing: unit tests are light and DB-less (medium),
 # while integration/both need postgres + redis + the app (large). A scan* tag runs DAST
-# on any branch, and a trunk build tag also runs DAST (postgres + redis + the app + ZAP)
-# — both get medium; a feature-branch build stays small so it never contends with the
+# and an apiscan* tag runs the authenticated API scan, both on any branch, and a trunk
+# build tag also runs DAST (postgres + redis + the app + ZAP) — all three get medium;
+# a feature-branch build stays small so it never contends with the
 # medium unit-test pool. All other repositories always use small, regardless of tag: the
 # switcher only routes test/scan tags to the larger matrices for novatalks.core, so a
 # bigger VM for any other repo's tag would be pure waste.
 if [[ "$REPO" == "novatalks.core" ]]; then
-    if [[ "$TAG" == scan* ]]; then
-        # A scan tag runs DAST on any branch, and DAST means postgres + redis + the
-        # app + ZAP on one VM — the same load int-test gets large for.
+    if [[ "$TAG" == scan* || "$TAG" == apiscan* ]]; then
+        # A scan tag runs DAST, and an apiscan tag runs the authenticated API scan, on
+        # any branch — both mean postgres + redis + the app + ZAP on one VM, the same
+        # load int-test gets large for.
         REQUIRED_SIZE="medium"
     elif [[ "$TAG" == *build* ]]; then
         case "$BASE_BRANCH" in

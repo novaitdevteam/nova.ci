@@ -1,0 +1,181 @@
+name: DAST Live Baseline
+
+# Scans the real deployment through Cloudflare — a surface the container-based DAST
+# (.github/actions/dast) structurally cannot see, because it boots the built image in
+# isolation with no Cloudflare/nginx in front of it. On the live host, nginx serves the
+# SPA with none of the security headers the app adds on its own routes. Unauthenticated
+# on purpose: the value here is the header surface, which needs no login to observe.
+#
+# Design decision (plan D5 / task-4 brief, Step 1, option (b)): an inline ZAP step in
+# this workflow, not a new target-url mode on the `dast` action. This is a one-off
+# workflow_dispatch scan with no image to boot, no env to seed, no database to bring up
+# — almost none of what `dast/action.yml` does applies, so bending that action to fit a
+# URL-target mode would be more surface than this inline step. The drift-dangerous part
+# — the tally-line anchor — still comes from dast/dast-common.sh's zap_tally_parse, so
+# it is never copied.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "URL to scan (must be on the allowlist below)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  live-baseline:
+    name: ZAP baseline (live)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # A free-text URL field with no allowlist is how a scanner eventually points
+      # somewhere it must not — this is the whole safety mechanism of this workflow.
+      # One host, accepted with and without a trailing slash; anything else fails
+      # loudly before anything is scanned.
+      - name: Validate target against allowlist
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            https://novatalks-security.cloud.novatalks.com.ua|https://novatalks-security.cloud.novatalks.com.ua/) : ;;
+            *) echo "::error::'$TARGET' is not an allowlisted DAST target. Add it here deliberately."; exit 1 ;;
+          esac
+
+      - name: ZAP baseline scan
+        id: scan
+        env:
+          TARGET: ${{ inputs.target }}
+          # Same pin as .github/actions/dast/action.yml and .github/actions/dast-api/action.yml
+          # — copy that digest here too if it is ever rotated.
+          ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
+        run: |
+          set -euo pipefail
+
+          # dast-common.sh expects the caller to provide its own error function (the
+          # scanner_error each scan.sh defines) rather than owning one itself. This
+          # workflow is not one of those callers, so it supplies the same minimal
+          # contract inline: print an ::error:: and exit non-zero. zap_tally_parse
+          # itself — the anchor on the tally line's exact shape — is never re-implemented.
+          # shellcheck source=.github/actions/dast/dast-common.sh
+          . "${GITHUB_WORKSPACE}/.github/actions/dast/dast-common.sh"
+
+          # A run is dispatched by hand, so the person who triggered it is already
+          # watching the Actions UI — but the notifier line makes the result land in the
+          # same Telegram/Google Chat channel as every other scan, and gives a stable
+          # link to the report. B has no release to attach to (there is no build), so the
+          # link points at the run, where the report is uploaded as an artifact.
+          emit_message() {
+            {
+              echo "message<<LIVE_EOF"
+              printf '%s\n' "$1"
+              echo "LIVE_EOF"
+            } >> "${GITHUB_OUTPUT:-/dev/null}"
+          }
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # scanner_error emits the notifier line before exiting non-zero, so the Notify
+          # step (which runs on failure too) has something to send rather than falling
+          # back to a generic message.
+          scanner_error() {
+            echo "::error::$1"
+            emit_message "🕷 DAST live baseline (${TARGET}): ❌ scanner failed — $1"$'\n'"   📄 Run: ${run_url}"
+            exit 1
+          }
+
+          work_dir="${RUNNER_TEMP:-/tmp}/zap-live"
+          mkdir -p "$work_dir"
+
+          # zap-baseline.py resolves -c relative to /zap/wrk/ only, same reason
+          # dast/scan.sh copies its own triage register in rather than mounting two
+          # volumes: the register and the bind-mounted work dir must be the same path.
+          cp "${GITHUB_WORKSPACE}/.github/actions/dast/zap-baseline.conf" "${work_dir}/zap-baseline.conf"
+
+          zap_console="${work_dir}/zap-console.log"
+
+          set +e
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "${work_dir}:/zap/wrk:rw" \
+            "$ZAP_IMAGE" zap-baseline.py -t "$TARGET" \
+            -I -c zap-baseline.conf -w report.md 2>&1 | tee "$zap_console"
+          # PIPESTATUS[0], not $?, for the same reason dast/scan.sh uses it: this is
+          # ZAP's own exit status, unambiguous regardless of tee's.
+          zap_rc=${PIPESTATUS[0]}
+          set -e
+
+          # Same ladder as dast/scan.sh, verified against zap-baseline.py:697-708:
+          # 0 passes only, 1 FAIL-level findings (-I does not suppress this), 2
+          # warnings with -I absent (unreachable while -I is passed), anything else an
+          # exception or a scan that never ran a single check — a broken gate.
+          case "$zap_rc" in
+            0|1|2) : ;;
+            *) scanner_error "zap-baseline.py exited ${zap_rc}" ;;
+          esac
+
+          [ -s "${work_dir}/report.md" ] || scanner_error "ZAP produced no report"
+
+          zap_tally_parse "$zap_console" scanner_error
+
+          {
+            echo "# DAST live baseline — ${TARGET}"
+            echo ""
+            echo "> [!NOTE]"
+            echo "> This host returns HTTP 200 for every path — it is an SPA served by nginx"
+            echo "> with client-side routing, so nginx never 404s. The ZAP spider therefore"
+            echo "> walks invented routes as if they were real pages, and the same header"
+            echo "> findings repeat once per invented path. A larger finding count below is"
+            echo "> duplication, not broader coverage: read this report for which headers or"
+            echo "> cookies are missing, not for how many times each was flagged."
+            echo ""
+            echo "must fix (FAIL):   ${failures}"
+            echo "warnings (WARN):   ${findings}"
+            echo "informational:     ${infos}"
+            echo "accepted (IGNORE): ${accepted}"
+            echo "passed:            ${passes}"
+            echo ""
+            cat "${work_dir}/report.md"
+          } > report.md
+
+          echo "ZAP live baseline — must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"
+
+          # Same three-state shape as the build notifier, minus a build's must-fix red
+          # (a live baseline is advisory — it never gates anything). The count is stated
+          # so "clean" cannot be misread as "nothing was checked".
+          if [ "$failures" -gt 0 ]; then
+            emit_message "🕷 DAST live baseline (${TARGET}): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Run: ${run_url}"
+          elif [ "$findings" -gt 0 ]; then
+            emit_message "🕷 DAST live baseline (${TARGET}): 🟡 ${findings} warnings"$'\n'"   📄 Run: ${run_url}"
+          else
+            emit_message "🕷 DAST live baseline (${TARGET}): 🟢 clean · ${infos} info · ${accepted} accepted"$'\n'"   📄 Run: ${run_url}"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-live-baseline-report
+          path: report.md
+          if-no-files-found: warn
+
+      # Fires for a scan result — clean, findings, or a broken scanner — but not when the
+      # allowlist step rejected the target: that skips the scan step, so this skips too,
+      # and a mistyped target stays a quiet red run instead of channel noise. The token
+      # and webhook are read from this repository's own secrets (a workflow_dispatch run
+      # does not inherit a caller's), and notify/action.yml skips any channel whose
+      # secret is empty — so this degrades to artifact-only if nova.ci has none set,
+      # rather than failing.
+      - name: Notify
+        if: ${{ !cancelled() && steps.scan.conclusion != 'skipped' }}
+        uses: novaitdevteam/nova.ci/.github/actions/notify@main
+        with:
+          # Quoted: the fallback string contains a literal ": " which an unquoted YAML
+          # scalar mis-parses as a mapping (actionlint rejects it even where Ruby's
+          # parser tolerates it).
+          message: "${{ steps.scan.outputs.message || format('🕷 DAST live baseline ({0}): scan did not complete — {1}/{2}/actions/runs/{3}', inputs.target, github.server_url, github.repository, github.run_id) }}"
+          telegram_token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}

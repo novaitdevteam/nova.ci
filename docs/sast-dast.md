@@ -644,6 +644,93 @@ caller.
 `cx43` is the agreed starting point, measured on the first real run; the documented
 fallback for the same stack is `large`.
 
+## API scanning (authenticated ZAP)
+
+The baseline above is unauthenticated on purpose. **API scanning** is the authenticated
+counterpart: it boots `novatalks.core`'s engine against an ephemeral postgres and redis,
+seeds an admin, logs in, and runs `zap-api-scan.py` against the engine's **own OpenAPI
+spec** — the same four outcomes and the same tally parse as the baseline, driven a
+different way. It is [`dast-api/action.yml`](../.github/actions/dast-api/action.yml) +
+[`scan.sh`](../.github/actions/dast-api/scan.sh), run by the `api-scan` job.
+
+**Opt-in, `novatalks.core` only.** It runs when the triggering tag ref starts with
+`apiscan` and the repository is `novatalks.core`, never on any other repository and never
+automatically on a trunk build — the authenticated run against a seeded stack is a
+hundreds-of-operations scan, not something every build should pay for.
+
+```bash
+git tag apiscan-NC2-1234
+git push origin apiscan-NC2-1234   # builds the engine, then the authenticated API scan
+```
+
+- **Authenticated, with a credential generated for this run only.** The database is ours
+  and dies with the job, so the admin password is `openssl rand`-generated in `scan.sh`,
+  passed to the container through `DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`, and used
+  once to log in. The JWT that login returns reaches ZAP only as a request-header replacer
+  rule on the `docker run` command line — and ZAP echoes that replacer rule, token
+  included, back on its own stdout. Since this repository is public, that stdout is a
+  GitHub-persisted, world-readable step log the instant it is written, so `scan.sh` masks
+  the JWT out of it with `::add-mask::` as soon as login confirms a token. The local
+  console file that carries ZAP's echo is also deleted on exit and never uploaded — belt
+  and suspenders alongside the mask, not the only thing standing between the token and the
+  log.
+- **Safe mode only (`-S`).** `zap-api-scan.py` runs passive — it observes requests and
+  responses, it does not write. Without `-S` the same tool active-scans, sending real
+  `POST`/`PUT`/`DELETE` against the seeded API using the very session this script just
+  created. `-S` is mandatory and the harness asserts it is passed.
+- **Spec-driven (`-f openapi`).** The scan walks the real routes the engine publishes at
+  `/api-docs-json`, not a spider — a backend API has no pages to spider. The engine only
+  serves that spec with `SWAGGER_ENABLE=true`; without it the spec comes back empty and
+  the scan is a **loud skip** (`not-run`), never a green tick over zero operations.
+
+> [!IMPORTANT]
+> **Authenticated is not the same as thorough.** This is a passive scan across real,
+> logged-in endpoints: it checks transport and header hygiene on routes the baseline can
+> never reach without a session. It does **not** try `{accountId}` values it was not
+> given, so it does not find IDOR; it does not test whether a low-privilege token can
+> reach an admin route, so it does not find privilege escalation; and it does not model
+> what any endpoint is *for*, so it does not find business-logic flaws. It is not a
+> penetration test. A green line means the authenticated surface's hygiene looks right,
+> nothing more.
+
+The report is the same shape as the baseline's and lands on the same release, and it uses
+its own triage register — [`zap-api-scan.conf`](../.github/actions/dast-api/zap-api-scan.conf),
+not the baseline's `zap-baseline.conf`, because the two load different rule sets and are
+never interchangeable.
+
+## Live baseline (the real deployment)
+
+The container DAST above boots the built image in isolation, so it sees the application's
+own responses but nothing in front of them. **The live baseline** scans the deployed host
+through Cloudflare — the surface the container scan structurally cannot see. It is the
+[`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml) workflow,
+run by hand:
+
+```text
+Actions → DAST Live Baseline → Run workflow → target: <allowlisted URL>
+```
+
+What it catches that the container scan cannot is **edge configuration**: on the live
+host, nginx serves the SPA with none of the security headers the app sets on its own
+routes, so `/` comes back with no CSP and no HSTS while the engine's own routes carry
+them. That gap only exists once nginx/ingress is in front of the app, which is exactly
+what the container scan lacks.
+
+- **The target is allowlisted.** The `target` input is validated against a one-host
+  allowlist before anything is scanned; anything else fails loudly. A free-text URL field
+  with no allowlist is how a scanner eventually points somewhere it must not, so adding a
+  host is a deliberate edit to that `case`, not a runtime choice.
+- **SPA-200 caveat.** The host returns HTTP 200 for **every** path — it is an SPA with
+  client-side routing, so nginx never 404s and the ZAP spider walks invented routes as
+  though they were real pages. The same header finding then repeats once per invented
+  path. A larger finding count is duplication, **not broader coverage**: read the report
+  for *which* headers or cookies are missing, not for how many times each was flagged.
+
+The drift-dangerous part — the tally-line parse — is sourced from
+[`dast-common.sh`](../.github/actions/dast/dast-common.sh), never re-implemented inline,
+so this out-of-band workflow cannot silently disagree with the two in-pipeline scanners
+about what a completed scan looks like.
+
 ## Where the reports are
 
 All three scanners publish onto the **one release the build already creates**, because
@@ -659,6 +746,7 @@ https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><s
 | Trivy | `trivy-<repo>-<ref><suffix>-<sha>.report` |
 | Semgrep | `semgrep-<repo>-<ref><suffix>-<sha>.report` |
 | ZAP baseline | `zap-<repo>-<ref><suffix>-<sha>.report` |
+| ZAP API scan (`apiscan*`, `novatalks.core`) | `zap-api-<repo>-<ref>-<sha>.report` |
 
 > [!NOTE]
 > **The `TRIVY.SCAN_` release-tag prefix is historical.** It now carries three
@@ -691,6 +779,9 @@ build already sends — see [Notifications](notifications.md).
 | `🕷 DAST (ZAP): ⚠️ not run — <reason>` | the app never came up |
 | `🕷 DAST (ZAP): ❌ scanner failed — <reason>` | broken scanner |
 | `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |
+| `🕷 DAST (ZAP API): 🟢 clean · <n> operations · <n> info · <n> accepted` | authenticated API scan ran, no must-fix or warning findings |
+| `🕷 DAST (ZAP API): 🟡 <n> warnings` / `🔴 <n> must-fix · <n> warnings` / `⚠️ not run — <reason>` / `❌ scanner failed — <reason>` | the same four states as the baseline, worded by `dast-api/scan.sh` |
+| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on `novatalks.core` |
 
 The text is composed inside each `scan.sh`, not in the workflow, so the harnesses cover
 it — the same reason the [secret-scan alert](secret-detection.md#the-secret-scan-notify-job)
@@ -708,8 +799,10 @@ digest pin, the canary guard and the harness at once.
 | --- | --- |
 | Semgrep action | [`.github/actions/semgrep/action.yml`](../.github/actions/semgrep/action.yml) + [`scan.sh`](../.github/actions/semgrep/scan.sh), [`canary.yaml`](../.github/actions/semgrep/canary.yaml) |
 | DAST action | [`.github/actions/dast/action.yml`](../.github/actions/dast/action.yml) + [`scan.sh`](../.github/actions/dast/scan.sh) |
-| Jobs | `sast-scan` and `dast-scan` in [`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
-| Scenario tests | [`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh), [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh) |
+| DAST-API action | [`.github/actions/dast-api/action.yml`](../.github/actions/dast-api/action.yml) + [`scan.sh`](../.github/actions/dast-api/scan.sh) |
+| Shared tally parse | [`.github/actions/dast/dast-common.sh`](../.github/actions/dast/dast-common.sh) — sourced by all three ZAP callers |
+| Jobs | `sast-scan`, `dast-scan` and `api-scan` in [`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml); the live baseline is its own [`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml) |
+| Scenario tests | [`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh), [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh), [`scripts/test-dast-api-scan.sh`](../scripts/test-dast-api-scan.sh) |
 
 Both images are pinned by **tag and digest**, never `latest`, for the reason the
 Gitleaks pin exists: a tag can be moved, and an upstream change must not be able to
