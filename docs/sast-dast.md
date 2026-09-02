@@ -143,9 +143,10 @@ broken tooling and the job goes red, exactly like a Semgrep failure.
 > `nova.chatsconnector.telegram-client-api`, `novatalks.dialer`) are headless repositories
 > that were **removed from the baseline on 2026-09-01** (see [Which repositories](#which-repositories)),
 > so no `Resolve DAST target` arm exercises them today. They are kept here because the
-> machinery is exactly what the tracked api-scan expansion to those connectors will reuse —
-> the examples are how the mechanic was established, not a claim that those repos are
-> scanned now. `novatalks.core`, which is kept, still exercises the `.env.example` seeding
+> machinery is exactly what api-scan reuses — `nova.chatsconnector.telegram-client-api` already does, via its
+> `extra-env` in the `Resolve api-scan target` arm, and `whatsapp`, `signal` and `dialer`
+> are the tracked Phase 2. The examples are how the mechanic was established, not a claim
+> that those repos are scanned by the baseline now. `novatalks.core`, which is kept, still exercises the `.env.example` seeding
 > and the `DATABASE_URL` build.
 
 Some engines need more than `DATABASE_*`/`REDIS_*` to boot (`novatalks.core`'s S3 file
@@ -582,10 +583,12 @@ green line was measuring almost nothing while reading as coverage.
 
 Their real coverage is the authenticated **[api-scan](#api-scanning-authenticated-zap)**,
 which walks an OpenAPI spec rather than spidering pages. It ships today for
-`novatalks.core` only; extending it to the four connectors that publish a spec
-(`telegram`, `whatsapp`, `signal`, `dialer`) is a **tracked expansion**, each a
-per-repository integration — seed data, a login, the spec endpoint. `novatalks.uspacy.connector`
-and `novatalks.geoip-api` publish no OpenAPI spec, so they have no api-scan path either.
+`novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
+extending it to the remaining connectors that publish a spec (`whatsapp`, `signal`,
+`dialer`) is the tracked **Phase 2**, each a per-repository integration — seed data, its
+own token model, the spec endpoint — verified against that repository's own code, never
+assumed from telegram's. `novatalks.uspacy.connector` and `novatalks.geoip-api` publish no
+OpenAPI spec, so they have no api-scan path either.
 
 Their boot inputs are kept here rather than deleted: each was established against the
 deployment chart or the Dockerfile, and the api-scan expansion will reuse them.
@@ -688,41 +691,76 @@ fallback for the same stack is `large`.
 ## API scanning (authenticated ZAP)
 
 The baseline above is unauthenticated on purpose. **API scanning** is the authenticated
-counterpart: it boots `novatalks.core`'s engine against an ephemeral postgres and redis,
-seeds an admin, logs in, and runs `zap-api-scan.py` against the engine's **own OpenAPI
-spec** — the same four outcomes and the same tally parse as the baseline, driven a
-different way. It is [`dast-api/action.yml`](../.github/actions/dast-api/action.yml) +
+counterpart: it boots the built image against an ephemeral postgres and redis, runs the
+repository's own migrate-and-seed, acquires an auth token, and runs `zap-api-scan.py`
+against the application's **own OpenAPI spec** — the same four outcomes and the same tally
+parse as the baseline, driven a different way. It is
+[`dast-api/action.yml`](../.github/actions/dast-api/action.yml) +
 [`scan.sh`](../.github/actions/dast-api/scan.sh), run by the `api-scan` job.
 
-**Opt-in, `novatalks.core` only.** It runs when the triggering tag ref starts with
-`apiscan` and the repository is `novatalks.core`, never on any other repository and never
-automatically on a trunk build — the authenticated run against a seeded stack is a
-hundreds-of-operations scan, not something every build should pay for.
+**Opt-in, two repositories today.** It runs when the triggering tag ref starts with
+`apiscan` and the repository is `novatalks.core` **or**
+`nova.chatsconnector.telegram-client-api` — never on any other repository and never
+automatically on a trunk build. The authenticated run against a seeded stack is a
+hundreds-of-operations scan, not something every build should pay for. Every per-repository
+value (port, health path, spec path, auth mode, header, scheme prefix, token query, setup
+command, swagger toggle) is resolved in the `Resolve api-scan target` step's `case` in
+[`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml),
+one arm per repository; the default arm fails loudly rather than guessing.
 
 ```bash
 git tag apiscan-NC2-1234
-git push origin apiscan-NC2-1234   # builds the engine, then the authenticated API scan
+git push origin apiscan-NC2-1234   # builds the image, then the authenticated API scan
 ```
 
-- **Authenticated, with a credential generated for this run only.** The database is ours
-  and dies with the job, so the admin password is `openssl rand`-generated in `scan.sh`,
-  passed to the container through `DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`, and used
-  once to log in. The JWT that login returns reaches ZAP only as a request-header replacer
-  rule on the `docker run` command line — and ZAP echoes that replacer rule, token
-  included, back on its own stdout. Since this repository is public, that stdout is a
-  GitHub-persisted, world-readable step log the instant it is written, so `scan.sh` masks
-  the JWT out of it with `::add-mask::` as soon as login confirms a token. The local
-  console file that carries ZAP's echo is also deleted on exit and never uploaded — belt
-  and suspenders alongside the mask, not the only thing standing between the token and the
-  log.
+### Two ways to acquire the token
+
+The token that authenticates the scan is obtained by one of two `auth-mode`s, and the
+header it is injected under is a per-repository input — a connector's is not the engine's:
+
+- **`login` (`novatalks.core`).** `scan.sh` POSTs the generated admin's username/password
+  to `/auth/sign_in`, reads the JWT out of the response, and injects it as
+  `Authorization: Bearer <token>`.
+- **`db-token` (`nova.chatsconnector.telegram-client-api`).** There is no login endpoint:
+  `db:setup` migrates and seeds the database, and the seeded super-admin token is read
+  straight out of it with a caller-supplied `SELECT` (`tokens.api_token` joined to the
+  `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
+  own `api_access_token` header.
+
+The injected header, the scheme prefix and the token `SELECT` are all per-repository
+**inputs**, not constants. Both modes end with a bare token that `scan.sh` masks with
+`::add-mask::` before first use, and both treat an **empty token** — a login that returned
+none, or a `SELECT` that matched no row — as a loud skip (`not-run`), never a scan without
+auth.
+
+> [!IMPORTANT]
+> **Each connector's auth model is read from its own code before its arm is written (D7).**
+> Telegram's shape — a `db-token` read from a `tokens` table and injected under
+> `api_access_token` — is **not** assumed for the Sequelize connectors (`whatsapp`,
+> `signal`) or `novatalks.dialer`, which are the tracked **Phase 2**. Each of those has its
+> token storage, header name and seed path verified against its own code before an arm is
+> added. Copying telegram's shape onto them is exactly the mistake this rule exists to
+> prevent.
+
+- **Authenticated, with no stored credential.** In `login` mode the admin password is
+  `openssl rand`-generated in `scan.sh` for this run only and used once; in `db-token` mode
+  the seeded token never leaves the ephemeral database until the `SELECT` reads it. Either
+  way the token reaches ZAP only as a request-header replacer rule on the `docker run`
+  command line — and ZAP echoes that rule, token included, back on its own stdout. Since
+  this repository is public, that stdout is a GitHub-persisted, world-readable step log the
+  instant it is written, which is why `scan.sh` masks the token with `::add-mask::` the
+  moment it is acquired and deletes the local console file on exit — belt and suspenders,
+  not the only guard.
 - **Safe mode only (`-S`).** `zap-api-scan.py` runs passive — it observes requests and
   responses, it does not write. Without `-S` the same tool active-scans, sending real
   `POST`/`PUT`/`DELETE` against the seeded API using the very session this script just
   created. `-S` is mandatory and the harness asserts it is passed.
-- **Spec-driven (`-f openapi`).** The scan walks the real routes the engine publishes at
-  `/api-docs-json`, not a spider — a backend API has no pages to spider. The engine only
-  serves that spec with `SWAGGER_ENABLE=true`; without it the spec comes back empty and
-  the scan is a **loud skip** (`not-run`), never a green tick over zero operations.
+- **Spec-driven (`-f openapi`).** The scan walks the real routes the application publishes
+  at its spec path (`/api-docs-json`), not a spider — a backend API has no pages to spider.
+  Serving that spec can be conditional: the engine needs `SWAGGER_ENABLE=true` (its
+  `swagger-enable` input), while the telegram connector serves it unconditionally and sets
+  the input `false`. Either way, if the spec comes back empty the scan is a **loud skip**
+  (`not-run`), never a green tick over zero operations.
 
 > [!IMPORTANT]
 > **Authenticated is not the same as thorough.** This is a passive scan across real,
@@ -787,7 +825,7 @@ https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><s
 | Trivy | `trivy-<repo>-<ref><suffix>-<sha>.report` |
 | Semgrep | `semgrep-<repo>-<ref><suffix>-<sha>.report` |
 | ZAP baseline | `zap-<repo>-<ref><suffix>-<sha>.report` |
-| ZAP API scan (`apiscan*`, `novatalks.core`) | `zap-api-<repo>-<ref>-<sha>.report` |
+| ZAP API scan (`apiscan*`, `novatalks.core` + telegram connector) | `zap-api-<repo>-<ref>-<sha>.report` |
 
 > [!NOTE]
 > **The `TRIVY.SCAN_` release-tag prefix is historical.** It now carries three
@@ -822,7 +860,7 @@ build already sends — see [Notifications](notifications.md).
 | `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |
 | `🕷 DAST (ZAP API): 🟢 clean · <n> operations · <n> info · <n> accepted` | authenticated API scan ran, no must-fix or warning findings |
 | `🕷 DAST (ZAP API): 🟡 <n> warnings` / `🔴 <n> must-fix · <n> warnings` / `⚠️ not run — <reason>` / `❌ scanner failed — <reason>` | the same four states as the baseline, worded by `dast-api/scan.sh` |
-| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on `novatalks.core` |
+| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on a covered repo (`novatalks.core`, telegram connector) |
 
 The text is composed inside each `scan.sh`, not in the workflow, so the harnesses cover
 it — the same reason the [secret-scan alert](secret-detection.md#the-secret-scan-notify-job)
