@@ -29,8 +29,10 @@ Primary files:
 - `.github/actions/gitleaks/action.yml` + `scan.sh`: the only place any workflow may invoke Gitleaks; `security/gitleaks/gitleaks.toml` is the central rule set and allowlist
 - `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
 - `.github/actions/semgrep/action.yml` + `scan.sh` + `canary.yaml`: the only place any workflow may invoke Semgrep (SAST)
-- `.github/actions/dast/action.yml` + `scan.sh`: the only place any workflow may invoke OWASP ZAP (DAST)
-- `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`: offline scenario self-checks for those two (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
+- `.github/actions/dast/action.yml` + `scan.sh` + `dast-common.sh`: the unauthenticated OWASP ZAP baseline (DAST); `dast-common.sh` holds the shared tally parse sourced by all three ZAP callers
+- `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core` only)
+- `.github/workflows/ci-dast-live-baseline.yaml`: the `workflow_dispatch` live baseline against the real deployment, target allowlisted
+- `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`, `scripts/test-dast-api-scan.sh`: offline scenario self-checks (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
 - `scripts/gitleaks-baseline.sh`: one-time full-history secret audit across product repositories; deliberately not a CI job
 - `.github/actions/notify/action.yml`: the only place that talks to Telegram and Google Chat
 - `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
@@ -466,7 +468,29 @@ Preserve these behaviors:
   half is narrower than the Semgrep half on purpose-not-yet-done: it does **not** match
   a bare `docker run ghcr.io/zaproxy/zaproxy`. Do not describe it as if it does.
 - Be honest about reach in any documentation: the unauthenticated ZAP baseline finds
-  header and cookie hygiene, not logic flaws. It is not a penetration test.
+  header and cookie hygiene, not logic flaws. It is not a penetration test. The
+  authenticated `apiscan*` scan adds real logged-in endpoints but stays passive — no
+  IDOR, no privilege escalation, no business-logic flaw — and is not a pentest either.
+- **API scan (`apiscan*`, `novatalks.core` only, opt-in).** `dast-api/action.yml` +
+  `scan.sh` boot the engine on ephemeral postgres/redis, seed and log in as an admin, and
+  run `zap-api-scan.py -f openapi` against the engine's own `/api-docs-json`. **Safe mode
+  `-S` is mandatory** — without it the tool active-scans, i.e. real writes against the
+  seeded API; `scripts/test-dast-api-scan.sh` asserts `-S`. The admin password is
+  `openssl rand`-generated per run and stored nowhere (`DEFAULT_ADMIN_USER` /
+  `DEFAULT_USER_PASSWORD`); the JWT reaches ZAP only as a header-replacer rule and its
+  console echo is deleted on exit. The engine needs `SWAGGER_ENABLE=true` or the spec is
+  empty and the scan is a loud `not-run`. Same four outcomes and same tally parse as the
+  baseline; its own triage register `dast-api/zap-api-scan.conf`, not the baseline's.
+- **The tally parse lives once, in `dast/dast-common.sh`.** `zap_tally_parse` (anchor +
+  numeric guard) is sourced by `dast`, `dast-api` and the live-baseline workflow. Never
+  re-inline or copy it — the ANSI-C `\t` and the shape-not-prefix anchor are the exact
+  divergent-copy hazard it exists to remove; a copy that rots reds only on GNU runners.
+- **Live baseline (`ci-dast-live-baseline.yaml`, `workflow_dispatch`).** Scans the real
+  deployment through Cloudflare — the edge surface the container scan cannot see (nginx
+  serves the SPA with no CSP/HSTS on `/` while the engine's own routes carry them). The
+  `target` input is validated against a **one-host allowlist** before scanning; adding a
+  host is a deliberate edit, never runtime. SPA-200 caveat: the host returns 200 for every
+  path, so duplicate header findings are duplication, not broader coverage.
 
 ## Documentation Assets
 
@@ -503,7 +527,7 @@ Keep `docs/` as the canonical broad reference and `README.md` as a thin landing 
 
 Run the validation harness; it bundles every check (YAML parse of workflows and
 actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, the
-`ci-build-create-runner.sh`, Gitleaks, Semgrep and DAST `scan.sh` scenario self-checks,
+`ci-build-create-runner.sh`, Gitleaks, Semgrep and DAST (baseline and API) `scan.sh` scenario self-checks,
 the scanner-invocation and notifier transport guards, and `actionlint` when installed — advisory by default given the repo's pre-existing
 backlog; `STRICT_ACTIONLINT=1` enforces):
 
