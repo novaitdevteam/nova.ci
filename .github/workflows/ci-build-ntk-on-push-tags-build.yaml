@@ -419,15 +419,17 @@ jobs:
           BUILD_TARGET: ${{ inputs.build_target || github.ref_name }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          # A scan* tag names a trigger, not a build target, so it falls through to the
-          # else branch and server.Dockerfile — which novatalks.core does not have: it
-          # ships engine, reporting, restore-historical and message-source-id instead, so
-          # a scan tag there failed the build outright. The engine is the representative
-          # image for that repository — the other components build from the same shared
-          # libraries, so scanning it covers them. Every other repository has a single
-          # server.Dockerfile and is untouched by this, as is any explicit build target.
-          if [[ "$REPO_NAME" == "novatalks.core" && "$BUILD_TARGET" == scan* ]]; then
-            echo "scan tag on novatalks.core: building the engine as the representative image"
+          # A scan* or apiscan* tag names a trigger, not a build target, so it falls
+          # through to the else branch and server.Dockerfile — which novatalks.core does
+          # not have: it ships engine, reporting, restore-historical and
+          # message-source-id instead, so a scan tag there failed the build outright.
+          # The engine is the representative image for that repository — the other
+          # components build from the same shared libraries, so scanning it covers them,
+          # and the api-scan job needs the engine image specifically. Every other
+          # repository has a single server.Dockerfile and is untouched by this, as is any
+          # explicit build target.
+          if [[ "$REPO_NAME" == "novatalks.core" && ( "$BUILD_TARGET" == scan* || "$BUILD_TARGET" == apiscan* ) ]]; then
+            echo "scan/apiscan tag on novatalks.core: building the engine as the representative image"
             BUILD_TARGET="build-engine"
           fi
 
@@ -1156,11 +1158,81 @@ jobs:
           prerelease: true
           files: ${{ env.REPORT_FILE }}
 
+  api-scan:
+    name: API Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+    # Opt-in only: an apiscan* tag on novatalks.core. The authenticated scan is a
+    # 341-operation run against a seeded stack, not something every build should pay for.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-image.result == 'success'
+      && github.event.repository.name == 'novatalks.core'
+      && startsWith(github.ref_name, 'apiscan') }}
+    needs: [build-image]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.dast_api.outputs.outcome }}
+      FINDINGS: ${{ steps.dast_api.outputs.findings }}
+      FAILURES: ${{ steps.dast_api.outputs.failures }}
+      MESSAGE: ${{ steps.dast_api.outputs.message }}
+    env:
+      DAST_TARGET_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ needs.build-image.outputs.REP_NAME }}:${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+      REPORT_FILE: zap-api-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+    steps:
+      - name: Checkout
+        # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
+        # the tag in build-image, which has already finished by the time this job runs.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull built image
+        run: docker pull --platform linux/amd64 "$DAST_TARGET_IMAGE"
+
+      - name: ZAP API scan
+        id: dast_api
+        uses: novaitdevteam/nova.ci/.github/actions/dast-api@main
+        with:
+          image: ${{ env.DAST_TARGET_IMAGE }}
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      - name: Publish report release
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter, trivy-scan, unit-test, sast-scan, dast-scan]
+    needs: [build-image, linter, trivy-scan, unit-test, sast-scan, dast-scan, api-scan]
     steps:
       - name: Compose Trivy line
         id: trivy_line
@@ -1251,6 +1323,32 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Compose API-scan line
+        id: api_scan_line
+        env:
+          RESULT: ${{ needs.api-scan.result }}
+          SCANNED: ${{ needs.api-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.api-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # Four states reach here and none of them may be silent: not scanned at all,
+          # scanned with a verdict scan.sh already worded, or a job that died before
+          # scan.sh could word anything.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="🕷 API Scan (ZAP): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -1277,6 +1375,8 @@ jobs:
             ${{ steps.sast_line.outputs.value }}
 
             ${{ steps.dast_line.outputs.value }}
+
+            ${{ steps.api_scan_line.outputs.value }}
 
             Repository: ${{ github.repository }}
             See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
