@@ -188,6 +188,20 @@ else
   fail=1
 fi
 
+section "DAST API scan self-check"
+# The authenticated api-scan action shares the four-outcome contract with the baseline
+# but adds one precondition class of its own — boot, migrate, seed, log in, fetch the
+# spec — each its own loud skip. docker and curl are stubbed, same as the baseline
+# check above; no image, no network, no real ZAP.
+if out="$(./scripts/test-dast-api-scan.sh 2>&1)"; then
+  printf '%s\n' "$out" | tail -1
+  echo "OK: all dast-api scan.sh scenarios passed"
+else
+  printf '%s\n' "$out"
+  echo "ERROR: dast-api scan.sh self-check failed"
+  fail=1
+fi
+
 section "Scanner invocation"
 # The install-and-scan logic lives in .github/actions/gitleaks only. A workflow that
 # calls the binary or the upstream action itself is the copy-paste that action exists
@@ -228,20 +242,21 @@ else
   fail=1
 fi
 
-# Same argument again: the pin and the harness live in .github/actions/dast, and a
-# workflow that shells out to zap-baseline.py or zap-full-scan.py directly, or uses a
-# third-party zaproxy action, bypasses the digest pin and the not-run/error distinction.
-# Narrower than the Semgrep guard above on purpose-not-yet-done: it does NOT match a bare
+# Same argument again: the pin and the harness live in .github/actions/dast (baseline)
+# and .github/actions/dast-api (authenticated), and a workflow that shells out to
+# zap-baseline.py, zap-full-scan.py or zap-api-scan.py directly, or uses a third-party
+# zaproxy action, bypasses the digest pin and the not-run/error distinction. Narrower
+# than the Semgrep guard above on purpose-not-yet-done: it does NOT match a bare
 # `docker run ghcr.io/zaproxy/zaproxy`, because ZAP is normally driven through one of the
-# two scripts above. Say so rather than claim coverage this pattern does not have - a
+# three scripts above. Say so rather than claim coverage this pattern does not have - a
 # guard described as stronger than it is, is worse than an honestly narrow one.
-zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
+zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|zap-api-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$zap_offenders" ]; then
   echo "OK: no workflow runs ZAP directly"
 else
   printf '%s\n' "$zap_offenders" | sed 's/^/       /'
-  echo "ERROR: these lines invoke ZAP directly; use .github/actions/dast"
+  echo "ERROR: these lines invoke ZAP directly; use .github/actions/dast or .github/actions/dast-api"
   fail=1
 fi
 

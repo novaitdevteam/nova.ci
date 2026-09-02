@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+#
+# Boot novatalks.core's engine against ephemeral postgres and redis, run its own
+# migrations and seed, log in as the seeded admin, and run zap-api-scan.py in safe mode
+# against the engine's own OpenAPI spec. Reports one of the same four outcomes as the
+# baseline DAST scan — clean, findings, not-run, error — for the same reason: a boot,
+# migration, seed or login failure produces the same empty result a clean scan would,
+# and reporting that as clean is the failure this job exists to avoid.
+#
+# Zero secrets stored: the database is ours and dies with this job, so the admin
+# password is generated here, used once to log in, and never written anywhere. The JWT
+# that login returns reaches ZAP only as a replacer rule on the docker command line —
+# the same visibility the generated password already has — and is never echoed to
+# stdout/stderr. ZAP itself echoes that replacer config back on its own stdout, which is
+# exactly why the console log carrying it is deleted in the trap below and never
+# uploaded, same rule as the baseline's own console log.
+#
+# Safe mode (-S) is mandatory: without it, zap-api-scan.py actively scans, i.e. sends
+# real POST/PUT/DELETE against the seeded API using the very session this script just
+# created. -f openapi drives the scan from the spec's real routes rather than a spider —
+# a NestJS SPA-less API has no pages to spider in the first place.
+#
+set -euo pipefail
+
+: "${DAST_IMAGE:?}" "${ZAP_IMAGE:?}" "${DAST_REPORT_FILE:?}" "${DAST_ACTION_ROOT:?}"
+
+# shellcheck source=.github/actions/dast/dast-common.sh
+. "${DAST_ACTION_ROOT}/../dast/dast-common.sh"
+
+# generated per run, never stored, never echoed
+ADMIN_USER="nova-ci-apiscan@local"
+ADMIN_PASS="$(openssl rand -hex 24)"
+
+DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
+# This action exists for one repository's engine only (novatalks.core), so the port and
+# routes below are constants, not inputs — see the "Resolve DAST target" case arm in
+# ci-build-ntk-on-push-tags-build.yaml, which names the same port and health path for
+# the baseline scan of the same image.
+DAST_PORT=3000
+target="http://127.0.0.1:${DAST_PORT}"
+health_url="${target}/livez"
+spec_url="${target}/api-docs-json"
+
+zap_out="${RUNNER_TEMP:-/tmp}/zap-api.md"
+zap_console="${RUNNER_TEMP:-/tmp}/zap-api-console.log"
+# The triage register: which api-scan findings must be fixed, which are accepted, and
+# why. Its own file, not the baseline's zap-baseline.conf — api-scan loads a different
+# rule set (write-path checks the unauthenticated baseline never reaches), so the two
+# registers are never interchangeable.
+zap_conf_src="${DAST_ACTION_ROOT}/zap-api-scan.conf"
+zap_conf="${RUNNER_TEMP:-/tmp}/zap-api-scan.conf"
+spec_file="${RUNNER_TEMP:-/tmp}/dast-api-spec.json"
+
+emit() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
+
+emit_message() {
+    {
+        echo "message<<DAST_API_EOF"
+        printf '%s\n' "$1"
+        echo "DAST_API_EOF"
+    } >> "${GITHUB_OUTPUT:-/dev/null}"
+}
+
+cleanup() {
+    docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
+    # The console log carries the JWT in ZAP's own replacer echo, and the spec file is a
+    # scratch copy of a public route — neither belongs on a pooled, reused runner past
+    # this process's own lifetime.
+    rm -f "$zap_console" "$spec_file" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+summary() { # summary <alert> <headline>
+    {
+        echo "## 🕷 DAST (ZAP API scan)"
+        echo ""
+        echo "> [!$1]"
+        echo "> $2"
+        echo ""
+        echo "- Image: \`${DAST_IMAGE}\`"
+        echo "- Spec: \`${spec_url}\`"
+        echo "- Report: ${REPORT_URL:-not published}"
+    } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+}
+
+not_run() { # not_run <reason>
+    echo "::warning::DAST API scan did not run: $1"
+    emit outcome not-run
+    emit findings 0
+    emit failures 0
+    emit_message "🕷 DAST (ZAP API): ⚠️ not run — $1"
+    summary WARNING "Scan did not run: $1. This is not a clean result."
+    { echo "=== DAST API: not run ==="; echo "$1"; } > "$DAST_REPORT_FILE"
+    exit 0
+}
+
+scanner_error() { # scanner_error <reason>
+    echo "::error::DAST API scanner failed: $1"
+    emit outcome error
+    emit findings 0
+    emit failures 0
+    emit_message "🕷 DAST (ZAP API): ❌ scanner failed — $1"
+    summary CAUTION "The scanner itself failed: $1. This is a broken gate."
+    exit 2
+}
+
+# Validated before anything is booted, same reasoning as the baseline: a broken register
+# means ZAP silently applies a policy nobody wrote, and finding that out after a
+# five-minute boot-and-seed helps nobody.
+[ -r "$zap_conf_src" ] || scanner_error "the ZAP API triage register is missing or unreadable: ${zap_conf_src}"
+
+conf_bad="$(awk -F'\t' '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    NF < 3 { printf "line %d: fewer than three tab-separated fields; ", NR; next }
+    $2 != "PASS" && $2 != "IGNORE" && $2 != "INFO" && $2 != "WARN" && $2 != "FAIL" && $2 != "OUTOFSCOPE" {
+        printf "line %d: unknown level \"%s\"; ", NR, $2 }
+' "$zap_conf_src")"
+[ -z "$conf_bad" ] || scanner_error "the ZAP API triage register is malformed — ${conf_bad}"
+cp "$zap_conf_src" "$zap_conf"
+
+# --- postgres and redis, identical shape to dast/scan.sh's needs-db block ------------
+docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+docker run -d --name nova-pg -p 5432:5432 \
+    -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
+    -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
+    -e POSTGRES_DB="${DATABASE_NAME:-db_name}" \
+    ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie \
+    || not_run "postgres did not start"
+docker run -d --name nova-redis -p 6379:6379 redis:8.6.4 || not_run "redis did not start"
+for _ in $(seq 1 30); do
+    docker exec nova-pg pg_isready -U "${DATABASE_USERNAME:-postgres}" >/dev/null 2>&1 && break
+    sleep 2
+done
+docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
+    psql -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
+    -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null 2>&1 || true
+
+# --- the engine, seeded with the admin this run generates ----------------------------
+# SWAGGER_ENABLE and NODE_ENV=production: without both, /api-docs-json comes back empty
+# and step 6 below reports a loud skip rather than guessing a route exists.
+# DEFAULT_USER_PASSWORD reaches the container from the shell variable generated above,
+# never typed as a literal anywhere — the action.yml that calls this script carries no
+# credential at all.
+docker rm -f nova-app >/dev/null 2>&1 || true
+docker run -d --name nova-app --network host \
+    -e SWAGGER_ENABLE=true -e NODE_ENV=production \
+    -e DEFAULT_ADMIN_USER="$ADMIN_USER" \
+    -e DEFAULT_USER_PASSWORD="$ADMIN_PASS" \
+    -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
+    -e DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}" \
+    -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}" \
+    -e DATABASE_NAME="${DATABASE_NAME:-db_name}" \
+    -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
+    -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
+    "$DAST_IMAGE" || true
+# A container that failed to even start here has no process for the exec below to
+# reach either (docker exec against a container that never started fails on its own),
+# so this cascades into the same "database setup failed" loud skip below rather than
+# needing a second not_run of its own. The `|| true` only keeps `set -e` from killing
+# the script before that exec ever runs — a real failure here is still caught one line
+# down.
+
+# create+migrate+seed in one script; the seeder reads DEFAULT_ADMIN_USER/
+# DEFAULT_USER_PASSWORD directly, so the admin generated above is exactly who this logs
+# in as two steps down.
+docker exec nova-app sh -c 'npm run db:setup:prod' >/dev/null 2>&1 \
+    || not_run "database setup failed"
+
+# --- boot ------------------------------------------------------------------------------
+booted=no
+attempts=$(( DAST_BOOT_TIMEOUT / 2 ))
+[ "$attempts" -ge 1 ] || attempts=1
+for _ in $(seq 1 "$attempts"); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$health_url" || true)"
+    if [ -n "$code" ] && [ "$code" != "000" ]; then booted=yes; break; fi
+    sleep 2
+done
+
+if [ "$booted" != "yes" ]; then
+    docker logs --tail 40 nova-app 2>&1 | sed 's/^/    /' || true
+    not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
+fi
+
+# --- log in as the seeded admin --------------------------------------------------------
+# -D - dumps headers to stdout, -o /dev/null discards the body: the JWT is read straight
+# out of the captured header block and never touches a file or a log line. The password
+# is used exactly once, right here.
+login_headers="$(curl -s -D - -o /dev/null -X POST "${target}/auth/sign_in" \
+    -H 'Content-Type: application/json' \
+    -H 'User-Agent: nova-ci-apiscan' \
+    -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" 2>/dev/null || true)"
+
+# `|| true` on each extraction: with pipefail, grep finding no matching header (the
+# expected shape of a failed/no-token login) exits 1, and that would otherwise
+# propagate through the pipe and trip `set -e` before not_run ever gets a chance to
+# report it as the loud skip it is.
+JWT="$(printf '%s' "$login_headers" | tr -d '\r' \
+    | grep -i '^authorization:' | head -1 \
+    | sed -E 's/^[Aa]uthorization: *//' | sed -E 's/^[Bb]earer +//' || true)"
+if [ -z "$JWT" ]; then
+    # Fallback for a cookie-session login rather than a bearer header.
+    JWT="$(printf '%s' "$login_headers" | tr -d '\r' \
+        | grep -i '^set-cookie:' | grep -i 'authentication=' | head -1 \
+        | sed -E 's/.*[Aa]uthentication=([^;]*).*/\1/' || true)"
+fi
+[ -n "$JWT" ] || not_run "login did not return a token"
+
+# --- fetch the engine's own OpenAPI spec -----------------------------------------------
+curl -s -o "$spec_file" "${target}/api-docs-json" || true
+jq -e '.paths | length > 0' "$spec_file" >/dev/null 2>&1 \
+    || not_run "the OpenAPI spec was empty — SWAGGER_ENABLE?"
+op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo 0)"
+
+# --- scan --------------------------------------------------------------------------
+# -S is mandatory: without it zap-api-scan.py active-scans, i.e. real writes against the
+# seeded API. -f openapi drives from the spec's real routes, not a spider. The JWT is
+# injected on every request via a replacer rule so ZAP need not model the login itself;
+# -c/-w and the report/summary shape follow the baseline scan exactly.
+#
+# --user: same reasoning as the baseline — /zap/wrk is a bind mount of RUNNER_TEMP on a
+# pooled runner, and the zaproxy image's own uid may not have write access to it.
+set +e
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+    -v "$(dirname "$zap_out"):/zap/wrk:rw" "$ZAP_IMAGE" \
+    zap-api-scan.py -t "$spec_url" -f openapi -S -I \
+    -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" \
+    -z "-config replacer.full_list(0).description=auth \
+        -config replacer.full_list(0).enabled=true \
+        -config replacer.full_list(0).matchtype=REQ_HEADER \
+        -config replacer.full_list(0).matchstr=Authorization \
+        -config replacer.full_list(0).replacement=Bearer ${JWT}" \
+    2>&1 | tee "$zap_console"
+zap_rc=${PIPESTATUS[0]}
+set -e
+
+# Same ladder as zap-baseline.py, verified against the same zap_common.py source: 0
+# passes only, 1 is a FAIL-level finding (not a broken scanner — -I does not suppress
+# it), 2 is warnings with -I absent (unreachable while -I is passed, kept so removing
+# -I never silently turns a findings run into a broken-gate report).
+case "$zap_rc" in
+    0|1|2) : ;;
+    *)     scanner_error "zap-api-scan.py exited ${zap_rc}" ;;
+esac
+
+[ -s "$zap_out" ] || scanner_error "ZAP produced no report"
+
+zap_tally_parse "$zap_console" scanner_error
+
+{
+    echo "=============================="
+    echo " DAST: OWASP ZAP API scan"
+    echo " Image:      ${DAST_IMAGE}"
+    echo " Spec:       ${spec_url}"
+    echo " Operations: ${op_count}"
+    echo "=============================="
+    echo ""
+    echo "must fix (FAIL):   ${failures}"
+    echo "warnings (WARN):   ${findings}"
+    echo "informational:     ${infos}"
+    echo "accepted (IGNORE): ${accepted}"
+    echo "passed:            ${passes}"
+    echo ""
+    cat "$zap_out"
+} > "$DAST_REPORT_FILE"
+
+emit failures "$failures"
+
+if [ "$failures" -gt 0 ]; then
+    echo "::warning::ZAP API scan reported ${failures} must-fix and ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    emit outcome findings
+    emit findings "$findings"
+    emit_message "🕷 DAST (ZAP API): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🔴 ${failures} must-fix and ${findings} warning(s) — the register marks these as blocking."
+elif [ "$findings" -gt 0 ]; then
+    echo "::warning::ZAP API scan reported ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    emit outcome findings
+    emit findings "$findings"
+    emit_message "🕷 DAST (ZAP API): 🟡 ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "⚠️ ${findings} api-scan warning(s) — review the report."
+else
+    emit outcome clean
+    emit findings 0
+    emit_message "🕷 DAST (ZAP API): 🟢 clean · ${op_count} operations · ${infos} info · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary NOTE "✅ No must-fix or warning findings across ${op_count} operations. ${infos} informational, ${accepted} accepted by the triage register."
+fi
+
+echo "ZAP API scan — operations: ${op_count}, must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"
