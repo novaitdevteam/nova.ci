@@ -309,9 +309,9 @@ Preserve these behaviors:
 ## SAST and DAST Semantics
 
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
-repositories) and `dast-scan` (OWASP ZAP baseline, nine repositories: `novatalks.ui`,
-`novatalks.core`, `nova.botflow`, the telegram, whatsapp and signal chatsconnectors, and
-`novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api`)
+repositories) and `dast-scan` (OWASP ZAP baseline, three browser-surface repositories:
+`novatalks.ui`, `novatalks.core`, `nova.botflow`; six headless ones were removed on
+2026-09-01, tracked for the api-scan expansion — see below)
 after `trivy-scan`, both delegating to a composite action. Three scanners, three
 questions: Semgrep reads our source, Trivy reads the image, ZAP probes the running app.
 Gitleaks covers secrets; ESLint answers none of them. See `docs/sast-dast.md`.
@@ -411,36 +411,40 @@ Preserve these behaviors:
   vendored into `security/`. `ERROR` and `WARNING` are both counted and both listed in
   the report body — there is no `severity` input to narrow that. `INFO` is counted for
   the job summary only, kept out of the report body.
-- **DAST scope is nine repositories** — `novatalks.ui`, `novatalks.core`,
-  `nova.botflow`, `nova.chatsconnector.telegram-client-api`,
-  `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api`,
-  `novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api` —
-  gated on `github.event.repository.name` like the `postgres:17.9-trixie` and R2
-  exceptions. A `Resolve DAST target` step (the same house pattern as `Resolve scan
-  policy` in `trivy-scan`) resolves port, health path, `needs-db`, `needs-nats` and
-  `extra-env` per
-  repository via a `case` statement, one arm per repository with every value set explicitly; the
-  default arm `::error::`s and exits non-zero rather than guessing. The four repos after
-  the original two (`nova.botflow` and the chatsconnectors) have no dedicated HTTP
-  health route (their charts probe over `tcpSocket`), so their health path is `/` — the
-  boot wait-loop accepts any HTTP response, 404 included, since it only tests that the
-  process is listening. `nova.botflow` brings up both redis and postgres since its
-  storage backend is configurable. The signal connector's own default branch is a
-  feature branch, not a trunk name, so it only reaches `dast-scan` via an explicit
-  `scan*` tag. `novatalks.dialer` is in the deployment chart (port 3000, `/livez`) and is
-  the only arm with `needs-nats: true` — it reaches NestJS startup and then dies with
-  `ECONNREFUSED ::1:4222` without one; `scan.sh` brings up a bare, unconfigured
-  `nats:2.10-alpine` (tag-pinned like `postgres:16`/`redis:8`, not digest-pinned like the
-  scanners) and forces `-e NATS_SERVERS=127.0.0.1:4222` onto the app container after
-  `--env-file`, since the observed failure was IPv6 resolution of `localhost`, not a
-  missing server. `novatalks.uspacy.connector` and `novatalks.geoip-api` are not, so their port comes
-  from `docker/server.Dockerfile`'s `EXPOSE 3000` and their health path is `/` for the
-  same tcpSocket-style reason. `novatalks.geoip-api`'s `needs-db: false` is an inference
-  (no ORM dependency, a five-variable `.env.example`), not a verified fact like the
-  others — flip it if a real run wants a database. Adding a tenth repository needs an
-  explicit request **and a boot probe first**: port, health path, boot timeout and
-  database needs are per-repository inputs, and a wrong path scans an error page and
-  reports it clean.
+- **DAST baseline scope is three browser-surface repositories** — `novatalks.ui`
+  (Vue SPA, port 8000, `/livez`), `novatalks.core` (dashboard, 3000, `/livez`,
+  `needs-db`) and `nova.botflow` (Node-RED editor, 1880, `/`, `needs-db`) — gated on
+  `github.event.repository.name` like the `postgres:17.9-trixie` and R2 exceptions. The
+  ZAP baseline is a browser tool: it spiders HTML and checks header/cookie hygiene, so
+  it only earns its keep where there is a browser surface to spider. A `Resolve DAST
+  target` step (the same house pattern as `Resolve scan policy` in `trivy-scan`)
+  resolves port, health path, `needs-db`, `needs-nats` and `extra-env` per repository
+  via a `case` statement, one arm per repository with every value set explicitly; the
+  default arm `::error::`s and exits non-zero rather than guessing. `nova.botflow` has no
+  dedicated HTTP health route (its chart probes over `tcpSocket`), so its health path is
+  `/` — the boot wait-loop accepts any HTTP response, 404 included, since it only tests
+  that the process is listening; do not "fix" it to `/livez`. It brings up both redis and
+  postgres since its storage backend is configurable. Adding a fourth needs an explicit
+  request, a real browser surface, **and a boot probe first**: port and health path
+  verified against the chart or Dockerfile, never guessed.
+- **Six headless repositories were removed from the baseline on 2026-09-01**, tracked
+  for the authenticated api-scan expansion: `nova.chatsconnector.{telegram,whatsapp,signal}-client-api`
+  (all 3000, `/`, `needs-db`), `novatalks.dialer` (3000, `/livez`, `needs-db`,
+  `needs-nats`), `novatalks.uspacy.connector` (3000, `/`, `needs-db`) and
+  `novatalks.geoip-api` (3000, `/`, no db — an inference, not a verified fact). They are
+  JSON APIs with no browser surface, so the baseline measured almost nothing on them.
+  Their real coverage is the authenticated `api-scan` (OpenAPI-driven, `novatalks.core`
+  only today); extending it to the four connectors that publish a spec (telegram,
+  whatsapp, signal, dialer) is a per-repo tracked expansion, and `uspacy`/`geoip` have no
+  OpenAPI spec. The verified ports/health/db facts above are kept for that work — they
+  were established against the chart and Dockerfiles, not guessed. The `needs-nats` input
+  still exists on `dast/action.yml` (and its NATS bring-up in `scan.sh`); no arm sets it
+  `true` today because `novatalks.dialer` no longer reaches the baseline — but the
+  api-scan work will need it: dialer reaches NestJS startup and dies with
+  `ECONNREFUSED ::1:4222` without a NATS on 4222, and `scan.sh` brings up a bare,
+  unconfigured `nats:2.10-alpine` (tag-pinned like `postgres:16`/`redis:8`) forcing
+  `-e NATS_SERVERS=127.0.0.1:4222` after `--env-file`, since the failure was IPv6
+  resolution of `localhost`, not a missing server.
 - **`.env.example` is documentation and must not decide anything the scan depends on.**
   Four boot failures traced back to trusting it literally: a trailing `//` comment glued
   onto `NODE_ENV`, dotenv-style surrounding quotes that `docker --env-file` does not
@@ -451,7 +455,9 @@ Preserve these behaviors:
   `needs-db`) after `--env-file`. It logs counts and names, never values.
 - **`dast/action.yml`'s `extra-env` is the per-repository escape hatch** for template
   values no filter can fix — newline-separated `KEY=VALUE`, applied as `-e` flags after
-  `--env-file` so each overrides the seeded value. Used by three arms:
+  `--env-file` so each overrides the seeded value. The input still exists on the action,
+  but no resolver arm uses it today — the three that did are all removed headless repos,
+  knowledge kept for the api-scan expansion:
   `nova.chatsconnector.telegram-client-api` (four blanks its Joi schema rejects one per
   CI run), `nova.chatsconnector.signal-client-api` (an `S3_ENDPOINT` written as
   `https://<account-id>.…`, plus the blanks behind it), and `novatalks.dialer` (five
