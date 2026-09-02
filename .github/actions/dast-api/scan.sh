@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 #
-# Boot novatalks.core's engine against ephemeral postgres and redis, run its own
-# migrations and seed, log in as the seeded admin, and run zap-api-scan.py in safe mode
-# against the engine's own OpenAPI spec. Reports one of the same four outcomes as the
-# baseline DAST scan — clean, findings, not-run, error — for the same reason: a boot,
-# migration, seed or login failure produces the same empty result a clean scan would,
-# and reporting that as clean is the failure this job exists to avoid.
+# Boot an application against ephemeral postgres and redis, run its own migrations and
+# seed, acquire an auth token, and run zap-api-scan.py in safe mode against the app's own
+# OpenAPI spec. Reports one of the same four outcomes as the baseline DAST scan — clean,
+# findings, not-run, error — for the same reason: a boot, migration, seed or auth
+# failure produces the same empty result a clean scan would, and reporting that as clean
+# is the failure this job exists to avoid.
+#
+# Two auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
+# reads the token from the response (novatalks.core's engine); `db-token` reads a token
+# straight out of the seeded database with a caller-supplied SELECT (a connector with a
+# DB-backed token in a header of its own name). Both end with a bare token in $TOKEN,
+# re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
 #
 # Zero secrets stored: the database is ours and dies with this job, so the admin
-# password is generated here and used once to log in. The JWT that login returns reaches
-# ZAP as a replacer rule on the docker command line, and ZAP echoes that replacer config
-# — token included — back on its own stdout. This repo is public, so that stdout is a
+# password is generated here and used once to log in. The token reaches ZAP as a
+# replacer rule on the docker command line, and ZAP echoes that replacer config — token
+# included — back on its own stdout. This repo is public, so that stdout is a
 # world-readable, GitHub-persisted step log the instant it is written; deleting a local
-# file cannot undo that. The JWT is masked from the log with `::add-mask::` as soon as
-# login confirms it (see below), and the console file that carries it is still deleted
+# file cannot undo that. The token is masked from the log with `::add-mask::` as soon as
+# it is acquired (see below), and the console file that carries it is still deleted
 # in the trap — belt and suspenders, not full containment on the file alone.
 #
 # Safe mode (-S) is mandatory: without it, zap-api-scan.py actively scans, i.e. sends
@@ -33,14 +39,15 @@ ADMIN_USER="nova-ci-apiscan@local"
 ADMIN_PASS="$(openssl rand -hex 24)"
 
 DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
-# This action exists for one repository's engine only (novatalks.core), so the port and
-# routes below are constants, not inputs — see the "Resolve DAST target" case arm in
+# Port and routes are inputs (see action.yml), each defaulted to the value
+# novatalks.core's engine has always used, so an unconfigured caller is byte-identical
+# to before this action took connectors — see the "Resolve DAST target" case arm in
 # ci-build-ntk-on-push-tags-build.yaml, which names the same port and health path for
 # the baseline scan of the same image.
-DAST_PORT=3000
+DAST_PORT="${DAST_PORT:-3000}"
 target="http://127.0.0.1:${DAST_PORT}"
-health_url="${target}/livez"
-spec_url="${target}/api-docs-json"
+health_url="${target}${DAST_HEALTH_PATH:-/livez}"
+spec_url="${target}${DAST_SPEC_PATH:-/api-docs-json}"
 
 zap_out="${RUNNER_TEMP:-/tmp}/zap-api.md"
 zap_console="${RUNNER_TEMP:-/tmp}/zap-api-console.log"
@@ -64,8 +71,8 @@ emit_message() {
 
 cleanup() {
     docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
-    # The console log carries the JWT in ZAP's own replacer echo — already masked out of
-    # the step log by ::add-mask:: below, but the local copy still doesn't belong on a
+    # The console log carries the token in ZAP's own replacer echo — already masked out
+    # of the step log by ::add-mask:: below, but the local copy still doesn't belong on a
     # pooled, reused runner past this process's own lifetime. The spec file is a scratch
     # copy of a public route; same reasoning, lower stakes.
     rm -f "$zap_console" "$spec_file" >/dev/null 2>&1 || true
@@ -140,13 +147,34 @@ docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
 
 # --- the engine, seeded with the admin this run generates ----------------------------
 # SWAGGER_ENABLE and NODE_ENV=production: without both, /api-docs-json comes back empty
-# and step 6 below reports a loud skip rather than guessing a route exists.
+# and step 6 below reports a loud skip rather than guessing a route exists. SWAGGER_ENABLE
+# is gated on the swagger-enable input (default true, i.e. unchanged for core) — a
+# connector may not have the var at all, and setting it there is harmless but dishonest.
+# NODE_ENV=production stays unconditional: harmless for a connector, needed by core.
 # DEFAULT_USER_PASSWORD reaches the container from the shell variable generated above,
 # never typed as a literal anywhere — the action.yml that calls this script carries no
 # credential at all.
+app_env_args=()
+[ "${DAST_SWAGGER_ENABLE:-true}" = "true" ] && app_env_args+=(-e SWAGGER_ENABLE=true)
+
+# extra-env: a per-repository escape hatch, same shape as the baseline dast/scan.sh —
+# one -e per non-empty line, never word-split, so a value containing spaces or `=`
+# survives intact.
+extra_env_args=()
+if [ -n "${DAST_EXTRA_ENV:-}" ]; then
+    while IFS= read -r extra_line || [ -n "$extra_line" ]; do
+        trimmed="${extra_line#"${extra_line%%[![:space:]]*}"}"
+        trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+        [ -z "$trimmed" ] && continue
+        extra_env_args+=(-e "$trimmed")
+    done <<< "$DAST_EXTRA_ENV"
+fi
+
 docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
-    -e SWAGGER_ENABLE=true -e NODE_ENV=production \
+    ${app_env_args[@]+"${app_env_args[@]}"} \
+    -e NODE_ENV=production \
+    ${extra_env_args[@]+"${extra_env_args[@]}"} \
     -e DEFAULT_ADMIN_USER="$ADMIN_USER" \
     -e DEFAULT_USER_PASSWORD="$ADMIN_PASS" \
     -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
@@ -166,7 +194,7 @@ docker run -d --name nova-app --network host \
 # create+migrate+seed in one script; the seeder reads DEFAULT_ADMIN_USER/
 # DEFAULT_USER_PASSWORD directly, so the admin generated above is exactly who this logs
 # in as two steps down.
-docker exec nova-app sh -c 'npm run db:setup:prod' >/dev/null 2>&1 \
+docker exec nova-app sh -c "${DAST_SETUP_CMD:-npm run db:setup:prod}" >/dev/null 2>&1 \
     || not_run "database setup failed"
 
 # --- boot ------------------------------------------------------------------------------
@@ -184,47 +212,68 @@ if [ "$booted" != "yes" ]; then
     not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
 fi
 
-# --- log in as the seeded admin --------------------------------------------------------
-# -D - dumps headers to stdout, -o /dev/null discards the body: the JWT is read straight
-# out of the captured header block and never touches a file or a log line. The password
-# is used exactly once, right here.
-login_headers="$(curl -s -D - -o /dev/null -X POST "${target}/auth/sign_in" \
-    -H 'Content-Type: application/json' \
-    -H 'User-Agent: nova-ci-apiscan' \
-    -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" 2>/dev/null || true)"
+# --- acquire the auth token -------------------------------------------------------------
+# login: -D - dumps headers to stdout, -o /dev/null discards the body — the token is read
+# straight out of the captured header block and never touches a file or a log line. The
+# password is used exactly once, right here. The bare token is stored (a leading `Bearer `
+# is stripped if the response header carried one) so DAST_AUTH_PREFIX is applied
+# uniformly at injection for both modes.
+#
+# db-token: the seeder already ran (above), so the token it wrote is read straight out
+# of the database with the caller's own SELECT — robust against a seeder that never
+# prints the token anywhere, and generalises past parsing console output.
+case "${DAST_AUTH_MODE:-login}" in
+    login)
+        login_headers="$(curl -s -D - -o /dev/null -X POST "${target}${DAST_LOGIN_PATH:-/auth/sign_in}" \
+            -H 'Content-Type: application/json' \
+            -H 'User-Agent: nova-ci-apiscan' \
+            -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" 2>/dev/null || true)"
 
-# `|| true` on each extraction: with pipefail, grep finding no matching header (the
-# expected shape of a failed/no-token login) exits 1, and that would otherwise
-# propagate through the pipe and trip `set -e` before not_run ever gets a chance to
-# report it as the loud skip it is.
-JWT="$(printf '%s' "$login_headers" | tr -d '\r' \
-    | grep -i '^authorization:' | head -1 \
-    | sed -E 's/^[Aa]uthorization: *//' | sed -E 's/^[Bb]earer +//' || true)"
-if [ -z "$JWT" ]; then
-    # Fallback for a cookie-session login rather than a bearer header.
-    JWT="$(printf '%s' "$login_headers" | tr -d '\r' \
-        | grep -i '^set-cookie:' | grep -i 'authentication=' | head -1 \
-        | sed -E 's/.*[Aa]uthentication=([^;]*).*/\1/' || true)"
-fi
-[ -n "$JWT" ] || not_run "login did not return a token"
+        # `|| true` on each extraction: with pipefail, grep finding no matching header
+        # (the expected shape of a failed/no-token login) exits 1, and that would
+        # otherwise propagate through the pipe and trip `set -e` before not_run ever
+        # gets a chance to report it as the loud skip it is.
+        TOKEN="$(printf '%s' "$login_headers" | tr -d '\r' \
+            | grep -i '^authorization:' | head -1 \
+            | sed -E 's/^[Aa]uthorization: *//' | sed -E 's/^[Bb]earer +//' || true)"
+        if [ -z "$TOKEN" ]; then
+            # Fallback for a cookie-session login rather than a bearer header.
+            TOKEN="$(printf '%s' "$login_headers" | tr -d '\r' \
+                | grep -i '^set-cookie:' | grep -i 'authentication=' | head -1 \
+                | sed -E 's/.*[Aa]uthentication=([^;]*).*/\1/' || true)"
+        fi
+        ;;
+    db-token)
+        [ -n "${DAST_TOKEN_SQL:-}" ] || scanner_error "db-token mode needs a token-sql query"
+        TOKEN="$(docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
+            psql -tAq -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
+            -c "$DAST_TOKEN_SQL" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+        ;;
+    *) scanner_error "unknown auth-mode: ${DAST_AUTH_MODE}" ;;
+esac
 
-# Redact the JWT from the GitHub Actions step log. ZAP echoes the replacer rule
+# An empty token in either mode — login returned none, or the SELECT matched no row —
+# is a loud skip, never a scan without auth.
+[ -n "$TOKEN" ] || not_run "no auth token (login returned none, or the token query matched no row)"
+
+# Redact the token from the GitHub Actions step log. ZAP echoes the replacer rule
 # (token included) to stdout, and `tee` sends stdout to the persisted step log, which
 # deleting the console file cannot un-write. ::add-mask:: makes the runner replace this
 # exact string wherever it appears in later output — defence in depth, independent of
 # what echoes it. nova.ci is public, so the log is world-readable.
-echo "::add-mask::${JWT}"
+echo "::add-mask::${TOKEN}"
 
 # --- fetch the engine's own OpenAPI spec -----------------------------------------------
-curl -s -o "$spec_file" "${target}/api-docs-json" || true
+curl -s -o "$spec_file" "$spec_url" || true
 jq -e '.paths | length > 0' "$spec_file" >/dev/null 2>&1 \
     || not_run "the OpenAPI spec was empty — SWAGGER_ENABLE?"
 op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo 0)"
 
 # --- scan --------------------------------------------------------------------------
 # -S is mandatory: without it zap-api-scan.py active-scans, i.e. real writes against the
-# seeded API. -f openapi drives from the spec's real routes, not a spider. The JWT is
-# injected on every request via a replacer rule so ZAP need not model the login itself;
+# seeded API. -f openapi drives from the spec's real routes, not a spider. The token is
+# injected on every request via a replacer rule so ZAP need not model the login itself,
+# under the caller's own header and prefix (Authorization/Bearer  for core, unchanged);
 # -c/-w and the report/summary shape follow the baseline scan exactly.
 #
 # --user: same reasoning as the baseline — /zap/wrk is a bind mount of RUNNER_TEMP on a
@@ -237,8 +286,8 @@ docker run --rm --network host --user "$(id -u):$(id -g)" \
     -z "-config replacer.full_list(0).description=auth \
         -config replacer.full_list(0).enabled=true \
         -config replacer.full_list(0).matchtype=REQ_HEADER \
-        -config replacer.full_list(0).matchstr=Authorization \
-        -config replacer.full_list(0).replacement=Bearer ${JWT}" \
+        -config replacer.full_list(0).matchstr=${DAST_AUTH_HEADER:-Authorization} \
+        -config replacer.full_list(0).replacement=${DAST_AUTH_PREFIX-Bearer }${TOKEN}" \
     2>&1 | tee "$zap_console"
 zap_rc=${PIPESTATUS[0]}
 set -e
