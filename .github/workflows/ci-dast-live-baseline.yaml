@@ -47,6 +47,7 @@ jobs:
           esac
 
       - name: ZAP baseline scan
+        id: scan
         env:
           TARGET: ${{ inputs.target }}
           # Same pin as .github/actions/dast/action.yml and .github/actions/dast-api/action.yml
@@ -62,7 +63,29 @@ jobs:
           # itself — the anchor on the tally line's exact shape — is never re-implemented.
           # shellcheck source=.github/actions/dast/dast-common.sh
           . "${GITHUB_WORKSPACE}/.github/actions/dast/dast-common.sh"
-          scanner_error() { echo "::error::$1"; exit 1; }
+
+          # A run is dispatched by hand, so the person who triggered it is already
+          # watching the Actions UI — but the notifier line makes the result land in the
+          # same Telegram/Google Chat channel as every other scan, and gives a stable
+          # link to the report. B has no release to attach to (there is no build), so the
+          # link points at the run, where the report is uploaded as an artifact.
+          emit_message() {
+            {
+              echo "message<<LIVE_EOF"
+              printf '%s\n' "$1"
+              echo "LIVE_EOF"
+            } >> "${GITHUB_OUTPUT:-/dev/null}"
+          }
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # scanner_error emits the notifier line before exiting non-zero, so the Notify
+          # step (which runs on failure too) has something to send rather than falling
+          # back to a generic message.
+          scanner_error() {
+            echo "::error::$1"
+            emit_message "🕷 DAST live baseline (${TARGET}): ❌ scanner failed — $1"$'\n'"   📄 Run: ${run_url}"
+            exit 1
+          }
 
           work_dir="${RUNNER_TEMP:-/tmp}/zap-live"
           mkdir -p "$work_dir"
@@ -119,6 +142,17 @@ jobs:
 
           echo "ZAP live baseline — must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"
 
+          # Same three-state shape as the build notifier, minus a build's must-fix red
+          # (a live baseline is advisory — it never gates anything). The count is stated
+          # so "clean" cannot be misread as "nothing was checked".
+          if [ "$failures" -gt 0 ]; then
+            emit_message "🕷 DAST live baseline (${TARGET}): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Run: ${run_url}"
+          elif [ "$findings" -gt 0 ]; then
+            emit_message "🕷 DAST live baseline (${TARGET}): 🟡 ${findings} warnings"$'\n'"   📄 Run: ${run_url}"
+          else
+            emit_message "🕷 DAST live baseline (${TARGET}): 🟢 clean · ${infos} info · ${accepted} accepted"$'\n'"   📄 Run: ${run_url}"
+          fi
+
       - name: Upload report artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -126,3 +160,22 @@ jobs:
           name: zap-live-baseline-report
           path: report.md
           if-no-files-found: warn
+
+      # Fires for a scan result — clean, findings, or a broken scanner — but not when the
+      # allowlist step rejected the target: that skips the scan step, so this skips too,
+      # and a mistyped target stays a quiet red run instead of channel noise. The token
+      # and webhook are read from this repository's own secrets (a workflow_dispatch run
+      # does not inherit a caller's), and notify/action.yml skips any channel whose
+      # secret is empty — so this degrades to artifact-only if nova.ci has none set,
+      # rather than failing.
+      - name: Notify
+        if: ${{ !cancelled() && steps.scan.conclusion != 'skipped' }}
+        uses: novaitdevteam/nova.ci/.github/actions/notify@main
+        with:
+          # Quoted: the fallback string contains a literal ": " which an unquoted YAML
+          # scalar mis-parses as a mapping (actionlint rejects it even where Ruby's
+          # parser tolerates it).
+          message: "${{ steps.scan.outputs.message || format('🕷 DAST live baseline ({0}): scan did not complete — {1}/{2}/actions/runs/{3}', inputs.target, github.server_url, github.repository, github.run_id) }}"
+          telegram_token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
+          telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
+          gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}
