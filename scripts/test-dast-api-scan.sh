@@ -290,6 +290,9 @@ DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="SELECT token FROM api_tokens ORDER BY 
 SHIM_TOKEN_SQL_RESULT="" \
     expect "db-token mode: empty SELECT is a loud skip" not-run 0
 
+# db-token mode with no token-sql is a broken configuration, not a scan: fail loud.
+DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="" expect "db-token without token-sql is a scanner error" error 2
+
 # login mode still works unchanged (core), with the default Authorization/Bearer header
 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
 WARN-NEW: Some Warning Alert [10038] x 5
