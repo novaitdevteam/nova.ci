@@ -861,6 +861,16 @@ what the container scan lacks.
   path. A larger finding count is duplication, **not broader coverage**: read the report
   for *which* headers or cookies are missing, not for how many times each was flagged.
 
+- **The notification carries the report's own download URL.** There is no release to
+  attach to — there is no build — so the report exists only as a run artifact. The
+  notification therefore links the artifact directly (`📥 Report:`) as well as the run
+  (`📄 Run:`), so reading the alert and reading the report are one click apart rather
+  than three. The scan step emits a verdict line and nothing else: `artifact-url` is an
+  output of the upload step, so it cannot exist before the upload, and a separate
+  `Compose notification` step assembles the links afterwards. If the scan died before
+  writing a report there is no artifact and no `📥` line — offering a download for a file
+  that does not exist is worse than offering none.
+
 The drift-dangerous part — the tally-line parse — is sourced from
 [`dast-common.sh`](../.github/actions/dast/dast-common.sh), never re-implemented inline,
 so this out-of-band workflow cannot silently disagree with the two in-pipeline scanners
