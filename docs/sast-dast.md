@@ -67,6 +67,37 @@ git tag scan-NC2-1234
 git push origin scan-NC2-1234   # builds, then scans the image, the source and the app
 ```
 
+### Semgrep on the pull request
+
+Builds are the evidence path, not the feedback path. An ordinary pull request builds no
+image, so it reaches no `sast-scan` in the build workflow, and without more than that a
+developer first learns about a Semgrep finding after the change is already on trunk —
+the wrong end of the review.
+
+So the switcher carries its **own inline `sast-scan` job**, on `pull_request` for the
+same eleven repositories `secret-scan` covers. It checks out the merge of head into
+base — the code actually being proposed — runs the same pinned `semgrep` action, and
+leaves two things behind:
+
+- the **job summary**, with counts *and the findings themselves*: severity, `path:line`,
+  rule ID and message, capped at 25 with a note naming the artifact when there are more
+- the **`.report` artifact**, always complete
+
+It is **advisory**. `scan.sh` exits non-zero only when the scanner itself broke; findings
+leave the job green. And there is no notifier line: a SAST finding is not the
+pager-worthy event a leaked credential is, and the pull request's checks tab is where it
+will actually be read.
+
+> [!NOTE]
+> **Why inline in the switcher rather than in the build workflow's PR route.** Same
+> reason as `secret-scan`: `novatalks.core`'s pull request route is a two-entry
+> `build_target` matrix (`build-engine`, `build-reporting`), so a job there would scan
+> identical source twice for one event. Source is source — one run per event.
+
+This costs one more job on every pull request in those repositories, queueing against
+the [per-size runner cap](runners.md#sizing-novatalkscore-only) alongside the linter, the
+unit gate and `secret-scan`. That is the price of the feedback being timely.
+
 ### Where a feature build's SAST report goes
 
 The `.report` is uploaded as a run artifact on every build. It is added to the

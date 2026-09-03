@@ -308,6 +308,17 @@ Preserve these behaviors:
 
 ## SAST and DAST Semantics
 
+The switcher carries an **inline `sast-scan` job on `pull_request`** for the same eleven
+repositories `secret-scan` covers. Builds are the evidence path, not the feedback path —
+an ordinary pull request builds no image and so reaches no `sast-scan` in the build
+workflow, which would leave a developer learning about a finding only after it is on
+trunk. It checks out the merge commit, runs the same pinned `semgrep` action, and leaves
+a job summary (counts **plus** the findings: severity, `path:line`, rule ID, message,
+capped at 25 with a `Showing 25 of N` note) and the complete `.report` artifact. It is
+advisory (only a broken scanner reds it) and has no notifier line. It is inline for the
+same reason `secret-scan` is: `novatalks.core`'s PR route is a two-entry `build_target`
+matrix, so a job in the build workflow would scan identical source twice per event.
+
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
 repositories, **every build on any branch**) and `dast-scan` (OWASP ZAP baseline, trunk
 and `scan*` builds only, three browser-surface repositories:

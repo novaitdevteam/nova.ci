@@ -50,7 +50,7 @@ that page is built around: the difference between "found nothing" and "never ran
 invisible in the tools' own output, so it has to be asserted.
 
 [`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh) runs the Semgrep
-[`scan.sh`](../.github/actions/semgrep/scan.sh) against 31 checks with `docker`
+[`scan.sh`](../.github/actions/semgrep/scan.sh) against 43 checks with `docker`
 stubbed by a shim on `PATH`, so it needs no image and no network. It covers a clean run,
 `ERROR` and `WARNING` counted and listed separately (a lone `WARNING` is a finding, not
 a clean scan), `INFO` counted in the job summary but kept out of the report body, and

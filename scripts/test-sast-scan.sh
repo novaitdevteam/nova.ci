@@ -221,5 +221,39 @@ fi
 SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}}],"errors":[],"paths":{"scanned":[]}}' SHIM_RC=0 \
     expect "zero files scanned is an error even with a firing canary" error 0
 
+assert_summary() { # assert_summary <name> <grep-pattern> [--absent]
+    local name="$1" pat="$2" mode="${3:-}"
+    if grep -q "$pat" "$WORK/summary"; then
+        [ "$mode" = "--absent" ] && { echo "FAIL $name"; fail=$((fail + 1)); return; }
+    else
+        [ "$mode" != "--absent" ] && { echo "FAIL $name"; fail=$((fail + 1)); return; }
+    fi
+    echo "ok   $name"; pass=$((pass + 1))
+}
+
+# The findings belong in the job summary, not only in the artifact. A developer reading
+# a pull request's checks tab acts on what is on the screen; a count with a download
+# link behind it is read at the next audit instead.
+SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":"INFO"}},{"check_id":"rule.sqli","path":"src/db.ts","start":{"line":42},"extra":{"severity":"ERROR","message":"tainted input reaches the query"}},{"check_id":"rule.cookie","path":"src/app.ts","start":{"line":7},"extra":{"severity":"WARNING","message":"cookie without secure flag"}}],"errors":[],"paths":{"scanned":["src/db.ts","src/app.ts"]}}' SHIM_RC=1 \
+    expect "findings are listed in the job summary" findings 1
+assert_summary "the summary names the ERROR file and line" "src/db.ts:42"
+assert_summary "the summary names the rule" "rule.sqli"
+assert_summary "the summary carries the message" "tainted input reaches the query"
+assert_summary "the summary lists the WARNING too" "src/app.ts:7"
+assert_summary "the canary is never listed in the summary" "nova-ci-semgrep-canary" --absent
+assert_summary "no truncation note below the cap" "Showing 25 of" --absent
+
+# Above the cap the summary stops being a register and says so, naming the artifact
+# that is still complete. Silently showing 25 of 60 would be the same defect as a
+# count with nothing behind it.
+many=$(jq -cn '{results: ([{check_id:"nova-ci-semgrep-canary",extra:{severity:"INFO"}}] + [range(30) | {check_id:"rule.x", path:"src/a.ts", start:{line:(.+1)}, extra:{severity:"ERROR", message:"m"}}]), errors: [], paths: {scanned: ["src/a.ts"]}}')
+SHIM_JSON="$many" SHIM_RC=1 expect "30 findings still report as 30" findings 30
+assert_summary "the summary says how many of how many it showed" "Showing 25 of 30"
+assert_summary "and names the artifact that has the rest" "artifact"
+
+# A clean scan gets no findings block at all — an empty <details> to open is noise.
+SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 expect "a clean scan lists nothing" clean 0
+assert_summary "no findings block on a clean scan" "<details>" --absent
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
