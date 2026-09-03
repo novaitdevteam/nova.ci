@@ -66,11 +66,14 @@ bucket unconditionally, by `check_id`, and the `canary alone is a clean scan` sc
 holds it to that — there is no severity input to coincide with any more.
 
 [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh) does the same for the ZAP
-[`scan.sh`](../.github/actions/dast/scan.sh) across 112 checks, with `docker` and
+[`scan.sh`](../.github/actions/dast/scan.sh) across 124 checks, with `docker` and
 `curl` stubbed. It asserts the four outcomes stay distinct — `clean`, `findings`,
 `not-run` and `error` — plus the boot wait loop, teardown on every path, that a
-no-database run never starts postgres or redis, the `.env.example` seeding filters, and
-the triage register's shape validation. Its ZAP shim writes the `-w` markdown report and
+no-database run never starts postgres or redis, the `.env.example` seeding filters, the
+triage register's shape validation, and the `scan-mode` fork: `full` runs
+`zap-full-scan.py` with `-j` and loads `zap-full-scan.conf`, an unset mode still runs
+`zap-baseline.py`, and an unrecognised mode is a scanner error. Its ZAP shim writes the
+`-w` markdown report and
 the console stream **separately**, because the real `zap-baseline.py` does: `WARN-NEW`
 lines exist only on stdout, so a scenario whose markdown report is full of alert text but
 carries no `WARN-NEW` proves the count comes from the stream ZAP actually prints it on.

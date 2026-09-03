@@ -24,6 +24,10 @@ inputs:
     description: "Bring up a plain, unconfigured NATS server alongside the application"
     required: false
     default: "false"
+  scan-mode:
+    description: "baseline (default) runs zap-baseline.py — passive, traditional spider. full runs zap-full-scan.py with the modern spider (-j) and the active rule set, which sends real attack payloads; only ever against the ephemeral container this action starts and kills."
+    required: false
+    default: "baseline"
   extra-env:
     description: "Newline-separated KEY=VALUE lines applied to the application container via -e, after --env-file so each overrides the seeded value of the same name. A per-repository escape hatch for a template placeholder in the product repo's own .env.example that the app refuses to boot with — never a place for a real credential."
     required: false
@@ -65,6 +69,7 @@ runs:
         DAST_BOOT_TIMEOUT: ${{ inputs.boot-timeout }}
         DAST_NEEDS_DB: ${{ inputs.needs-db }}
         DAST_NEEDS_NATS: ${{ inputs.needs-nats }}
+        DAST_SCAN_MODE: ${{ inputs.scan-mode }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}

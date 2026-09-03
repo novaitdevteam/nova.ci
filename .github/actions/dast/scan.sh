@@ -44,10 +44,11 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
 # The triage register: which findings must be fixed, which are accepted, and why. Copied
-# into RUNNER_TEMP because zap-baseline.py resolves -c against /zap/wrk/ and nowhere
-# else, and /zap/wrk is the bind mount of that directory.
-zap_conf_src="${DAST_ACTION_ROOT}/zap-baseline.conf"
-zap_conf="${RUNNER_TEMP:-/tmp}/zap-baseline.conf"
+# into RUNNER_TEMP because zap-baseline.py (and zap-full-scan.py, same resolution logic)
+# resolves -c against /zap/wrk/ and nowhere else, and /zap/wrk is the bind mount of that
+# directory. zap_conf_src/zap_conf/zap_script/zap_mode_args are set below, once
+# scanner_error exists — the mode is invalid input, same as a missing register, and
+# reported the same way.
 # Printed on failure, never suppressed: a stream that cannot be created must say why.
 nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 app_env_args=()
@@ -110,6 +111,28 @@ scanner_error() { # scanner_error <reason>
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
 }
+
+# baseline observes; full attacks. Two scripts, two spiders, two registers — and the
+# exit ladder and tally line are identical between them, verified against
+# zap-full-scan.py:480 and :511-522, which is why dast-common.sh is untouched.
+case "${DAST_SCAN_MODE:-baseline}" in
+    baseline)
+        zap_script=zap-baseline.py
+        zap_conf_name=zap-baseline.conf
+        zap_mode_args=()
+        ;;
+    full)
+        zap_script=zap-full-scan.py
+        zap_conf_name=zap-full-scan.conf
+        # -j swaps the traditional spider for the modern one. Without it a single-page
+        # app is exactly one page to ZAP: nginx serves index.html for every route and the
+        # traditional spider has no JavaScript to follow.
+        zap_mode_args=(-j)
+        ;;
+    *) scanner_error "unknown scan-mode: ${DAST_SCAN_MODE}" ;;
+esac
+zap_conf_src="${DAST_ACTION_ROOT}/${zap_conf_name}"
+zap_conf="${RUNNER_TEMP:-/tmp}/${zap_conf_name}"
 
 # Validated before anything is booted: a broken register means ZAP silently applies a
 # policy nobody wrote, and finding that out after a five-minute stack boot helps nobody.
@@ -416,7 +439,8 @@ fi
 set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
-    "$ZAP_IMAGE" zap-baseline.py -t "$target" \
+    "$ZAP_IMAGE" "$zap_script" -t "$target" \
+    ${zap_mode_args[@]+"${zap_mode_args[@]}"} \
     -I -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
 # PIPESTATUS[0], not $?: it is ZAP's own exit status, unambiguously. $? happens to
 # agree only because pipefail is set above; it would silently become tee's status the

@@ -945,5 +945,41 @@ else
     fail=$((fail + 1))
 fi
 
+
+# --- full mode: a different script, a different spider, a different register ---------
+# zap-baseline.py has no active scanner at all. zap-full-scan.py does, and -j swaps the
+# traditional spider for the modern one, which is the only way a single-page app is more
+# than one page to ZAP.
+DAST_SCAN_MODE=full SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "full mode reports a clean scan" clean 0
+if grep -q "zap-full-scan.py" "$WORK/dockerlog"; then
+    echo "ok   full mode runs zap-full-scan.py"; pass=$((pass + 1))
+else
+    echo "FAIL full mode still ran the baseline script"; fail=$((fail + 1))
+fi
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -qE '(^| )-j( |$)'; then
+    echo "ok   full mode uses the modern spider"; pass=$((pass + 1))
+else
+    echo "FAIL full mode has no -j — a SPA would still be one page"; fail=$((fail + 1))
+fi
+if grep -q "zap-full-scan.conf" "$WORK/dockerlog"; then
+    echo "ok   full mode loads its own triage register"; pass=$((pass + 1))
+else
+    echo "FAIL full mode reused the baseline register"; fail=$((fail + 1))
+fi
+
+# Baseline stays the default, and stays free of -j: the traditional spider is what the
+# baseline's finding counts have always been measured with.
+unset DAST_SCAN_MODE
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "the default is still the baseline" clean 0
+if grep -q "zap-baseline.py" "$WORK/dockerlog"; then
+    echo "ok   an unset scan-mode runs zap-baseline.py"; pass=$((pass + 1))
+else
+    echo "FAIL the default changed"; fail=$((fail + 1))
+fi
+
+DAST_SCAN_MODE=deep expect "an unknown scan-mode is a scanner error" error 2
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

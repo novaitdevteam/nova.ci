@@ -457,15 +457,52 @@ The console log lives under `RUNNER_TEMP`, is deleted by the same `EXIT` trap th
 removes the temporary env file, and is never uploaded — it is raw output about a
 container booted with the product repository's own environment.
 
+### `scan-mode`: baseline or full
+
+`dast/action.yml`'s `scan-mode` input (`baseline`, the default, or `full`) reaches
+`scan.sh` as `DAST_SCAN_MODE` and selects the whole ZAP invocation, not a single flag:
+
+| `scan-mode` | Script | Spider | Triage register |
+| --- | --- | --- | --- |
+| `baseline` (default) | `zap-baseline.py` | traditional | [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf) |
+| `full` | `zap-full-scan.py` | modern (`-j`) | [`zap-full-scan.conf`](../.github/actions/dast/zap-full-scan.conf) |
+
+`zap-baseline.py` carries no active scanner at all — it only observes. `zap-full-scan.py`
+adds the whole active rule set on top of the passive one: injection, path traversal,
+command execution, the classes `baseline` never reaches. `-j` matters independently of
+that: it swaps ZAP's traditional spider for the modern, browser-driven one, which is the
+only way a single-page application is more than one page to ZAP. nginx serves
+`index.html` for every route and the traditional spider has no JavaScript engine to
+follow it with, so a SPA scanned without `-j` is one page regardless of which script ran.
+
+The exit ladder and the tally line are identical between the two scripts — verified
+against `zap-full-scan.py:480` (the tally) and `:511-522` (the exit codes) rather than
+assumed — which is why
+[`dast-common.sh`](../.github/actions/dast/dast-common.sh) and the `0|1|2` exit `case`
+are shared unchanged between both modes; see
+[Where the ZAP counts come from](#where-the-zap-counts-come-from) above. An unrecognised
+`scan-mode` is a scanner error, never a silent fallback to `baseline`.
+
+> [!IMPORTANT]
+> **`full` is not a penetration test either.** It sends real attack payloads — but only
+> ever against the ephemeral container this action starts and kills for the job, never a
+> deployed environment — and it is still unauthenticated: it attacks the same anonymous
+> surface the baseline observes, so it still cannot see a broken authorization check or
+> any logic flaw behind a login. It finds more than the baseline on the same surface, not
+> a different surface.
+
 ### Recording a decision about a finding
 
 A scanner that can only ever add to its count is one people stop reading. Both scanners
 have a way to write down "this is accepted" or "this must be fixed", and both keep that
 decision in version control next to a reason.
 
-**ZAP — [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf).** Every rule
-defaults to `WARN`; an entry overrides that for one rule ID. The grammar is
-TAB-separated with at least three fields:
+**ZAP — [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf) for `baseline`
+mode, [`zap-full-scan.conf`](../.github/actions/dast/zap-full-scan.conf) for `full`
+mode.** The two are never interchangeable: the active scanner loads a rule set the
+passive one never reaches, so an `IGNORE` written for one is not a decision made for the
+other. Every rule defaults to `WARN`; an entry overrides that for one rule ID. The
+grammar is TAB-separated with at least three fields, identical in both files:
 
 ```
 <rule_id>	<LEVEL>	<why this decision was made, and who accepted it>
@@ -480,19 +517,23 @@ TAB-separated with at least three fields:
 | `IGNORE` | accepted risk — write the reason; see below |
 | `PASS` | treated as passing |
 
-The file ships with no entries, so it changes nothing until someone adds a line. Adding
-one is a risk-acceptance decision, not a CI change.
+Both files ship with no entries, so neither changes anything until someone adds a line.
+Adding one is a risk-acceptance decision, not a CI change.
 
 The reason is a **review-time obligation, not a parsed one.** `10038<TAB>IGNORE<TAB>` with an
 empty third field is accepted by `scan.sh`, because ZAP itself accepts it and this
 validator must never reject a register ZAP would load. Nothing mechanical will stop an
 unexplained `IGNORE`; the pull request is what stops it.
 
-Rule IDs are not written from memory. Generate the list the pinned image actually loads:
+Rule IDs are not written from memory. Generate the list the pinned image actually loads,
+against the script for the mode the register belongs to:
 
 ```bash
 docker run --rm -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
     zap-baseline.py -t http://example.com -g zap-rules.conf
+# or, for zap-full-scan.conf:
+docker run --rm -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+    zap-full-scan.py -t http://example.com -g zap-rules.conf
 ```
 
 `scan.sh` validates the shape of every line before anything is booted — at least two

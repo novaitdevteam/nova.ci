@@ -29,7 +29,7 @@ Primary files:
 - `.github/actions/gitleaks/action.yml` + `scan.sh`: the only place any workflow may invoke Gitleaks; `security/gitleaks/gitleaks.toml` is the central rule set and allowlist
 - `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
 - `.github/actions/semgrep/action.yml` + `scan.sh` + `canary.yaml`: the only place any workflow may invoke Semgrep (SAST)
-- `.github/actions/dast/action.yml` + `scan.sh` + `dast-common.sh`: the unauthenticated OWASP ZAP baseline (DAST); `dast-common.sh` holds the shared tally parse sourced by all three ZAP callers
+- `.github/actions/dast/action.yml` + `scan.sh` + `dast-common.sh`: the unauthenticated OWASP ZAP scan (DAST) — `scan-mode` picks `zap-baseline.py` (default) or `zap-full-scan.py` (`full`, modern spider); `dast-common.sh` holds the shared tally parse sourced by all three ZAP callers
 - `.github/actions/dast/targets.sh`: the one per-repository DAST table (port, health path, auth) — `dast_resolve_target <repo> <api|browser>`, sourced by the `Resolve DAST target` / `Resolve api-scan target` steps and every later consumer
 - `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core` only)
 - `.github/workflows/ci-dast-live-baseline.yaml`: the `workflow_dispatch` live baseline against the real deployment, target allowlisted
@@ -428,15 +428,27 @@ Preserve these behaviors:
   and is a *finding*, not a broken scanner — `-I` gates exit 2 alone and does not
   suppress 1. Moving 1 into the error arm reds a trunk build the first time the triage
   register gains a `FAIL` entry.
-- **`.github/actions/dast/zap-baseline.conf` is the triage register** — TAB-separated,
-  at least three fields, levels `PASS`/`IGNORE`/`INFO`/`WARN`/`FAIL`/`OUTOFSCOPE`. The
-  reason column is a **review-time obligation, not a parsed one** — an empty third field
-  is accepted, because ZAP accepts it and this validator must never reject a register
-  ZAP would load; do not add a check that enforces it. Ships with zero entries; adding
-  one is a risk-acceptance decision, not a CI change. `scan.sh` validates line shape and
-  level before anything boots and treats a malformed or missing register as a scanner
-  error, but **cannot validate rule
-  IDs** — a mistyped one is silently inert.
+- **`.github/actions/dast/zap-baseline.conf` (baseline) and `zap-full-scan.conf` (full)
+  are the triage registers**, never interchangeable — the active scanner loads a rule
+  set the passive one never reaches, so an `IGNORE` in one is not a decision made for
+  the other. Both: TAB-separated, at least three fields, levels
+  `PASS`/`IGNORE`/`INFO`/`WARN`/`FAIL`/`OUTOFSCOPE`. The reason column is a
+  **review-time obligation, not a parsed one** — an empty third field is accepted,
+  because ZAP accepts it and this validator must never reject a register ZAP would load;
+  do not add a check that enforces it. Both ship with zero entries; adding one is a
+  risk-acceptance decision, not a CI change. `scan.sh` validates line shape and level
+  before anything boots and treats a malformed or missing register as a scanner error,
+  but **cannot validate rule IDs** — a mistyped one is silently inert.
+- **`dast/action.yml`'s `scan-mode` input (`baseline` default, `full`)** reaches
+  `scan.sh` as `DAST_SCAN_MODE` and picks the script, spider flag and triage register
+  together, never one alone: `zap-baseline.py` / no spider flag / `zap-baseline.conf`
+  under `baseline`; `zap-full-scan.py` / `-j` / `zap-full-scan.conf` under `full`. `-j`
+  swaps the traditional spider for the modern one — the only way a single-page app is
+  more than one page to ZAP, since nginx serves `index.html` for every route and the
+  traditional spider has no JavaScript to follow. Exit ladder and tally line are
+  identical between the two scripts (`zap-full-scan.py:480` and `:511-522`), so
+  `dast-common.sh` and the `0|1|2` exit case stay shared, unchanged, between modes. An
+  unrecognised `scan-mode` is a scanner error, never a silent fallback to `baseline`.
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
   vendored into `security/`. `ERROR` and `WARNING` are both counted and both listed in
   the report body — there is no `severity` input to narrow that. `INFO` is counted for
