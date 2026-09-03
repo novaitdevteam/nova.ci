@@ -663,9 +663,14 @@ Preserve these behaviors:
   host` step is the second place in this repository — after
   `ci-dast-live-baseline.yaml` — that invokes `zap-full-scan.py` directly, because
   neither `dast` nor `dast-api` applies to a host with no image to boot and no token to
-  seed; `scripts/validate.sh`'s ZAP-direct-invocation guard carries a named exemption
-  for this file's live path alongside the pre-existing one for
-  `ci-dast-live-baseline.yaml` — do not widen either exemption to a third file. It keeps
+  seed; `scripts/validate.sh`'s ZAP-direct-invocation guard exempts this whole file from
+  the blanket "no workflow runs ZAP directly" check (alongside the pre-existing
+  whole-file exemption for `ci-dast-live-baseline.yaml`, which has no ephemeral path to
+  protect) and separately asserts, by line count, that this file contains **exactly
+  one** direct ZAP invocation line — the live path's. A file-path exclusion cannot say
+  "except these lines"; the count is what keeps the ephemeral path honestly covered
+  despite the exemption. Do not widen either exemption to a third file, and do not
+  replace the count assertion with a second blanket exclusion. It keeps
   the same `0|1|2` exit ladder as every ZAP caller and sources `zap_tally_parse` from
   `dast-common.sh`, never re-inlining the tally anchor. **Unmistakable three months
   later**: the report's first line, the job summary banner and the notification message
