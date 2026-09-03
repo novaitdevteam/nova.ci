@@ -773,6 +773,16 @@ header it is injected under is a per-repository input — a connector's is not t
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
 
+> [!WARNING]
+> **The `-z` replacer values are single-quoted in `scan.sh`, and that is load-bearing.**
+> `zap-api-scan.py` puts the whole `-z` string through Python's `shlex.split()` before
+> passing it to ZAP. Unquoted, `replacement=Bearer <token>` splits in two: ZAP sets the
+> header to a bare `Bearer` and drops the token as a stray positional, so the scan runs
+> **unauthenticated and reports a normal-looking result** — the exact failure mode this
+> page opens with. `db-token` connectors never saw it because their prefix is empty. The
+> harness reproduces ZAP's own `shlex.split`; grepping the raw string passes either way,
+> which is how it survived review.
+
 The injected header, the scheme prefix and the token `SELECT` are all per-repository
 **inputs**, not constants. Both modes end with a bare token that `scan.sh` masks with
 `::add-mask::` before first use, and both treat an **empty token** — a login that returned

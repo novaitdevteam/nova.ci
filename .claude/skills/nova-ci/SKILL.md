@@ -512,7 +512,7 @@ Preserve these behaviors:
   inputs; the token is masked with `::add-mask::` whatever its source; an empty token
   (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
   auth. **Safe mode `-S` is mandatory** — without it the tool active-scans, i.e. real writes
-  against the seeded API; `scripts/test-dast-api-scan.sh` (29 checks) asserts `-S` and the
+  against the seeded API; `scripts/test-dast-api-scan.sh` (31 checks) asserts `-S` and the
   mask. The seed admin password is `openssl rand`-generated per run and stored nowhere
   (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). ZAP echoes the token-bearing replacer
   rule to its own stdout — a public repo's persisted step log — which is why the mask, plus
@@ -534,6 +534,14 @@ Preserve these behaviors:
   `target` input is validated against a **one-host allowlist** before scanning; adding a
   host is a deliberate edit, never runtime. SPA-200 caveat: the host returns 200 for every
   path, so duplicate header findings are duplication, not broader coverage.
+  The `-z` replacer values are wrapped in **literal single quotes**, and that is
+  load-bearing: `zap-api-scan.py` runs the whole `-z` string through
+  `shlex.split()` (`zap_common.py: add_zap_options`), so an unquoted
+  `replacement=Bearer <token>` arrives as two arguments — ZAP sets the header to a
+  bare `Bearer`, drops the token as a stray positional, and the scan runs
+  unauthenticated while reporting a plausible result. `db-token` connectors hid it
+  because their prefix is empty. The harness reproduces ZAP's own `shlex.split`;
+  grepping the raw string passes either way.
 
 ## Documentation Assets
 

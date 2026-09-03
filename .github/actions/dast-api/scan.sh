@@ -276,6 +276,17 @@ op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo
 # under the caller's own header and prefix (Authorization/Bearer  for core, unchanged);
 # -c/-w and the report/summary shape follow the baseline scan exactly.
 #
+# The replacement value is wrapped in literal single quotes inside the -z string, and
+# that is load-bearing, not tidiness. zap-api-scan.py hands -z to
+# `shlex.split()` (zap_common.py:add_zap_options), so a value containing a space is
+# split in two: `Bearer eyJ…` became `-config …replacement=Bearer` plus a stray
+# positional `eyJ…`, i.e. every request went out with the header set to a bare
+# `Bearer` and no token, and the scan silently ran unauthenticated — exactly the
+# "it produced the output a working run produces" failure this whole action is built
+# against. `db-token` connectors were unaffected only because their prefix is empty.
+# A token containing a single quote would break the quoting again; every token we
+# inject is base64url or a UUID, neither of which can contain one.
+#
 # --user: same reasoning as the baseline — /zap/wrk is a bind mount of RUNNER_TEMP on a
 # pooled runner, and the zaproxy image's own uid may not have write access to it.
 set +e
@@ -286,8 +297,8 @@ docker run --rm --network host --user "$(id -u):$(id -g)" \
     -z "-config replacer.full_list(0).description=auth \
         -config replacer.full_list(0).enabled=true \
         -config replacer.full_list(0).matchtype=REQ_HEADER \
-        -config replacer.full_list(0).matchstr=${DAST_AUTH_HEADER:-Authorization} \
-        -config replacer.full_list(0).replacement=${DAST_AUTH_PREFIX-Bearer }${TOKEN}" \
+        -config 'replacer.full_list(0).matchstr=${DAST_AUTH_HEADER:-Authorization}' \
+        -config 'replacer.full_list(0).replacement=${DAST_AUTH_PREFIX-Bearer }${TOKEN}'" \
     2>&1 | tee "$zap_console"
 zap_rc=${PIPESTATUS[0]}
 set -e
