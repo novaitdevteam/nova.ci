@@ -1042,7 +1042,7 @@ traversal, command-execution and `POST`/`PUT`/`DELETE` payloads against whatever
 pointed at.
 
 ```text
-Actions → DAST Pentest (active scan) → Run workflow → repository, surface, image_tag (optional)
+Actions → DAST Pentest (active scan) → Run workflow → repository, surface, image_tag
 ```
 
 - **Manual only.** `workflow_dispatch`, no `schedule:`. An attacking scan is a decision
@@ -1053,8 +1053,15 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   [`dast_resolve_target`](../.github/actions/dast/targets.sh) table the trunk build
   uses. There is no free-text host field to validate — an attacking scanner that
   cannot be pointed anywhere cannot be pointed somewhere it must not go, which is a
-  stronger guarantee than any regex on a string input would be. `image_tag` picks
-  *which* published tag of that repository's own image to scan, never a host.
+  stronger guarantee than any regex on a string input would be. `image_tag` is
+  **required** and names the exact published tag to scan, never a host — there is no
+  "leave blank for the most recent" lookup. That was tried and reverted: this
+  repository's own `GITHUB_TOKEN` cannot read a package published by a *different*
+  repository, and the registry's own tag list is not date-ordered, so a "most recent"
+  heuristic built on it could silently pick an arbitrary old image and report the scan
+  as current — the exact "a scan that could not run looks exactly like a clean one"
+  failure this page's [scanner-that-could-not-run](#a-scanner-that-could-not-run-is-not-a-clean-scan)
+  rule exists to refuse. Naming the tag by hand is the fix.
 - **Ephemeral targets only.** Every target this workflow can select is a GHCR image it
   boots on the runner and tears down — the same isolated stack the trunk `dast-scan` /
   `api-scan` jobs use, just with the safe-mode guard removed. It cannot reach the live

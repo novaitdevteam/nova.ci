@@ -622,13 +622,23 @@ Preserve these behaviors:
   the step feeds both the `dast-api` and `dast` scan steps below it, and the browser
   scan needs `needs-db`/`needs-nats` regardless of which surface was actually chosen —
   emitting only the api-scan keys would boot a browser pentest with no database behind
-  it. `image_tag` picks which published tag of that repository's own image to scan
-  (blank resolves the most recent via the packages API), never a host. Report and
-  notification follow the live-baseline shape: run artifact only
-  (`if-no-files-found: warn`, there is no build and so no release to attach to), the
-  scan step emits a verdict and nothing else, and a separate `Compose notification`
-  step assembles the artifact's download link plus the run link once `artifact-url`
-  exists.
+  it. `image_tag` is **required** and names the exact published tag to scan, never a
+  host — no "leave blank for the most recent" lookup, and no `Log in to GHCR`/login
+  step either. Both were tried and removed: `nova.ci`'s own `GITHUB_TOKEN` cannot read
+  a package published by a *different* repository (no cross-repo `packages:read`, and
+  `nova.ci` holds no PAT for it), so a packages-API lookup would fail on first
+  dispatch; separately, and more fundamentally, the registry's tag list is **not
+  date-ordered** — querying it live returned a year-old tag first — so a "most recent"
+  heuristic built on it could silently scan an arbitrary old image and report the
+  pentest as current, exactly the "a scan that could not run looks exactly like a
+  clean one" failure this action exists to refuse. Every container package in the org
+  is public, so the `docker pull` the composite actions run internally needs no login
+  at all — a login step that succeeds while granting nothing is worse than no step, so
+  `permissions:` carries no `packages:`. Report and notification follow the
+  live-baseline shape: run artifact only (`if-no-files-found: warn`, there is no build
+  and so no release to attach to), the scan step emits a verdict and nothing else, and
+  a separate `Compose notification` step assembles the artifact's download link plus
+  the run link once `artifact-url` exists.
 
 ## Documentation Assets
 
