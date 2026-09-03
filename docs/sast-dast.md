@@ -4,10 +4,11 @@
   <img src="../assets/readme/sast-dast.svg" width="100%" alt="Semgrep reads our own source and an OWASP ZAP baseline probes the running application, alongside Trivy on the container image; each reports clean, findings or error, with a fourth not-run outcome for DAST alone, and a scanner that could not run is never reported clean; all three reports land on the one release the build already creates and each adds a line to the notification" />
 </p>
 
-Two scanners join `trivy-scan` after a trunk build: **Semgrep** reads our own source
-(SAST) and an **OWASP ZAP baseline** probes the application while it runs (DAST). Both
-publish a `.report` onto the release the build already creates, and both add a line to
-the build notification.
+Two scanners join `trivy-scan` after a build: **Semgrep** reads our own source (SAST)
+on every build, on any branch, and an **OWASP ZAP baseline** probes the application
+while it runs (DAST) on trunk and `scan*` builds. Both write a `.report` — onto the
+release the build already creates, where there is one — and both add a line to the
+build notification.
 
 ## Three scanners, three questions
 
@@ -47,9 +48,18 @@ stops being read.
 
 ## When they run
 
-Both use the same gate as the image scan: the build's source branch is `main`, `master`
-or `development` (**trunk** throughout this page), or the triggering tag ref starts with
-`scan`. Neither ever runs on a `pull_request` event.
+**Semgrep runs on every build**, on any branch, as soon as `build-image` succeeds. It
+reads the source that was just built — no running application, no database, no seeded
+stack — so nothing about a feature branch makes its answer less true, and a finding is
+cheapest to fix before the branch merges.
+
+**The ZAP baseline keeps the image scan's gate**: the build's source branch is `main`,
+`master` or `development` (**trunk** throughout this page), or the triggering tag ref
+starts with `scan`. It boots the built image on the runner alongside its database, and
+that cost is what keeps it narrowed — that, and the three-repository list below.
+
+Neither ever runs on a `pull_request` event. `build-image` does not run there, so there
+is no build to read the source of and no image to boot.
 
 ```bash
 git checkout my-feature-branch
@@ -57,11 +67,15 @@ git tag scan-NC2-1234
 git push origin scan-NC2-1234   # builds, then scans the image, the source and the app
 ```
 
-The gate is not a cost decision — Semgrep is cheap. **A report is only useful where
-there is a release to attach it to**, and pull request events never build one, so a PR
-run would produce a finding count with no stable URL behind it. Tighter feedback on
-pull requests is worth revisiting as a second, summary-only run once the release path
-has proven itself.
+### Where a feature build's SAST report goes
+
+The `.report` is uploaded as a run artifact on every build. It is added to the
+`TRIVY.SCAN_*` release only on trunk and `scan*` builds, because that release exists
+only where `trivy-scan` created it — and letting `sast-scan` create one instead would
+mint a `TRIVY.SCAN_*` git tag per feature build, noise the
+[quarterly evidence walk](#where-the-reports-are) would have to step over. So on a feature build the
+notifier's `📄 Report:` link points at the run, where the artifact lives, rather than at
+a release-download URL that would 404.
 
 The jobs run one after another:
 
@@ -511,11 +525,12 @@ repository routes to the widget workflow, not the standard one. It gets **no Tri
 no DAST**, and that is a decision, not a gap: that workflow zips `dist` and publishes it
 as a release asset, it produces no container image, so neither scanner has a target —
 Trivy scans images, DAST boots them. Semgrep reads source, so it applies exactly as it
-does everywhere else. The widget's `sast-scan` mirrors the main workflow's: same trunk
-gate (an `IS_TRUNK` output added to `build-widget`'s `prep` step), same SHA-pinned
-checkout, same report-file convention, and it upserts its report onto the release
-`build-widget` already creates (`NTK.CHATWIDGET_<release>_<ref>_<sha>`) instead of a
-second one.
+does everywhere else. The widget's `sast-scan` mirrors the main workflow's: every
+non-`pull_request` build on any branch, same SHA-pinned checkout, same report-file
+convention, and it upserts its report onto the release `build-widget` already creates
+(`NTK.CHATWIDGET_<release>_<ref>_<sha>`) instead of a second one. It needs no
+`PUBLISH_RELEASE` equivalent: `build-widget`'s own `Create a Release` step is ungated,
+so every build it follows already has a release, feature branches included.
 
 **DAST covers three browser-surface repositories**, gated on
 `github.event.repository.name`, the same repository-scoped-exception pattern already
@@ -776,7 +791,9 @@ about what a completed scan looks like.
 
 All three scanners publish onto the **one release the build already creates**, because
 `softprops/action-gh-release@v2` upserts by tag and each job can attach its own file
-independently:
+independently. Trivy and the two ZAP scans only run where that release exists; Semgrep
+runs on every build and attaches its report only there, keeping the run artifact as the
+copy elsewhere (see [above](#where-a-feature-builds-sast-report-goes)):
 
 ```text
 https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><suffix>_<sha>/<file>
@@ -813,7 +830,7 @@ build already sends — see [Notifications](notifications.md).
 | `🔍 SAST (Semgrep): 🟢 clean` | scan ran, no `ERROR` or `WARNING` findings |
 | `🔍 SAST (Semgrep): 🟡 3 error · 12 warning` | findings — `ERROR` and `WARNING`, always both counts |
 | `🔍 SAST (Semgrep): ❌ scan failed — <reason>` | broken scanner |
-| `🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)` | not a trunk build or `scan*` tag |
+| `🔍 SAST (Semgrep): ⏭️ skipped (no build to scan)` | the job never ran — a `pull_request` event, or `build-image` failed |
 | `🕷 DAST (ZAP): 🟢 clean · <n> info · <n> accepted` | app booted, no must-fix or warning findings |
 | `🕷 DAST (ZAP): 🟡 <n> warnings` | `WARN`-level findings, no `FAIL`-level ones |
 | `🕷 DAST (ZAP): 🔴 <n> must-fix · <n> warnings` | at least one `FAIL`-level finding — the register marks it blocking |

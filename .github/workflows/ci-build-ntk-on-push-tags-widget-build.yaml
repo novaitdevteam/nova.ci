@@ -18,7 +18,6 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      IS_TRUNK: ${{ steps.prep.outputs.IS_TRUNK }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -35,15 +34,6 @@ jobs:
             short_ref_name="`echo ${{ github.event.base_ref }} | cut -d "/" -f3`"
           fi
           echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-
-          # Same trunk gate as build-image's in the main workflow, resolved here rather
-          # than re-expressed in a job-level `if`, because a job-level `if` cannot reach
-          # into another job's step.
-          case "$short_ref_name" in
-            main|master|development) is_trunk=true ;;
-            *)                       is_trunk=false ;;
-          esac
-          echo "IS_TRUNK=${is_trunk}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
         uses: dev-drprasad/delete-tag-and-release@v1.1
@@ -93,15 +83,19 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: write
-    # Same gate as the main workflow's sast-scan. No Trivy and no DAST job in this
-    # workflow — it zips `dist` and publishes it as a release asset, it produces no
-    # container image, so neither has anything to scan or boot. Semgrep reads source, so
-    # it applies exactly as it does everywhere else.
+    # Same gate as the main workflow's sast-scan: every non-pull_request build that
+    # succeeded, on any branch. No Trivy and no DAST job in this workflow — it zips
+    # `dist` and publishes it as a release asset, it produces no container image, so
+    # neither has anything to scan or boot. Semgrep reads source, so it applies exactly
+    # as it does everywhere else.
+    #
+    # This one needs no PUBLISH_RELEASE equivalent: build-widget's "Create a Release"
+    # step is itself ungated, so every build this job follows already has a release to
+    # attach the report to, feature branches included.
     if: >-
       ${{ always()
       && github.event_name != 'pull_request'
-      && needs.build-widget.result == 'success'
-      && (needs.build-widget.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')) }}
+      && needs.build-widget.result == 'success' }}
     needs: [build-widget]
     outputs:
       SCANNED: 'true'
@@ -166,7 +160,7 @@ jobs:
           # A job that died before scan.sh ran leaves MESSAGE empty. Silence there would
           # read as a clean scan, so say so explicitly instead.
           if [[ "$SCANNED" != "true" ]]; then
-            line="🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)"
+            line="🔍 SAST (Semgrep): ⏭️ skipped (no build to scan)"
           elif [[ -n "$MESSAGE" ]]; then
             line="$MESSAGE"
           else

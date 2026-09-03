@@ -819,14 +819,18 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: write
-    # Same gate as the image scan: a report is only useful where there is a release to
-    # attach it to, and pull requests never build one. Sequential after trivy-scan —
-    # three parallel scan jobs would only queue against the per-size cap of 2.
+    # Every build that produced an image, on any branch. Semgrep reads the source that
+    # was just built — no running application, no database, no seeded stack — so nothing
+    # about a feature branch makes its result less true, and a finding is cheapest to fix
+    # before the branch merges. The trunk/`scan*` narrowing that trivy-scan and dast-scan
+    # keep is only about having a release to attach a report to; that concern moved to
+    # PUBLISH_RELEASE below, where it actually belongs. `pull_request` stays excluded —
+    # build-image does not run there, so there is no build to scan. Sequential after
+    # trivy-scan: three parallel scan jobs would only queue against the per-size cap of 2.
     if: >-
       ${{ always()
       && github.event_name != 'pull_request'
-      && needs.build-image.result == 'success'
-      && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')) }}
+      && needs.build-image.result == 'success' }}
     needs: [build-image, trivy-scan]
     outputs:
       SCANNED: 'true'
@@ -836,6 +840,12 @@ jobs:
     env:
       REPORT_FILE: semgrep-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
       RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+      # The TRIVY.SCAN_ release exists only because trivy-scan created it, and trivy-scan
+      # still runs on trunk and `scan*` builds only. On any other branch there is no
+      # release to upsert into, and letting action-gh-release create one would mint a
+      # TRIVY.SCAN_ git tag per feature build — noise in the tag list the quarterly
+      # evidence walk has to step over. There the artifact is the copy of the report.
+      PUBLISH_RELEASE: ${{ needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan') }}
     steps:
       - name: Checkout
         # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
@@ -852,7 +862,10 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/semgrep@main
         with:
           report-file: ${{ env.REPORT_FILE }}
-          report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
+          # Where the notifier line points. On a published build that is the release
+          # asset; on a feature build the report only exists as this run's artifact, so
+          # link the run rather than a release-download URL that would 404.
+          report-url: ${{ env.PUBLISH_RELEASE == 'true' && format('{0}/{1}/releases/download/{2}/{3}', github.server_url, github.repository, env.RELEASE_TAG, env.REPORT_FILE) || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
@@ -863,9 +876,10 @@ jobs:
 
       # Upsert into the release trivy-scan already created for this build: one release
       # per build carrying every scanner's report. The TRIVY.SCAN_ prefix is historical
-      # — see docs/container-scanning.md.
+      # — see docs/container-scanning.md. Only where that release exists; see
+      # PUBLISH_RELEASE above.
       - name: Publish report release
-        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -1141,9 +1155,11 @@ jobs:
           set -euo pipefail
 
           # A job that died before scan.sh ran leaves MESSAGE empty. Silence there would
-          # read as a clean scan, so say so explicitly instead.
+          # read as a clean scan, so say so explicitly instead. SAST is not trigger-gated
+          # — it runs on every build — so the only way it does not run is that there was
+          # no build: a pull_request event, or build-image failed.
           if [[ "$SCANNED" != "true" ]]; then
-            line="🔍 SAST (Semgrep): ⏭️ skipped (no scan trigger)"
+            line="🔍 SAST (Semgrep): ⏭️ skipped (no build to scan)"
           elif [[ -n "$MESSAGE" ]]; then
             line="$MESSAGE"
           else
