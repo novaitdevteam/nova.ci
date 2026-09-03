@@ -108,17 +108,35 @@ mint a `TRIVY.SCAN_*` git tag per feature build, noise the
 notifier's `📄 Report:` link points at the run, where the artifact lives, rather than at
 a release-download URL that would 404.
 
-The jobs run one after another:
+All four scanners fan out from `build-image` in parallel:
 
 ```text
-build-image → trivy-scan → sast-scan → dast-scan → notify
+                ┌── trivy-scan ──┐
+build-image ────┼── sast-scan ───┼──→ notify
+                ├── dast-scan ───┤
+                └── api-scan ────┘
 ```
 
-Both new jobs need `RELEASE`, `SHORT_REF_NAME` and `SHORT_SHA` from `build-image` to
-address the release, so neither can start earlier. Running the three scans in parallel
-would buy no wall-clock time either: they would only queue against the
-[per-size cap of two runners](runners.md#sizing-novatalkscore-only). Each job carries
-`if: always() && …` so one scanner failing never swallows the next one or the notifier.
+None of them can start earlier: each needs `RELEASE`, `SHORT_REF_NAME` and `SHORT_SHA`
+from `build-image` to address the release. None of them needs any of the others.
+
+> [!NOTE]
+> **They used to run in a chain**, on the reasoning that parallel scans "would only queue
+> against the per-size cap of two runners". That was wrong in a way the numbers make
+> plain: a chain does not avoid the queue, it *guarantees* one even when a runner is
+> free, and every hop between jobs costs a fresh dispatch. On `novatalks.core` run
+> [33614788933](https://github.com/novaitdevteam/novatalks.core/actions/runs/33614788933)
+> — 35 minutes wall clock — the jobs did **1083s of work and spent 1017s in gaps between
+> each other**, 397s of it waiting to start `dast-scan` alone. The `medium` pool went to
+> [four runners](runners.md#sizing-novatalkscore-only) in the same change, so the fan-out
+> has somewhere to land.
+>
+> Publishing is race-safe by construction: three jobs may now try to create the same
+> release at once, and `softprops/action-gh-release` retries a `422 already_exists` and
+> updates whichever release won — verified in its source, not assumed.
+
+Each job carries `if: always() && …` so one scanner failing never swallows another or the
+notifier.
 
 `build-image` resolves the trunk test once, into an `IS_TRUNK` output, because a
 job-level `if:` cannot reach a step inside another job.

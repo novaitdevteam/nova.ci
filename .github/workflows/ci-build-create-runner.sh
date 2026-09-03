@@ -16,10 +16,10 @@ else
 fi
 
 # Global cap on concurrently existing dev-00-gh-runner-* Hetzner servers, across all
-# sizes. Defaults to 6 (the theoretical max of the per-size caps: 2 small + 2 medium +
-# 2 large). Env-overridable by callers. Tune this down just under the actual Hetzner
-# project server limit once that limit is known.
-MAX_TOTAL_RUNNERS="${MAX_TOTAL_RUNNERS:-6}"
+# sizes. Defaults to 8 — the theoretical max of the per-size caps below (2 small +
+# 4 medium + 2 large). Env-overridable by callers. Tune this down just under the actual
+# Hetzner project server limit once that limit is known.
+MAX_TOTAL_RUNNERS="${MAX_TOTAL_RUNNERS:-8}"
 
 # Tag pushes carry no branch in GITHUB_REF, but the event payload does — and the build
 # workflow already derives SHORT_REF_NAME from the same field, so sizing and scanning
@@ -71,6 +71,24 @@ case "$REQUIRED_SIZE" in
     medium) REQUIRED_TYPE=cx43 ;;
     large) REQUIRED_TYPE=cx53 ;;
     *) echo "::error::Unknown runner size: $REQUIRED_SIZE" >&2; exit 1 ;;
+esac
+
+# Per-size concurrency cap. Not one number for all three sizes any more, because the
+# three pools carry different shapes of work.
+#
+# `medium` is the scan pool. A novatalks.core trunk push builds two targets at once
+# (build-engine and build-reporting), and each of those now fans out into trivy-scan,
+# sast-scan, dast-scan and api-scan in parallel rather than in a chain. At a cap of 2
+# those runs spent 48% of their wall clock queueing — measured on run 33614788933:
+# 1083s of work and 1017s of gaps between jobs, with a 397s wait before dast-scan
+# alone. The fan-out is worth nothing without somewhere to fan out to, so this is 4.
+#
+# `small` and `large` have no such fan-out: small is one feature build at a time, and
+# large is int-test, which is one long job by construction. They stay at 2, where a
+# third VM would idle.
+case "$REQUIRED_SIZE" in
+    medium) MAX_PER_SIZE="${MAX_MEDIUM_RUNNERS:-4}" ;;
+    *)      MAX_PER_SIZE="${MAX_PER_SIZE:-2}" ;;
 esac
 
 DELAY=$((RANDOM % 10))
@@ -336,7 +354,7 @@ acquire_create_lock() {
     return 0
 }
 
-if [ "$TOTAL_SIZE" -lt 2 ]; then
+if [ "$TOTAL_SIZE" -lt "$MAX_PER_SIZE" ]; then
     if acquire_create_lock; then
         echo "Create new runner ($REQUIRED_SIZE)"
         echo "runner_size=$REQUIRED_TYPE" >> "$GITHUB_OUTPUT"
@@ -350,5 +368,5 @@ if [ "$TOTAL_SIZE" -lt 2 ]; then
     fi
 else
     echo "Limit reached → do nothing (wait queue)"
-    wait_queue "per-size cap reached ($TOTAL_SIZE/2 $REQUIRED_SIZE servers)"
+    wait_queue "per-size cap reached ($TOTAL_SIZE/$MAX_PER_SIZE $REQUIRED_SIZE servers)"
 fi
