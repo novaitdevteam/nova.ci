@@ -306,6 +306,47 @@ SHIM_TOKEN_SQL_RESULT="" \
 # db-token mode with no token-sql is a broken configuration, not a scan: fail loud.
 DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="" expect "db-token without token-sql is a scanner error" error 2
 
+# --- db-insert: no seeder in the image, so write the row ourselves --------------------
+# whatsapp and signal prune ts-node out of the runtime image, taking the seeder with it.
+# Migrations still run (sequelize-cli is a runtime dependency), so the tables exist and
+# are empty. db-token would SELECT nothing and loud-skip forever.
+DAST_AUTH_MODE=db-insert DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
+DAST_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id) VALUES ('%TOKEN%', 1);" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "db-insert mode: write a token, then scan" clean 0
+
+# The token is generated here, never taken from the repository or the image, so there is
+# no value to leak and nothing to rotate.
+if grep -qE "^exec .*INSERT INTO tokens" "$WORK/dockerlog"; then
+    echo "ok   db-insert runs the caller's INSERT"; pass=$((pass + 1))
+else
+    echo "FAIL db-insert never inserted anything"; fail=$((fail + 1))
+fi
+if grep -qE "^exec .*%TOKEN%" "$WORK/dockerlog"; then
+    echo "FAIL the %TOKEN% placeholder reached the database unsubstituted"; fail=$((fail + 1))
+else
+    echo "ok   %TOKEN% is substituted before the INSERT runs"; pass=$((pass + 1))
+fi
+
+# Same rule as every other mode: the generated value is masked before anything can echo it.
+# Matched by the "nova-ci-apiscan-" prefix scan.sh generates it with (Step 3), not by
+# position: scan.sh always masks ADMIN_PASS first (unconditionally, every mode, before
+# any container exists) and TOKEN second. Grabbing "the first" or "the last" ::add-mask::
+# line both pass by accident here — ADMIN_PASS also appears in dockerlog on the nova-app
+# `docker run` line, so either position check is satisfied whether or not TOKEN itself
+# was ever masked at all. Matching the token's own shape is the only way this assertion
+# fails when it should.
+mask_line=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
+if [ -n "$mask_line" ] && grep -qF "$mask_line" "$WORK/dockerlog"; then
+    echo "ok   the generated token is masked and is the one injected"; pass=$((pass + 1))
+else
+    echo "FAIL the generated token was not masked, or not the one used"; fail=$((fail + 1))
+fi
+
+# A mode with no INSERT is a broken configuration, not a scan without auth.
+DAST_AUTH_MODE=db-insert DAST_TOKEN_INSERT_SQL="" \
+    expect "db-insert without token-insert-sql is a scanner error" error 2
+
 # login mode still works unchanged (core), with the default Authorization/Bearer header
 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
 WARN-NEW: Some Warning Alert [10038] x 5

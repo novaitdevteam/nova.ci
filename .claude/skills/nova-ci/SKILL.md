@@ -524,20 +524,31 @@ Preserve these behaviors:
   `dast-api/action.yml` + `scan.sh` boot the image on ephemeral postgres/redis, migrate and
   seed, acquire a token, and run `zap-api-scan.py -f openapi` against the app's own
   `/api-docs-json`. **Parameterised auth**: `auth-mode` is `login` (POST username/password,
-  read the token from the response — core, `Authorization: Bearer`) or `db-token` (read the
+  read the token from the response — core, `Authorization: Bearer`), `db-token` (read the
   seeded token straight out of the DB with a caller-supplied `SELECT` — telegram, injected
-  raw under `api_access_token`). The header, scheme prefix and token `SELECT` are per-repo
+  raw under `api_access_token`), or `db-insert` (write a generated token into the DB with a
+  caller-supplied `INSERT`, `%TOKEN%` substituted in — built for whatsapp/signal, whose
+  Dockerfiles `npm prune --omit=dev` the seeder away, leaving migrated-but-empty tables
+  `db-token` would `SELECT` nothing from forever; not yet wired into either repo's
+  `targets.sh` arm). The header, scheme prefix and token `SELECT`/`INSERT` are per-repo
   inputs; the token is masked with `::add-mask::` whatever its source; an empty token
   (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
-  auth. **Safe mode `-S` by default, `active` a deliberate exception** — a `scan-mode`
+  auth — `db-insert` cannot produce an empty token (generated locally, not read back), so
+  its own loud skip is a failed `INSERT` instead, meaning the migration never created the
+  table. **Safe mode `-S` by default, `active` a deliberate exception** — a `scan-mode`
   input (`passive` default, `active`) reaches `scan.sh` as `DAST_API_SCAN_MODE`; only
   `active` drops `-S`, turning the tool into a real-writes active scan against the seeded
   API. Safe only because the stack is the ephemeral one this action starts and kills, so
   `active` is never the default and an unrecognised mode is a scanner error, not a silent
-  fallback. `scripts/test-dast-api-scan.sh` (51 checks) asserts `-S` on the default, its
+  fallback. `scripts/test-dast-api-scan.sh` (56 checks) asserts `-S` on the default, its
   absence under `active`, and the mask. The seed admin password is
   `openssl rand`-generated per run and stored nowhere
-  (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). ZAP echoes the token-bearing replacer
+  (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). `DEFAULT_ADMIN_USER` must be a
+  syntactically valid email at a domain that can never be real: `@local` failed the
+  engine's own Sequelize `isEmail` seeder validation (`require_tld: true`) and killed the
+  container mid-boot, reported as a boot timeout rather than the bad input it was
+  (confirmed live, run 33761248644) — it is now `nova-ci-apiscan@example.invalid`, the
+  RFC 2606 reserved domain. ZAP echoes the token-bearing replacer
   rule to its own stdout — a public repo's persisted step log — which is why the mask, plus
   the console file deleted on exit. Serving the spec can be conditional (`swagger-enable`:
   core needs `SWAGGER_ENABLE=true`, telegram serves it unconditionally and sets `false`); an

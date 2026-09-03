@@ -827,9 +827,9 @@ git tag apiscan-NC2-1234
 git push origin apiscan-NC2-1234   # builds the image, then the authenticated API scan
 ```
 
-### Two ways to acquire the token
+### Three ways to acquire the token
 
-The token that authenticates the scan is obtained by one of two `auth-mode`s, and the
+The token that authenticates the scan is obtained by one of three `auth-mode`s, and the
 header it is injected under is a per-repository input — a connector's is not the engine's:
 
 - **`login` (`novatalks.core`).** `scan.sh` POSTs the generated admin's username/password
@@ -840,6 +840,18 @@ header it is injected under is a per-repository input — a connector's is not t
   straight out of it with a caller-supplied `SELECT` (`tokens.api_token` joined to the
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
+- **`db-insert` (built for `nova.chatsconnector.whatsapp-client-api` and
+  `…signal-client-api`, not yet wired into either — see Phase 2 above).** Both Dockerfiles
+  run `npm prune --omit=dev` in the runtime stage, which removes `ts-node` and the seeder
+  with it — there is no seeder in the image at all, so `db-token`'s `SELECT` would match
+  nothing, forever. `sequelize-cli` survives as a runtime dependency, so migrations still
+  ran and the tables exist, just empty. `scan.sh` generates its own token
+  (`nova-ci-apiscan-$(openssl rand -hex 24)`) and writes it in with a caller-supplied
+  `INSERT` (the `token-insert-sql` input, `%TOKEN%` substituted in before it runs). A
+  failed `INSERT` is a loud skip, not a scanner error — it means the migration never
+  created the table, a broken setup rather than a finding. The value is generated for this
+  run only and lives in a database that dies with the container: nothing is stored,
+  nothing to rotate.
 
 > [!CAUTION]
 > **The Postgres image must be one whose entrypoint actually starts Postgres.** It was
@@ -897,11 +909,14 @@ header it is injected under is a per-repository input — a connector's is not t
 > harness reproduces ZAP's own `shlex.split`; grepping the raw string passes either way,
 > which is how it survived review.
 
-The injected header, the scheme prefix and the token `SELECT` are all per-repository
-**inputs**, not constants. Both modes end with a bare token that `scan.sh` masks with
-`::add-mask::` before first use, and both treat an **empty token** — a login that returned
-none, or a `SELECT` that matched no row — as a loud skip (`not-run`), never a scan without
-auth.
+The injected header, the scheme prefix and the token `SELECT`/`INSERT` are all
+per-repository **inputs**, not constants. All three modes end with a bare token that
+`scan.sh` masks with `::add-mask::` before first use, and `login`/`db-token` both treat an
+**empty token** — a login that returned none, or a `SELECT` that matched no row — as a
+loud skip (`not-run`), never a scan without auth. `db-insert` cannot produce an empty
+token (it is generated locally, not read back), so its own failure mode is a failed
+`INSERT` — same `not-run` outcome, different cause: the migration never created the table
+to insert into.
 
 > [!IMPORTANT]
 > **Each connector's auth model is read from its own code before its arm is written (D7).**
@@ -914,9 +929,12 @@ auth.
 
 - **Authenticated, with no stored credential.** In `login` mode the admin password is
   `openssl rand`-generated in `scan.sh` for this run only and used once; in `db-token` mode
-  the seeded token never leaves the ephemeral database until the `SELECT` reads it. Either
-  way the token reaches ZAP only as a request-header replacer rule on the `docker run`
-  command line — and ZAP echoes that rule, token included, back on its own stdout. Since
+  the seeded token never leaves the ephemeral database until the `SELECT` reads it; in
+  `db-insert` mode the token is generated the same way the admin password is and written
+  into a database that dies with the container — nothing is ever stored, nothing to
+  rotate. Either way the token reaches ZAP only as a request-header replacer rule on the
+  `docker run` command line — and ZAP echoes that rule, token included, back on its own
+  stdout. Since
   this repository is public, that stdout is a GitHub-persisted, world-readable step log the
   instant it is written, which is why `scan.sh` masks the token with `::add-mask::` the
   moment it is acquired and deletes the local console file on exit — belt and suspenders,

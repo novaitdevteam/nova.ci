@@ -7,11 +7,13 @@
 # failure produces the same empty result a clean scan would, and reporting that as clean
 # is the failure this job exists to avoid.
 #
-# Two auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
+# Three auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
 # reads the token from the response (novatalks.core's engine); `db-token` reads a token
 # straight out of the seeded database with a caller-supplied SELECT (a connector with a
-# DB-backed token in a header of its own name). Both end with a bare token in $TOKEN,
-# re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
+# DB-backed token in a header of its own name); `db-insert` writes its own token into the
+# seeded database with a caller-supplied INSERT, for an image whose seeder was pruned out
+# of the runtime stage — there is nothing to SELECT. All three end with a bare token in
+# $TOKEN, re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
 #
 # Zero secrets stored: the database is ours and dies with this job, so the admin
 # password is generated here and used once to log in. The token reaches ZAP as a
@@ -36,7 +38,16 @@ set -euo pipefail
 . "${DAST_ACTION_ROOT}/../dast/dast-common.sh"
 
 # generated per run, never stored, never echoed
-ADMIN_USER="nova-ci-apiscan@local"
+#
+# The address has to be syntactically valid AND unable to ever resolve to a real
+# mailbox — both halves matter and neither alone is enough. `@local` looked fine but
+# is not a valid email: the engine's own entrypoint seeder validates it with Sequelize's
+# `isEmail` (`require_tld: true`), `@local` has no top-level domain, the validator
+# throws, the container dies mid-boot, and the job then loud-skips with "the image did
+# not come up within 300s" — blaming the image for a bad input. Confirmed live on run
+# 33761248644 against novatalks.core. `example.invalid` is RFC 2606 reserved: it passes
+# `isEmail` and is guaranteed to never be a real, registrable domain.
+ADMIN_USER="nova-ci-apiscan@example.invalid"
 ADMIN_PASS="$(openssl rand -hex 24)"
 # Masked before the application container exists, not just before ZAP runs. This script
 # dumps container output when boot or setup fails — that is the only way to diagnose a
@@ -305,6 +316,12 @@ fi
 # db-token: the seeder already ran (above), so the token it wrote is read straight out
 # of the database with the caller's own SELECT — robust against a seeder that never
 # prints the token anywhere, and generalises past parsing console output.
+#
+# db-insert: whatsapp and signal run `npm prune --omit=dev` in their Dockerfiles, which
+# removes ts-node and the seeder with it — the runtime image has no seeder to run at
+# all. sequelize-cli survives as a runtime dependency, so migrations still ran and the
+# tables exist, just empty: db-token would SELECT nothing, forever. Write the row
+# ourselves instead of guessing one that might already be there.
 case "${DAST_AUTH_MODE:-login}" in
     login)
         login_headers="$(curl -s -D - -o /dev/null -X POST "${target}${DAST_LOGIN_PATH:-/auth/sign_in}" \
@@ -331,6 +348,23 @@ case "${DAST_AUTH_MODE:-login}" in
         TOKEN="$(docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
             psql -tAq -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
             -c "$DAST_TOKEN_SQL" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+        ;;
+    db-insert)
+        # No seeder in the image to produce a token, so produce one. whatsapp and signal
+        # run `npm prune --omit=dev`, which removes ts-node and the seeder with it;
+        # sequelize-cli survives as a runtime dependency, so the migrations ran and the
+        # tables exist and are empty. There is nothing to SELECT and nothing to guess.
+        #
+        # The value is generated here and lives only in this job's database, which is
+        # deleted with the container: nothing to store, nothing to rotate, nothing that
+        # could be a real credential by accident.
+        [ -n "${DAST_TOKEN_INSERT_SQL:-}" ] || scanner_error "db-insert mode needs a token-insert-sql statement"
+        TOKEN="nova-ci-apiscan-$(openssl rand -hex 24)"
+        insert_sql="${DAST_TOKEN_INSERT_SQL//%TOKEN%/$TOKEN}"
+        docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
+            psql -tAq -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
+            -c "$insert_sql" >/dev/null 2>&1 \
+            || not_run "the token INSERT failed — the migration may not have created the table"
         ;;
     *) scanner_error "unknown auth-mode: ${DAST_AUTH_MODE}" ;;
 esac
