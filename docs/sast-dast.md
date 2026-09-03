@@ -773,6 +773,15 @@ header it is injected under is a per-repository input — a connector's is not t
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
 
+> [!NOTE]
+> **A loud skip has to say which thing broke, and show it.** `docker exec` against a
+> container that never started fails on its own, so an image that did not boot used to
+> report `database setup failed` — one message for two very different causes. A
+> `docker inspect -f '{{.State.Running}}'` check ahead of the setup step separates them,
+> and the setup command's output is captured and printed on failure rather than sent to
+> `/dev/null`. The generated admin password is masked at generation for this reason: the
+> failure paths print container logs, and this repository is public.
+
 > [!WARNING]
 > **The `-z` replacer values are single-quoted in `scan.sh`, and that is load-bearing.**
 > `zap-api-scan.py` puts the whole `-z` string through Python's `shlex.split()` before

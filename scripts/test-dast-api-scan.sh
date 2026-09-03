@@ -54,12 +54,16 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
         esac ;;
     exec)
         case "$*" in
-            *db:setup:prod*) exit "${SHIM_DBSETUP_RC:-0}" ;;
+            *db:setup:prod*) printf '%s\n' "${SHIM_DBSETUP_OUT:-}"; exit "${SHIM_DBSETUP_RC:-0}" ;;
             *"psql -tAq"*)
                 printf '%s\n' "${SHIM_TOKEN_SQL_RESULT-}"
                 exit 0 ;;
             *) exit 0 ;;
         esac ;;
+    # `docker inspect -f '{{.State.Running}}'` is how scan.sh tells "the image never
+    # started" from "the setup command failed" — two causes that used to share one
+    # message. SHIM_APP_STATE drives that fork.
+    inspect) printf '%s\n' "${SHIM_APP_STATE:-true}"; exit 0 ;;
     rm|pull|logs) exit 0 ;;
     *) exit 0 ;;
 esac
@@ -336,6 +340,40 @@ assert_shlex_element "the Bearer prefix and the token reach ZAP as one argument"
     '^replacer\.full_list\(0\)\.replacement=Bearer .+$'
 assert_shlex_element "the header name reaches ZAP as one argument" \
     '^replacer\.full_list\(0\)\.matchstr=Authorization$'
+
+# --- a boot failure and a setup failure are different things ---------------------------
+# They used to arrive as the same four words: `docker exec` against a container that
+# never started fails on its own, so an image that did not boot reported "database setup
+# failed". One message for two causes is the defect this action exists to refuse, applied
+# to its own diagnostics.
+SHIM_APP_STATE="false" expect "a container that never started says so" not-run 0
+if grep -q "the image did not start" "$WORK/report"; then
+    echo "ok   the report names the boot failure, not the setup command"; pass=$((pass + 1))
+else
+    echo "FAIL the report still blames the setup command for a container that never started"
+    fail=$((fail + 1))
+fi
+
+# The loud skip is only actionable with the evidence behind it. `>/dev/null 2>&1` on the
+# setup command made every failure here a dead end.
+SHIM_DBSETUP_RC=1 SHIM_DBSETUP_OUT="Error: P3009 migrate found failed migrations" \
+    expect "a failing setup command is still a loud skip" not-run 0
+if grep -q "P3009 migrate found failed migrations" "$WORK/log"; then
+    echo "ok   the setup command's own output reaches the step log"; pass=$((pass + 1))
+else
+    echo "FAIL the setup command failed with its output discarded — nothing to act on"
+    fail=$((fail + 1))
+fi
+
+# The generated admin password is masked before the container that could echo it exists,
+# not just before ZAP runs — this script now prints container output on failure.
+if grep -q "::add-mask::" "$WORK/log"; then
+    echo "ok   the generated admin password is masked before any container output is printed"
+    pass=$((pass + 1))
+else
+    echo "FAIL the admin password was never masked, and failure paths print container logs"
+    fail=$((fail + 1))
+fi
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

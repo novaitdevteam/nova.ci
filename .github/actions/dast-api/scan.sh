@@ -37,6 +37,11 @@ set -euo pipefail
 # generated per run, never stored, never echoed
 ADMIN_USER="nova-ci-apiscan@local"
 ADMIN_PASS="$(openssl rand -hex 24)"
+# Masked before the application container exists, not just before ZAP runs. This script
+# dumps container output when boot or setup fails — that is the only way to diagnose a
+# loud skip — and a NestJS bootstrap that prints its resolved config would otherwise put
+# this value straight into a world-readable step log. nova.ci is public.
+echo "::add-mask::${ADMIN_PASS}"
 
 DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
 # Port and routes are inputs (see action.yml), each defaulted to the value
@@ -90,6 +95,14 @@ summary() { # summary <alert> <headline>
         echo "- Spec: \`${spec_url}\`"
         echo "- Report: ${REPORT_URL:-not published}"
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+}
+
+# Container output is the only evidence behind a boot or setup failure, and a loud skip
+# without it is a dead end. Capped so a crash loop cannot bury the rest of the log.
+dump_app_log() { # dump_app_log <why>
+    echo "--- docker logs nova-app (${1}), last 60 lines ---"
+    docker logs --tail 60 nova-app 2>&1 || echo "(no container output available)"
+    echo "--- end ---"
 }
 
 not_run() { # not_run <reason>
@@ -184,18 +197,35 @@ docker run -d --name nova-app --network host \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
     -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
     "$DAST_IMAGE" || true
-# A container that failed to even start here has no process for the exec below to
-# reach either (docker exec against a container that never started fails on its own),
-# so this cascades into the same "database setup failed" loud skip below rather than
-# needing a second not_run of its own. The `|| true` only keeps `set -e` from killing
-# the script before that exec ever runs — a real failure here is still caught one line
-# down.
+
+# `docker exec` against a container that never started fails on its own, so this used to
+# cascade into the setup step's loud skip and report "database setup failed" for an image
+# that had not started at all. Two very different causes behind one message is the defect
+# this repository keeps legislating against — an alert that cannot tell them apart is one
+# nobody acts on. Ask the container directly instead.
+app_state="$(docker inspect -f '{{.State.Running}}' nova-app 2>/dev/null || echo missing)"
+if [ "$app_state" != "true" ]; then
+    dump_app_log "the container is not running"
+    not_run "the image did not start — see the step log for its output"
+fi
 
 # create+migrate+seed in one script; the seeder reads DEFAULT_ADMIN_USER/
 # DEFAULT_USER_PASSWORD directly, so the admin generated above is exactly who this logs
 # in as two steps down.
-docker exec nova-app sh -c "${DAST_SETUP_CMD:-npm run db:setup:prod}" >/dev/null 2>&1 \
-    || not_run "database setup failed"
+#
+# The output is captured rather than discarded. `>/dev/null 2>&1` made every failure here
+# indistinguishable — a missing migration, an unreachable database, a script that is not
+# in this image at all all arrived as the same four words with no evidence behind them,
+# and the loud skip is only useful if somebody can act on it. ADMIN_PASS is masked above,
+# so printing this is safe.
+setup_log="${RUNNER_TEMP:-/tmp}/dast-api-setup.log"
+if ! docker exec nova-app sh -c "${DAST_SETUP_CMD:-npm run db:setup:prod}" >"$setup_log" 2>&1; then
+    echo "--- '${DAST_SETUP_CMD:-npm run db:setup:prod}' failed, last 60 lines ---"
+    tail -60 "$setup_log" || true
+    echo "--- end ---"
+    dump_app_log "the setup command failed"
+    not_run "database setup failed — see the step log for the command's output"
+fi
 
 # --- boot ------------------------------------------------------------------------------
 booted=no
