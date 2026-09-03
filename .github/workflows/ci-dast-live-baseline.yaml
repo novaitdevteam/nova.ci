@@ -66,9 +66,12 @@ jobs:
 
           # A run is dispatched by hand, so the person who triggered it is already
           # watching the Actions UI — but the notifier line makes the result land in the
-          # same Telegram/Google Chat channel as every other scan, and gives a stable
-          # link to the report. B has no release to attach to (there is no build), so the
-          # link points at the run, where the report is uploaded as an artifact.
+          # same Telegram/Google Chat channel as every other scan.
+          #
+          # Verdict only, no links: the report's download URL is not knowable here. The
+          # artifact does not exist until the upload step two steps down, and its URL is
+          # that step's own output. The "Compose notification" step below appends both
+          # links once it does.
           emit_message() {
             {
               echo "message<<LIVE_EOF"
@@ -76,14 +79,12 @@ jobs:
               echo "LIVE_EOF"
             } >> "${GITHUB_OUTPUT:-/dev/null}"
           }
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
           # scanner_error emits the notifier line before exiting non-zero, so the Notify
           # step (which runs on failure too) has something to send rather than falling
           # back to a generic message.
           scanner_error() {
             echo "::error::$1"
-            emit_message "🕷 DAST live baseline (${TARGET}): ❌ scanner failed — $1"$'\n'"   📄 Run: ${run_url}"
+            emit_message "🕷 DAST live baseline (${TARGET}): ❌ scanner failed — $1"
             exit 1
           }
 
@@ -159,20 +160,55 @@ jobs:
           # (a live baseline is advisory — it never gates anything). The count is stated
           # so "clean" cannot be misread as "nothing was checked".
           if [ "$failures" -gt 0 ]; then
-            emit_message "🕷 DAST live baseline (${TARGET}): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Run: ${run_url}"
+            emit_message "🕷 DAST live baseline (${TARGET}): 🔴 ${failures} must-fix · ${findings} warnings"
           elif [ "$findings" -gt 0 ]; then
-            emit_message "🕷 DAST live baseline (${TARGET}): 🟡 ${findings} warnings"$'\n'"   📄 Run: ${run_url}"
+            emit_message "🕷 DAST live baseline (${TARGET}): 🟡 ${findings} warnings"
           else
-            emit_message "🕷 DAST live baseline (${TARGET}): 🟢 clean · ${infos} info · ${accepted} accepted"$'\n'"   📄 Run: ${run_url}"
+            emit_message "🕷 DAST live baseline (${TARGET}): 🟢 clean · ${infos} info · ${accepted} accepted"
           fi
 
       - name: Upload report artifact
+        id: artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-live-baseline-report
           path: report.md
           if-no-files-found: warn
+
+      # The notification's whole job is to save a click, so it carries the report's own
+      # download URL, not just the run's. `artifact-url` is an output of the upload
+      # above — it cannot exist earlier, which is why the scan step emits a verdict and
+      # nothing else and the links are assembled here.
+      #
+      # Composed in bash rather than in a `format()` expression because the message is
+      # multi-line and conditional: a scan that died before writing a report uploads
+      # nothing, `artifact-url` is empty, and offering a download link to a file that
+      # does not exist is worse than not offering one.
+      - name: Compose notification
+        id: notice
+        if: always()
+        env:
+          VERDICT: ${{ steps.scan.outputs.message }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # A job killed before the scan step emitted anything leaves VERDICT empty.
+          # Silence reads as a clean scan, so say what actually happened.
+          line="${VERDICT:-🕷 DAST live baseline (${TARGET}): ❌ scan did not complete}"
+
+          {
+            echo "message<<LIVE_NOTIFY_EOF"
+            printf '%s\n' "$line"
+            if [ -n "$ARTIFACT_URL" ]; then
+              printf '   📥 Report: %s\n' "$ARTIFACT_URL"
+            fi
+            printf '   📄 Run: %s\n' "$run_url"
+            echo "LIVE_NOTIFY_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       # Fires for a scan result — clean, findings, or a broken scanner — but not when the
       # allowlist step rejected the target: that skips the scan step, so this skips too,
@@ -185,10 +221,7 @@ jobs:
         if: ${{ !cancelled() && steps.scan.conclusion != 'skipped' }}
         uses: novaitdevteam/nova.ci/.github/actions/notify@main
         with:
-          # Quoted: the fallback string contains a literal ": " which an unquoted YAML
-          # scalar mis-parses as a mapping (actionlint rejects it even where Ruby's
-          # parser tolerates it).
-          message: "${{ steps.scan.outputs.message || format('🕷 DAST live baseline ({0}): scan did not complete — {1}/{2}/actions/runs/{3}', inputs.target, github.server_url, github.repository, github.run_id) }}"
+          message: ${{ steps.notice.outputs.message }}
           telegram_token: ${{ secrets.TG_NOTIFICATION_BOT_TOKEN }}
           telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}
