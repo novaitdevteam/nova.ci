@@ -935,64 +935,21 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
+          # shellcheck source=.github/actions/dast/targets.sh
+          . "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"
+          dast_resolve_target "$REPO_NAME" browser
 
-          case "$REPO_NAME" in
-            novatalks.ui)
-              # nginx serving the static Vue app. Port and health path from the
-              # production Helm chart (novatalks.charts, novatalks_v5/values.yaml) —
-              # authoritative because it is what runs in prod.
-              port=8000
-              health_path=/livez
-              needs_db=false
-              needs_nats=false
-              extra_env=""
-              ;;
-            novatalks.core)
-              # NestJS engine. Same chart source as above.
-              port=3000
-              health_path=/livez
-              needs_db=true
-              needs_nats=false
-              extra_env=""
-              ;;
-            nova.botflow)
-              # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is
-              # correct here: the boot wait-loop accepts any HTTP response, 404 included,
-              # because it is only testing whether the process is listening, not whether
-              # a route exists. Do not "fix" this to /livez.
-              port=1880
-              health_path=/
-              # Needs redis or postgres depending on its storage configuration; bringing
-              # up both is simpler than modelling the choice, and an unused container
-              # costs a few seconds.
-              needs_db=true
-              needs_nats=false
-              extra_env=""
-              ;;
-            # Only the three browser-surface repositories reach dast-scan (see the job
-            # gate above). The ZAP baseline is a browser tool — on a headless JSON API it
-            # finds three response headers and nothing a browser would; the connectors
-            # (telegram/whatsapp/signal/dialer) and geoip/uspacy were removed on 2026-09-01.
-            # Their real coverage is the authenticated api-scan (see the api-scan job), a
-            # tracked per-repo expansion; a generalised api-scan will need their ports/health
-            # paths, recorded in the tracking note, not here.
-            *)
-              echo "::error::No DAST configuration for repository '$REPO_NAME'. Add an explicit port/health-path/needs-db entry before this repository can reach dast-scan — a guessed port would scan nothing and report it clean."
-              exit 1
-              ;;
-          esac
-
-          echo "port=$port" | tee -a "$GITHUB_OUTPUT"
-          echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
-          echo "needs_db=$needs_db" | tee -a "$GITHUB_OUTPUT"
-          echo "needs_nats=$needs_nats" | tee -a "$GITHUB_OUTPUT"
+          echo "port=$DT_PORT" | tee -a "$GITHUB_OUTPUT"
+          echo "health_path=$DT_HEALTH_PATH" | tee -a "$GITHUB_OUTPUT"
+          echo "needs_db=$DT_NEEDS_DB" | tee -a "$GITHUB_OUTPUT"
+          echo "needs_nats=$DT_NEEDS_NATS" | tee -a "$GITHUB_OUTPUT"
           {
             echo "extra_env<<DAST_EXTRA_ENV_EOF"
-            printf '%s\n' "$extra_env"
+            printf '%s\n' "$DT_EXTRA_ENV"
             echo "DAST_EXTRA_ENV_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Resolved DAST target for $REPO_NAME: port=$port health-path=$health_path needs-db=$needs_db needs-nats=$needs_nats extra-env=$([ -n "$extra_env" ] && echo set || echo none)"
+          echo "Resolved DAST target for $REPO_NAME: port=$DT_PORT health-path=$DT_HEALTH_PATH needs-db=$DT_NEEDS_DB needs-nats=$DT_NEEDS_NATS extra-env=$([ -n "$DT_EXTRA_ENV" ] && echo set || echo none)"
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -1094,72 +1051,35 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
+          # shellcheck source=.github/actions/dast/targets.sh
+          . "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"
+          dast_resolve_target "$REPO_NAME" api
 
-          case "$REPO_NAME" in
-            novatalks.core)
-              port=3000; health_path=/livez; spec_path=/api-docs-json
-              auth_mode=login; login_path=/auth/sign_in
-              auth_header=Authorization; auth_scheme_prefix='Bearer '
-              # No setup_command: docker/engine.Dockerfile's runtime stage installs
-              # nodejs-24 and not npm, and its entrypoint.sh already runs create-database,
-              # sequelize db:migrate and seed-database with plain `node` before the app
-              # serves anything. `npm run db:setup:prod` here could only ever answer
-              # `sh: npm: not found` — and did, on run 33752263531.
-              token_sql=''; setup_command=''; swagger_enable=true
-              extra_env=''
-              ;;
-            nova.chatsconnector.telegram-client-api)
-              # Verified in the connector's code: api_access_token header (setup-swagger.ts),
-              # DB-backed token in tokens.api_token joined to token_roles.role (schema.prisma),
-              # seeded by `npm run db:seed`, Swagger served unconditionally, no health route so "/".
-              port=3000; health_path=/; spec_path=/api-docs-json
-              auth_mode=db-token; login_path=''
-              auth_header=api_access_token; auth_scheme_prefix=''
-              token_sql="SELECT t.api_token FROM tokens t JOIN token_roles r ON t.role_id = r.id WHERE r.role = 'SUPER_ADMIN' ORDER BY t.id LIMIT 1;"
-              # No setup_command either: this image's entrypoint.sh runs `npm run
-              # db:setup` itself before starting the app, so the exec was racing it and
-              # both failed the same way — Prisma P1012, DATABASE_URL not found. scan.sh
-              # now sets DATABASE_URL for the container, which fixes the entrypoint's own
-              # run; a second one over `docker exec` buys nothing.
-              setup_command=''; swagger_enable=false
-              # Boot dummies the connector's config validator rejects a blank for — the same
-              # values the removed baseline arm used; DATABASE_URL for Prisma is built by scan.sh.
-              extra_env='TELEGRAM_API_ID=12345
-          TELEGRAM_API_HASH=00000000000000000000000000000000
-          NOVATALKS_ACCESS_TOKEN=dast-dummy-dummy-token
-          ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy'
-              ;;
-            *)
-              echo "::error::No api-scan configuration for '$REPO_NAME'."
-              exit 1
-              ;;
-          esac
-
-          echo "port=$port" | tee -a "$GITHUB_OUTPUT"
-          echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
-          echo "spec_path=$spec_path" | tee -a "$GITHUB_OUTPUT"
-          echo "auth_mode=$auth_mode" | tee -a "$GITHUB_OUTPUT"
-          echo "login_path=$login_path" | tee -a "$GITHUB_OUTPUT"
-          echo "auth_header=$auth_header" | tee -a "$GITHUB_OUTPUT"
+          echo "port=$DT_PORT" | tee -a "$GITHUB_OUTPUT"
+          echo "health_path=$DT_HEALTH_PATH" | tee -a "$GITHUB_OUTPUT"
+          echo "spec_path=$DT_SPEC_PATH" | tee -a "$GITHUB_OUTPUT"
+          echo "auth_mode=$DT_AUTH_MODE" | tee -a "$GITHUB_OUTPUT"
+          echo "login_path=$DT_LOGIN_PATH" | tee -a "$GITHUB_OUTPUT"
+          echo "auth_header=$DT_AUTH_HEADER" | tee -a "$GITHUB_OUTPUT"
           {
             echo "auth_scheme_prefix<<APISCAN_AUTH_PREFIX_EOF"
-            printf '%s\n' "$auth_scheme_prefix"
+            printf '%s\n' "$DT_AUTH_SCHEME_PREFIX"
             echo "APISCAN_AUTH_PREFIX_EOF"
           } >> "$GITHUB_OUTPUT"
           {
             echo "token_sql<<APISCAN_TOKEN_SQL_EOF"
-            printf '%s\n' "$token_sql"
+            printf '%s\n' "$DT_TOKEN_SQL"
             echo "APISCAN_TOKEN_SQL_EOF"
           } >> "$GITHUB_OUTPUT"
-          echo "setup_command=$setup_command" | tee -a "$GITHUB_OUTPUT"
-          echo "swagger_enable=$swagger_enable" | tee -a "$GITHUB_OUTPUT"
+          echo "setup_command=$DT_SETUP_COMMAND" | tee -a "$GITHUB_OUTPUT"
+          echo "swagger_enable=$DT_SWAGGER_ENABLE" | tee -a "$GITHUB_OUTPUT"
           {
             echo "extra_env<<APISCAN_EXTRA_ENV_EOF"
-            printf '%s\n' "$extra_env"
+            printf '%s\n' "$DT_EXTRA_ENV"
             echo "APISCAN_EXTRA_ENV_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Resolved api-scan target for $REPO_NAME: port=$port health-path=$health_path auth-mode=$auth_mode swagger-enable=$swagger_enable"
+          echo "Resolved api-scan target for $REPO_NAME: port=$DT_PORT health-path=$DT_HEALTH_PATH auth-mode=$DT_AUTH_MODE swagger-enable=$DT_SWAGGER_ENABLE"
 
       - name: ZAP API scan
         id: dast_api

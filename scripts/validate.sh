@@ -174,6 +174,20 @@ else
   echo "skip: jq not installed"
 fi
 
+section "DAST target table self-check"
+# targets.sh is the one per-repository table sourced by dast-scan, api-scan and (later)
+# the live-baseline dispatch. A wrong value is not a crash: it is a scan of the wrong
+# port that finds nothing and reports it clean, so every arm's shape is asserted here
+# and the default arm is asserted to fail rather than guess.
+if out="$(./scripts/test-dast-targets.sh 2>&1)"; then
+  printf '%s\n' "$out" | tail -1
+  echo "OK: all DAST target table scenarios passed"
+else
+  printf '%s\n' "$out"
+  echo "ERROR: DAST target table self-check failed"
+  fail=1
+fi
+
 section "DAST scan self-check"
 # The four DAST outcomes must stay distinct: a build that could not boot its own image
 # is not a clean scan. The harness stubs docker and curl, so no image is pulled. Unlike

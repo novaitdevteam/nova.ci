@@ -30,9 +30,10 @@ Primary files:
 - `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
 - `.github/actions/semgrep/action.yml` + `scan.sh` + `canary.yaml`: the only place any workflow may invoke Semgrep (SAST)
 - `.github/actions/dast/action.yml` + `scan.sh` + `dast-common.sh`: the unauthenticated OWASP ZAP baseline (DAST); `dast-common.sh` holds the shared tally parse sourced by all three ZAP callers
+- `.github/actions/dast/targets.sh`: the one per-repository DAST table (port, health path, auth) — `dast_resolve_target <repo> <api|browser>`, sourced by the `Resolve DAST target` / `Resolve api-scan target` steps and every later consumer
 - `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core` only)
 - `.github/workflows/ci-dast-live-baseline.yaml`: the `workflow_dispatch` live baseline against the real deployment, target allowlisted
-- `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`, `scripts/test-dast-api-scan.sh`: offline scenario self-checks (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
+- `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`, `scripts/test-dast-api-scan.sh`, `scripts/test-dast-targets.sh`: offline scenario self-checks (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
 - `scripts/gitleaks-baseline.sh`: one-time full-history secret audit across product repositories; deliberately not a CI job
 - `.github/actions/notify/action.yml`: the only place that talks to Telegram and Google Chat
 - `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
@@ -525,14 +526,20 @@ Preserve these behaviors:
   core needs `SWAGGER_ENABLE=true`, telegram serves it unconditionally and sets `false`); an
   empty spec is a loud `not-run`. Same four outcomes and tally parse as the baseline; its own
   triage register `dast-api/zap-api-scan.conf`, not the baseline's.
-- **Each connector's auth model is read from its own code before its `Resolve api-scan
-  target` arm is written.** Telegram's `db-token`/`api_access_token`/`tokens` shape is not
+- **Each connector's auth model is read from its own code before its `targets.sh` arm is
+  written.** Telegram's `db-token`/`api_access_token`/`tokens` shape is not
   assumed for the Sequelize connectors (whatsapp, signal) or dialer — the tracked Phase 2,
   each with its own token storage, header and seed path.
 - **The tally parse lives once, in `dast/dast-common.sh`.** `zap_tally_parse` (anchor +
   numeric guard) is sourced by `dast`, `dast-api` and the live-baseline workflow. Never
   re-inline or copy it — the ANSI-C `\t` and the shape-not-prefix anchor are the exact
   divergent-copy hazard it exists to remove; a copy that rots reds only on GNU runners.
+- **The per-repository DAST table lives once, in `dast/targets.sh`.** `dast_resolve_target
+  <repo> <api|browser>` sets `DT_*` in the caller's scope and is sourced by the `Resolve
+  DAST target` and `Resolve api-scan target` steps. Never re-inline or copy an arm into a
+  workflow's own `case` — same divergent-copy hazard as the tally parse above. Every arm
+  sets every `DT_*` variable, even ones with no consumer yet, so a stale value can never
+  leak from the previous caller.
 - **Live baseline (`ci-dast-live-baseline.yaml`, `workflow_dispatch`).** Scans the real
   deployment through Cloudflare — the edge surface the container scan cannot see (nginx
   serves the SPA with no CSP/HSTS on `/` while the engine's own routes carry them). The
