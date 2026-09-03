@@ -55,6 +55,7 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
     exec)
         case "$*" in
             *db:setup*) printf '%s\n' "${SHIM_DBSETUP_OUT:-}"; exit "${SHIM_DBSETUP_RC:-0}" ;;
+            *pg_isready*) exit "${SHIM_PG_READY_RC:-0}" ;;
             *"psql -tAq"*)
                 printf '%s\n' "${SHIM_TOKEN_SQL_RESULT-}"
                 exit 0 ;;
@@ -413,6 +414,25 @@ if grep -qE "DATABASE_URL=postgresql://postgres:password@127\.0\.0\.1:5432/db_na
 else
     echo "FAIL no DATABASE_URL on the app container — Prisma repositories cannot migrate"
     fail=$((fail + 1))
+fi
+
+# --- postgres, the dependency that silently was not there ------------------------------
+# Same regression as dast/scan.sh's: the CloudNativePG operator image has no entrypoint,
+# so `docker run -d` started bash, bash exited, and pg_isready failed for a minute while
+# the loop fell through without a word. Every api-scan ever run reported
+# "the image did not come up" for a database that was never started.
+SHIM_PG_READY_RC=1 expect "a postgres that never becomes ready is a loud skip" not-run 0
+if grep -q "postgres never became ready" "$WORK/report"; then
+    echo "ok   the skip names postgres, not the application image"; pass=$((pass + 1))
+else
+    echo "FAIL the skip still blames the image"; fail=$((fail + 1))
+fi
+
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" expect "a normal run still scans" clean 0
+if grep -E "^run .*--name nova-pg" "$WORK/dockerlog" | grep -qE " postgres:[0-9]"; then
+    echo "ok   postgres comes from the Docker Official image"; pass=$((pass + 1))
+else
+    echo "FAIL nova-pg is not a postgres:N image"; fail=$((fail + 1))
 fi
 
 echo "--- $pass passed, $fail failed"
