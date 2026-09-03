@@ -39,6 +39,10 @@ case "$1" in
     run)
         case "$*" in
             *zaproxy*)
+                # One element per line, unlike the flattened "$*" log above: the -z
+                # value is a single argv element whose internal quoting is exactly what
+                # is under test, and "$*" destroys it.
+                printf '%s\n' "$@" > "${SHIM_ZAP_ARGV:?}"
                 printf '%s\n' "${SHIM_ZAP_MD:-# ZAP Scanning Report}" > "${SHIM_ZAP_OUT:?}"
                 printf '%s\n' "${SHIM_ZAP_CONSOLE:-PASS: everything
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40}"
@@ -109,10 +113,12 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     local out="$WORK/output" summary="$WORK/summary"
     : >"$out"; : >"$summary"; : >"$WORK/log"; : >"$WORK/dockerlog"
     : >"$WORK/zap-api.md"; : >"$WORK/report"; rm -f "$WORK/zap-api-console.log"
+    : >"$WORK/zap-argv"
 
     set +e
     PATH="$WORK/bin:$PATH" \
     SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap-api.md" \
+    SHIM_ZAP_ARGV="$WORK/zap-argv" \
     DAST_IMAGE="ghcr.io/x/y:z" \
     DAST_BOOT_TIMEOUT="6" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
@@ -299,6 +305,37 @@ WARN-NEW: Some Warning Alert [10038] x 5
 FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 30" \
     expect "login mode still injects Authorization: Bearer" findings 0
 assert_zap_flag "login mode keeps the Bearer prefix" 'replacement=Bearer '
+
+# The prefix surviving in the -z string is not the same as it surviving into ZAP.
+# zap-api-scan.py runs that string through shlex.split() before passing it on
+# (zap_common.py: add_zap_options), so an unquoted `replacement=Bearer <token>` arrives
+# as two arguments: the header is set to a bare `Bearer` and the token is dropped as a
+# stray positional. The scan then runs unauthenticated and reports a perfectly plausible
+# result — the "it produced the output a working run produces" failure this whole action
+# is built to refuse. So reproduce ZAP's own parse rather than asserting on the raw
+# string, which passes either way.
+assert_shlex_element() { # assert_shlex_element <name> <extended-regex the whole element must match>
+    local name="$1" want="$2" zap_z
+    zap_z="$(awk '/^-z$/{getline; print; exit}' "$WORK/zap-argv")"
+    if [ -z "$zap_z" ]; then
+        echo "FAIL $name — no -z argument in the recorded ZAP argv"; fail=$((fail + 1)); return
+    fi
+    if printf '%s' "$zap_z" \
+        | python3 -c 'import shlex,sys; print("\n".join(shlex.split(sys.stdin.read())))' \
+        | grep -qxE -- "$want"; then
+        echo "ok   $name"; pass=$((pass + 1))
+    else
+        echo "FAIL $name — no shlex element matched: $want"
+        printf '%s' "$zap_z" \
+            | python3 -c 'import shlex,sys; print("\n".join(shlex.split(sys.stdin.read())))' \
+            | sed 's/^/     /'
+        fail=$((fail + 1))
+    fi
+}
+assert_shlex_element "the Bearer prefix and the token reach ZAP as one argument" \
+    '^replacer\.full_list\(0\)\.replacement=Bearer .+$'
+assert_shlex_element "the header name reaches ZAP as one argument" \
+    '^replacer\.full_list\(0\)\.matchstr=Authorization$'
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
