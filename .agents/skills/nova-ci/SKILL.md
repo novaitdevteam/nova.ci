@@ -512,7 +512,7 @@ Preserve these behaviors:
   inputs; the token is masked with `::add-mask::` whatever its source; an empty token
   (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
   auth. **Safe mode `-S` is mandatory** — without it the tool active-scans, i.e. real writes
-  against the seeded API; `scripts/test-dast-api-scan.sh` (36 checks) asserts `-S` and the
+  against the seeded API; `scripts/test-dast-api-scan.sh` (42 checks) asserts `-S` and the
   mask. The seed admin password is `openssl rand`-generated per run and stored nowhere
   (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). ZAP echoes the token-bearing replacer
   rule to its own stdout — a public repo's persisted step log — which is why the mask, plus
@@ -534,6 +534,11 @@ Preserve these behaviors:
   `target` input is validated against a **one-host allowlist** before scanning; adding a
   host is a deliberate edit, never runtime. SPA-200 caveat: the host returns 200 for every
   path, so duplicate header findings are duplication, not broader coverage.
+  `setup-command` defaults to **empty**: both images so far migrate and seed from their
+  own `ENTRYPOINT`, so the health poll is the completion signal. `novatalks.core` cannot
+  do it any other way — its runtime stage installs `nodejs-24` and not npm. The app
+  container also gets `DATABASE_URL` (Prisma reads that and nothing else) alongside the
+  discrete `DATABASE_*` vars, both built from the values just given to postgres.
   The `-z` replacer values are wrapped in **literal single quotes**, and that is
   load-bearing: `zap-api-scan.py` runs the whole `-z` string through
   `shlex.split()` (`zap_common.py: add_zap_options`), so an unquoted

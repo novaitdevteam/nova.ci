@@ -773,6 +773,23 @@ header it is injected under is a per-repository input — a connector's is not t
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
 
+> [!IMPORTANT]
+> **The image sets itself up; `scan.sh` does not.** `setup-command` defaults to empty
+> because both images wired up so far run their migrate-and-seed from their own
+> `ENTRYPOINT` before they serve anything — so the health poll *is* the completion
+> signal, and a second run over `docker exec` is redundant. For `novatalks.core` it is
+> impossible: the runtime stage of `docker/engine.Dockerfile` installs `nodejs-24` and
+> **not** npm, and its `entrypoint.sh` does the same three steps with plain `node`,
+> saying so in a comment. `npm run db:setup:prod` there could only ever answer
+> `sh: npm: not found` — and did.
+>
+> The container also gets **`DATABASE_URL`**, not just the discrete `DATABASE_*`
+> variables. Prisma reads that and nothing else; without it the telegram connector's
+> entrypoint died on `P1012 Environment variable not found: DATABASE_URL`. Both
+> conventions are built from the values handed to the postgres container moments
+> earlier, so they cannot point at a different database — the same rule
+> [`dast/scan.sh`](../.github/actions/dast/scan.sh) follows.
+
 > [!NOTE]
 > **A loud skip has to say which thing broke, and show it.** `docker exec` against a
 > container that never started fails on its own, so an image that did not boot used to

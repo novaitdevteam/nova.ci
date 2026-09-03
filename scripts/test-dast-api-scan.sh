@@ -54,7 +54,7 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
         esac ;;
     exec)
         case "$*" in
-            *db:setup:prod*) printf '%s\n' "${SHIM_DBSETUP_OUT:-}"; exit "${SHIM_DBSETUP_RC:-0}" ;;
+            *db:setup*) printf '%s\n' "${SHIM_DBSETUP_OUT:-}"; exit "${SHIM_DBSETUP_RC:-0}" ;;
             *"psql -tAq"*)
                 printf '%s\n' "${SHIM_TOKEN_SQL_RESULT-}"
                 exit 0 ;;
@@ -247,8 +247,10 @@ assert_failures "FAIL-NEW counted on its own" 2
 SHIM_PG_RUN_RC=1 expect "postgres down is a loud skip" not-run 0
 assert_cleanup "postgres-down run still tears containers down"
 
-SHIM_DBSETUP_RC=1 expect "migration failure is a loud skip" not-run 0
-SHIM_DBSETUP_RC=1 expect "seed failure is a loud skip" not-run 0
+SHIM_DBSETUP_RC=1 DAST_SETUP_CMD="npm run db:setup:prod" \
+    expect "migration failure is a loud skip" not-run 0
+SHIM_DBSETUP_RC=1 DAST_SETUP_CMD="npm run db:setup:prod" \
+    expect "seed failure is a loud skip" not-run 0
 
 SHIM_CURL_RC=7 expect "boot timeout is a loud skip" not-run 0
 
@@ -357,6 +359,7 @@ fi
 # The loud skip is only actionable with the evidence behind it. `>/dev/null 2>&1` on the
 # setup command made every failure here a dead end.
 SHIM_DBSETUP_RC=1 SHIM_DBSETUP_OUT="Error: P3009 migrate found failed migrations" \
+DAST_SETUP_CMD="npm run db:setup:prod" \
     expect "a failing setup command is still a loud skip" not-run 0
 if grep -q "P3009 migrate found failed migrations" "$WORK/log"; then
     echo "ok   the setup command's own output reaches the step log"; pass=$((pass + 1))
@@ -372,6 +375,43 @@ if grep -q "::add-mask::" "$WORK/log"; then
     pass=$((pass + 1))
 else
     echo "FAIL the admin password was never masked, and failure paths print container logs"
+    fail=$((fail + 1))
+fi
+
+# --- the image usually sets itself up -------------------------------------------------
+# Both images wired up so far migrate and seed from their own ENTRYPOINT. novatalks.core
+# cannot do it any other way: its runtime stage installs nodejs-24 and not npm, so
+# `npm run db:setup:prod` over `docker exec` answered `sh: npm: not found`. So an empty
+# setup-command must mean "skip the exec", not "fall back to the old default".
+DAST_SETUP_CMD="" expect "no setup-command runs no setup exec" clean 0
+if grep -qE "^exec .*(db:setup|npm run)" "$WORK/dockerlog"; then
+    echo "FAIL an empty setup-command still ran a setup exec"; fail=$((fail + 1))
+else
+    echo "ok   an empty setup-command runs no setup exec at all"; pass=$((pass + 1))
+fi
+if grep -q "entrypoint migrates and seeds" "$WORK/log"; then
+    echo "ok   and says so, rather than skipping silently"; pass=$((pass + 1))
+else
+    echo "FAIL the skip is silent — a reader cannot tell it from a setup that ran"
+    fail=$((fail + 1))
+fi
+
+# The escape hatch still works for an image that does not self-setup.
+DAST_SETUP_CMD="npm run db:setup:prod" expect "an explicit setup-command still runs" clean 0
+if grep -qE "^exec .*db:setup:prod" "$WORK/dockerlog"; then
+    echo "ok   an explicit setup-command is still executed"; pass=$((pass + 1))
+else
+    echo "FAIL an explicit setup-command was dropped"; fail=$((fail + 1))
+fi
+
+# Prisma reads DATABASE_URL and nothing else; the telegram connector's entrypoint died on
+# P1012 "Environment variable not found: DATABASE_URL" because this script only passed the
+# discrete DATABASE_* vars the Sequelize repositories use. Both conventions, same values.
+if grep -qE "DATABASE_URL=postgresql://postgres:password@127\.0\.0\.1:5432/db_name" "$WORK/dockerlog"; then
+    echo "ok   the app container gets DATABASE_URL for Prisma, built from the same values"
+    pass=$((pass + 1))
+else
+    echo "FAIL no DATABASE_URL on the app container — Prisma repositories cannot migrate"
     fail=$((fail + 1))
 fi
 
