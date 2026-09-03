@@ -77,6 +77,67 @@ jobs:
         id: gitleaks
         uses: novaitdevteam/nova.ci/.github/actions/gitleaks@main
 
+  # Semgrep on the pull request itself, where a developer can still act on a finding
+  # cheaply. The build workflow has its own `sast-scan` and that one is the evidence
+  # path — it scans the commit that produced the image and attaches the report to that
+  # build's release — but it only exists where there is a build, and an ordinary pull
+  # request does not build one. Without this job nobody sees a SAST result until the
+  # change is already on trunk, which is the wrong end of the review.
+  #
+  # Inline here rather than added to the build workflow's pull request route, for the
+  # same reason secret-scan is inline: novatalks.core's route is a two-entry
+  # `build_target` matrix, so a job there would scan identical source twice. Source is
+  # source — one run per event.
+  #
+  # Advisory by construction. scan.sh exits non-zero only when the scanner itself broke;
+  # findings leave the job green and land in the job summary and the artifact. No
+  # notifier: a finding here is not the pager-worthy event a leaked credential is, and
+  # the pull request's own checks tab is where it will be read.
+  sast-scan:
+    name: sast-scan
+    # The same repository list as secret-scan above — SAST asks a different question but
+    # of the same set of live repositories. Keep the two lists in step.
+    if:
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api" ]'), github.event.repository.name)
+      && github.event_name == 'pull_request'
+      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    # Read-only: this job writes a summary and an artifact, and nothing else. The
+    # build workflow's sast-scan needs `contents: write` only to attach its report to a
+    # release; there is no release here.
+    permissions:
+      contents: read
+    env:
+      REPORT_FILE: semgrep-${{ github.event.repository.name }}-pr${{ github.event.number }}-${{ github.sha }}.report
+    steps:
+      # Shallow on purpose, unlike secret-scan's fetch-depth: 0. Semgrep reads the
+      # working tree, not the commit range — on a pull request that tree is the merge
+      # of head into base, which is exactly the code being proposed.
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      - name: Semgrep
+        id: semgrep
+        uses: novaitdevteam/nova.ci/.github/actions/semgrep@main
+        with:
+          report-file: ${{ env.REPORT_FILE }}
+          # No release on a pull request, so the artifact is the report and the summary
+          # links nothing. scan.sh renders an unset URL as "not published" rather than a
+          # dead link.
+          report-url: ""
+
+      # `always()`: a scan that found something and a scan that broke both leave a
+      # report worth keeping, and the second is the one somebody has to debug.
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
   # Compensating control for the free plan, where a red check cannot actually block a
   # merge (docs/secret-detection.md#what-we-lose-without-enforcement). If nothing stops
   # the credential from landing, the least we can do is make sure a human hears about it
@@ -203,7 +264,7 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-apk-build:
-    name: Call Mobile APK Build On Push Tags
+    name: Call Mobile APK Build On Push Tags (ui-lite)
     if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-apk') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml@main
     secrets: inherit
@@ -211,7 +272,7 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-apk-build-public:
-    name: Call Mobile APK Build On Push Tags
+    name: Call Mobile APK Build On Push Tags (public)
     if: ${{ github.event.repository.name == 'novatalks.mobile' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-apk') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml@main
     secrets: inherit
@@ -243,7 +304,7 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-widget-build:
-    name: Call GH Pages Deploy On Push Tags
+    name: Call Widget Build On Push Tags
     if: ${{ github.event.repository.name == 'novatalks.chatwidget' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml@main
     secrets: inherit

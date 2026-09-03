@@ -372,6 +372,14 @@ fi
 # RUNNER_TEMP on a pooled self-hosted runner. If that directory is owned by another uid
 # without group write, write_report raises IOError and ZAP exits 3 — a red build from a
 # permission bit. Running as the runner's own uid sidesteps it.
+#
+# This works here only because the self-hosted runner's uid is itself 1000 — the image's
+# own `zap` user — so ZAP can still write its Automation Framework plan to
+# `Path.home()` = /home/zap (zap-baseline.py:465-467). On a runner with any other uid
+# that write fails with `PermissionError: '/home/zap/zap.yaml'` before any scan happens.
+# Do not move this job to `ubuntu-latest` (uid 1001) without dropping `--user` and making
+# the bind mount writable instead — which is exactly what ci-dast-live-baseline.yaml does,
+# and why it differs from this file.
 set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
