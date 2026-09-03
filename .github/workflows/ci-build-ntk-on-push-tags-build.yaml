@@ -1100,7 +1100,12 @@ jobs:
               port=3000; health_path=/livez; spec_path=/api-docs-json
               auth_mode=login; login_path=/auth/sign_in
               auth_header=Authorization; auth_scheme_prefix='Bearer '
-              token_sql=''; setup_command='npm run db:setup:prod'; swagger_enable=true
+              # No setup_command: docker/engine.Dockerfile's runtime stage installs
+              # nodejs-24 and not npm, and its entrypoint.sh already runs create-database,
+              # sequelize db:migrate and seed-database with plain `node` before the app
+              # serves anything. `npm run db:setup:prod` here could only ever answer
+              # `sh: npm: not found` — and did, on run 33752263531.
+              token_sql=''; setup_command=''; swagger_enable=true
               extra_env=''
               ;;
             nova.chatsconnector.telegram-client-api)
@@ -1111,7 +1116,12 @@ jobs:
               auth_mode=db-token; login_path=''
               auth_header=api_access_token; auth_scheme_prefix=''
               token_sql="SELECT t.api_token FROM tokens t JOIN token_roles r ON t.role_id = r.id WHERE r.role = 'SUPER_ADMIN' ORDER BY t.id LIMIT 1;"
-              setup_command='npm run db:setup'; swagger_enable=false  # db:setup = migrate + prisma db seed (the repo's canonical combined script)
+              # No setup_command either: this image's entrypoint.sh runs `npm run
+              # db:setup` itself before starting the app, so the exec was racing it and
+              # both failed the same way — Prisma P1012, DATABASE_URL not found. scan.sh
+              # now sets DATABASE_URL for the container, which fixes the entrypoint's own
+              # run; a second one over `docker exec` buys nothing.
+              setup_command=''; swagger_enable=false
               # Boot dummies the connector's config validator rejects a blank for — the same
               # values the removed baseline arm used; DATABASE_URL for Prisma is built by scan.sh.
               extra_env='TELEGRAM_API_ID=12345

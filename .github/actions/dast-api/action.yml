@@ -42,9 +42,9 @@ inputs:
     required: false
     default: ""
   setup-command:
-    description: "Command run inside the app container to migrate and seed the database before boot"
+    description: "Command run inside the app container to migrate and seed the database. Leave empty — the default — when the image's own ENTRYPOINT already does it, which is the case for every image wired up so far. novatalks.core's runtime stage does not even ship npm."
     required: false
-    default: "npm run db:setup:prod"
+    default: ""
   swagger-enable:
     description: "Set SWAGGER_ENABLE=true on the app container; the engine needs it to serve its spec, a connector may have no such var at all"
     required: false

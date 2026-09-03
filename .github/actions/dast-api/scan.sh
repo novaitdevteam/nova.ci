@@ -194,6 +194,7 @@ docker run -d --name nova-app --network host \
     -e DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}" \
     -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}" \
     -e DATABASE_NAME="${DATABASE_NAME:-db_name}" \
+    -e "DATABASE_URL=postgresql://${DATABASE_USERNAME:-postgres}:${DATABASE_PASSWORD:-password}@127.0.0.1:5432/${DATABASE_NAME:-db_name}" \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
     -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
     "$DAST_IMAGE" || true
@@ -209,22 +210,40 @@ if [ "$app_state" != "true" ]; then
     not_run "the image did not start — see the step log for its output"
 fi
 
-# create+migrate+seed in one script; the seeder reads DEFAULT_ADMIN_USER/
-# DEFAULT_USER_PASSWORD directly, so the admin generated above is exactly who this logs
-# in as two steps down.
+# create+migrate+seed, and only if the image cannot do it itself.
 #
-# The output is captured rather than discarded. `>/dev/null 2>&1` made every failure here
-# indistinguishable — a missing migration, an unreachable database, a script that is not
-# in this image at all all arrived as the same four words with no evidence behind them,
-# and the loud skip is only useful if somebody can act on it. ADMIN_PASS is masked above,
-# so printing this is safe.
-setup_log="${RUNNER_TEMP:-/tmp}/dast-api-setup.log"
-if ! docker exec nova-app sh -c "${DAST_SETUP_CMD:-npm run db:setup:prod}" >"$setup_log" 2>&1; then
-    echo "--- '${DAST_SETUP_CMD:-npm run db:setup:prod}' failed, last 60 lines ---"
-    tail -60 "$setup_log" || true
-    echo "--- end ---"
-    dump_app_log "the setup command failed"
-    not_run "database setup failed — see the step log for the command's output"
+# Empty is the default and the common case, because both images wired up so far already
+# run their own setup from their ENTRYPOINT before starting the app, reading the
+# DEFAULT_ADMIN_USER/DEFAULT_USER_PASSWORD handed in above. Re-running it over `docker
+# exec` was redundant at best and impossible at worst:
+#
+#   novatalks.core     the runtime stage installs nodejs-24 and *not* npm
+#                      (docker/engine.Dockerfile), so `npm run db:setup:prod` could only
+#                      ever answer `sh: npm: not found`. Its entrypoint.sh does the same
+#                      three steps with plain `node` and says so in a comment.
+#   telegram connector npm is present, but the exec raced the entrypoint doing the same
+#                      work, and both failed on a missing DATABASE_URL — now set above.
+#
+# So: no command, no exec. The health poll below is the completion signal, because
+# neither image serves anything until its entrypoint has finished migrating and seeding.
+# A setup that fails there takes the container down with it, which the running-state
+# check above already reports as a boot failure with the container's log attached.
+#
+# The escape hatch stays for an image that does not self-setup. Its output is captured
+# rather than discarded: `>/dev/null 2>&1` made every failure here indistinguishable, and
+# a loud skip nobody can act on is a dead end. ADMIN_PASS is masked above, so printing is
+# safe.
+if [ -n "${DAST_SETUP_CMD:-}" ]; then
+    setup_log="${RUNNER_TEMP:-/tmp}/dast-api-setup.log"
+    if ! docker exec nova-app sh -c "$DAST_SETUP_CMD" >"$setup_log" 2>&1; then
+        echo "--- '${DAST_SETUP_CMD}' failed, last 60 lines ---"
+        tail -60 "$setup_log" || true
+        echo "--- end ---"
+        dump_app_log "the setup command failed"
+        not_run "database setup failed — see the step log for the command's output"
+    fi
+else
+    echo "No setup-command: the image's entrypoint migrates and seeds before it serves."
 fi
 
 # --- boot ------------------------------------------------------------------------------
