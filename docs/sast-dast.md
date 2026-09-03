@@ -695,11 +695,12 @@ green line was measuring almost nothing while reading as coverage.
 Their real coverage is the authenticated **[api-scan](#api-scanning-authenticated-zap)**,
 which walks an OpenAPI spec rather than spidering pages. It ships today for
 `novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
-extending it to the remaining connectors that publish a spec (`whatsapp`, `signal`,
-`dialer`) is the tracked **Phase 2**, each a per-repository integration — seed data, its
-own token model, the spec endpoint — verified against that repository's own code, never
-assumed from telegram's. `novatalks.uspacy.connector` and `novatalks.geoip-api` publish no
-OpenAPI spec, so they have no api-scan path either.
+the `db-insert` and `env-token` auth-modes exist for `whatsapp`/`signal` and `dialer`
+respectively, but none of the three has a `targets.sh` arm yet, so wiring each into the
+opt-in table is the remaining tracked **Phase 2** work, each a per-repository integration —
+seed data, its own token model, the spec endpoint — verified against that repository's own
+code, never assumed from telegram's. `novatalks.uspacy.connector` and `novatalks.geoip-api`
+publish no OpenAPI spec, so they have no api-scan path either.
 
 Their boot inputs are kept here rather than deleted: each was established against the
 deployment chart or the Dockerfile, and the api-scan expansion will reuse them.
@@ -827,9 +828,9 @@ git tag apiscan-NC2-1234
 git push origin apiscan-NC2-1234   # builds the image, then the authenticated API scan
 ```
 
-### Three ways to acquire the token
+### Four ways to acquire the token
 
-The token that authenticates the scan is obtained by one of three `auth-mode`s, and the
+The token that authenticates the scan is obtained by one of four `auth-mode`s, and the
 header it is injected under is a per-repository input — a connector's is not the engine's:
 
 - **`login` (`novatalks.core`).** `scan.sh` POSTs the generated admin's username/password
@@ -852,6 +853,18 @@ header it is injected under is a per-repository input — a connector's is not t
   created the table, a broken setup rather than a finding. The value is generated for this
   run only and lives in a database that dies with the container: nothing is stored,
   nothing to rotate.
+- **`env-token` (built for `novatalks.dialer`, not yet wired into `targets.sh` — see
+  Phase 2 above).** No database and no seed at all: `novatalks.dialer`'s
+  `src/auth/auth.middleware.ts` accepts any token present in `app.apiAccessTokens`, which
+  `src/config/app.config.ts` builds by splitting the `API_ACCESS_TOKENS` environment
+  variable — a token on that list short-circuits before the middleware would call out to
+  the engine. Every other mode acquires its token *after* the application container boots;
+  this is the one mode that cannot, because the application only ever reads the variable
+  once, at its own startup. So `scan.sh` generates the token and masks it before the
+  container exists at all — right beside `ADMIN_PASS` — and the container-start step
+  appends it with `-e <token-env-var>=<token>`. The same value is then injected into ZAP
+  exactly as every other mode's token is. A missing `token-env-var` is a scanner error, not
+  a scan without auth: there is no variable name to generate a value for.
 
 > [!CAUTION]
 > **The Postgres image must be one whose entrypoint actually starts Postgres.** It was
@@ -910,13 +923,15 @@ header it is injected under is a per-repository input — a connector's is not t
 > which is how it survived review.
 
 The injected header, the scheme prefix and the token `SELECT`/`INSERT` are all
-per-repository **inputs**, not constants. All three modes end with a bare token that
+per-repository **inputs**, not constants. All four modes end with a bare token that
 `scan.sh` masks with `::add-mask::` before first use, and `login`/`db-token` both treat an
 **empty token** — a login that returned none, or a `SELECT` that matched no row — as a
-loud skip (`not-run`), never a scan without auth. `db-insert` cannot produce an empty
-token (it is generated locally, not read back), so its own failure mode is a failed
-`INSERT` — same `not-run` outcome, different cause: the migration never created the table
-to insert into.
+loud skip (`not-run`), never a scan without auth. `db-insert` and `env-token` cannot
+produce an empty token (both are generated locally, never read back), so their own failure
+modes are a missing prerequisite instead: `db-insert`'s is a failed `INSERT` (`not-run` —
+the migration never created the table to insert into), `env-token`'s is a missing
+`token-env-var` name (a **scanner error**, since there is nothing to generate a token
+for — a broken configuration, not a scan that ran without one).
 
 > [!IMPORTANT]
 > **Each connector's auth model is read from its own code before its arm is written (D7).**
@@ -931,8 +946,10 @@ to insert into.
   `openssl rand`-generated in `scan.sh` for this run only and used once; in `db-token` mode
   the seeded token never leaves the ephemeral database until the `SELECT` reads it; in
   `db-insert` mode the token is generated the same way the admin password is and written
-  into a database that dies with the container — nothing is ever stored, nothing to
-  rotate. Either way the token reaches ZAP only as a request-header replacer rule on the
+  into a database that dies with the container; in `env-token` mode the token is generated
+  the same way and handed to the application container as an environment variable, never
+  written anywhere else — in every mode, nothing is ever stored, nothing to rotate.
+  Either way the token reaches ZAP only as a request-header replacer rule on the
   `docker run` command line — and ZAP echoes that rule, token included, back on its own
   stdout. Since
   this repository is public, that stdout is a GitHub-persisted, world-readable step log the

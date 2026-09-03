@@ -7,13 +7,16 @@
 # failure produces the same empty result a clean scan would, and reporting that as clean
 # is the failure this job exists to avoid.
 #
-# Three auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
+# Four auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
 # reads the token from the response (novatalks.core's engine); `db-token` reads a token
 # straight out of the seeded database with a caller-supplied SELECT (a connector with a
 # DB-backed token in a header of its own name); `db-insert` writes its own token into the
 # seeded database with a caller-supplied INSERT, for an image whose seeder was pruned out
-# of the runtime stage — there is nothing to SELECT. All three end with a bare token in
-# $TOKEN, re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
+# of the runtime stage — there is nothing to SELECT; `env-token` generates a token before
+# the container ever starts and hands it in as an environment variable, for an app that
+# accepts any token present in a var it reads at boot (novatalks.dialer) — no database,
+# no seed, no call to the engine at all. All four end with a bare token in $TOKEN,
+# re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
 #
 # Zero secrets stored: the database is ours and dies with this job, so the admin
 # password is generated here and used once to log in. The token reaches ZAP as a
@@ -37,24 +40,11 @@ set -euo pipefail
 # shellcheck source=.github/actions/dast/dast-common.sh
 . "${DAST_ACTION_ROOT}/../dast/dast-common.sh"
 
-# generated per run, never stored, never echoed
-#
-# The address has to be syntactically valid AND unable to ever resolve to a real
-# mailbox — both halves matter and neither alone is enough. `@local` looked fine but
-# is not a valid email: the engine's own entrypoint seeder validates it with Sequelize's
-# `isEmail` (`require_tld: true`), `@local` has no top-level domain, the validator
-# throws, the container dies mid-boot, and the job then loud-skips with "the image did
-# not come up within 300s" — blaming the image for a bad input. Confirmed live on run
-# 33761248644 against novatalks.core. `example.invalid` is RFC 2606 reserved: it passes
-# `isEmail` and is guaranteed to never be a real, registrable domain.
-ADMIN_USER="nova-ci-apiscan@example.invalid"
-ADMIN_PASS="$(openssl rand -hex 24)"
-# Masked before the application container exists, not just before ZAP runs. This script
-# dumps container output when boot or setup fails — that is the only way to diagnose a
-# loud skip — and a NestJS bootstrap that prints its resolved config would otherwise put
-# this value straight into a world-readable step log. nova.ci is public.
-echo "::add-mask::${ADMIN_PASS}"
-
+# Path/URL variables and every helper down to scanner_error live above the generated
+# secrets below, on purpose: env-token mode has to be able to call scanner_error before
+# the application container exists (see below), and scanner_error's own call chain
+# (summary -> spec_url, cleanup's EXIT trap -> zap_console/spec_file) needs all of these
+# already bound under `set -u`, not filled in later by code that runs after it.
 DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
 # Port and routes are inputs (see action.yml), each defaulted to the value
 # novatalks.core's engine has always used, so an unconfigured caller is byte-identical
@@ -138,6 +128,35 @@ scanner_error() { # scanner_error <reason>
     exit 2
 }
 
+# generated per run, never stored, never echoed
+#
+# The address has to be syntactically valid AND unable to ever resolve to a real
+# mailbox — both halves matter and neither alone is enough. `@local` looked fine but
+# is not a valid email: the engine's own entrypoint seeder validates it with Sequelize's
+# `isEmail` (`require_tld: true`), `@local` has no top-level domain, the validator
+# throws, the container dies mid-boot, and the job then loud-skips with "the image did
+# not come up within 300s" — blaming the image for a bad input. Confirmed live on run
+# 33761248644 against novatalks.core. `example.invalid` is RFC 2606 reserved: it passes
+# `isEmail` and is guaranteed to never be a real, registrable domain.
+ADMIN_USER="nova-ci-apiscan@example.invalid"
+ADMIN_PASS="$(openssl rand -hex 24)"
+# Masked before the application container exists, not just before ZAP runs. This script
+# dumps container output when boot or setup fails — that is the only way to diagnose a
+# loud skip — and a NestJS bootstrap that prints its resolved config would otherwise put
+# this value straight into a world-readable step log. nova.ci is public.
+echo "::add-mask::${ADMIN_PASS}"
+
+# env-token acquires its token before the container exists, unlike every other mode,
+# because the application reads it from its own environment. Generated and masked here so
+# the order stays obvious: no mode may inject a value the runner has not been told to
+# redact first.
+ENV_TOKEN=""
+if [ "${DAST_AUTH_MODE:-login}" = "env-token" ]; then
+    [ -n "${DAST_TOKEN_ENV_VAR:-}" ] || scanner_error "env-token mode needs a token-env-var name"
+    ENV_TOKEN="nova-ci-apiscan-$(openssl rand -hex 24)"
+    echo "::add-mask::${ENV_TOKEN}"
+fi
+
 # Validated before anything is booted, same reasoning as the baseline: a broken register
 # means ZAP silently applies a policy nobody wrote, and finding that out after a
 # five-minute boot-and-seed helps nobody.
@@ -214,6 +233,15 @@ docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
 # credential at all.
 app_env_args=()
 [ "${DAST_SWAGGER_ENABLE:-true}" = "true" ] && app_env_args+=(-e SWAGGER_ENABLE=true)
+# env-token: the token was generated before this container existed (see ENV_TOKEN
+# above) — the application reads its accepted tokens from its own environment at boot,
+# so this is the one auth-mode that hands the app anything before `docker run`. Written
+# as an `if`, not `[ ... ] && app_env_args+=(...)`: the latter is the last command of
+# this statement list under `set -e`, so a false test (every mode but env-token) would
+# abort the whole script instead of just skipping the append.
+if [ -n "$ENV_TOKEN" ]; then
+    app_env_args+=(-e "${DAST_TOKEN_ENV_VAR}=${ENV_TOKEN}")
+fi
 
 # extra-env: a per-repository escape hatch, same shape as the baseline dast/scan.sh —
 # one -e per non-empty line, never word-split, so a value containing spaces or `=`
@@ -365,6 +393,10 @@ case "${DAST_AUTH_MODE:-login}" in
             psql -tAq -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
             -c "$insert_sql" >/dev/null 2>&1 \
             || not_run "the token INSERT failed — the migration may not have created the table"
+        ;;
+    env-token)
+        # Already generated above — it had to exist before the container did.
+        TOKEN="$ENV_TOKEN"
         ;;
     *) scanner_error "unknown auth-mode: ${DAST_AUTH_MODE}" ;;
 esac

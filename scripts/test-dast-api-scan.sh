@@ -347,6 +347,33 @@ fi
 DAST_AUTH_MODE=db-insert DAST_TOKEN_INSERT_SQL="" \
     expect "db-insert without token-insert-sql is a scanner error" error 2
 
+# --- env-token: the app is handed the token, no database involved ---------------------
+# novatalks.dialer's auth middleware accepts any token listed in API_ACCESS_TOKENS and
+# short-circuits before it would call the engine. So there is nothing to seed and nothing
+# to SELECT — generate a token, hand it to the app, inject the same one into ZAP.
+DAST_AUTH_MODE=env-token DAST_TOKEN_ENV_VAR=API_ACCESS_TOKENS \
+DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "env-token mode: generate, export, inject" clean 0
+
+# The same value must reach both sides, or the scan runs unauthenticated and says nothing.
+env_token=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
+if [ -n "$env_token" ] && grep -qF "API_ACCESS_TOKENS=$env_token" "$WORK/dockerlog"; then
+    echo "ok   the app container is given the generated token"; pass=$((pass + 1))
+else
+    echo "FAIL the app never received the token — every request would be rejected"
+    fail=$((fail + 1))
+fi
+if [ -n "$env_token" ] && grep -E 'zap-api-scan\.py' "$WORK/dockerlog" | grep -qF "$env_token"; then
+    echo "ok   ZAP injects the same token the app was given"; pass=$((pass + 1))
+else
+    echo "FAIL ZAP and the app hold different tokens"; fail=$((fail + 1))
+fi
+
+# No variable name is a broken configuration, not a scan without auth.
+DAST_AUTH_MODE=env-token DAST_TOKEN_ENV_VAR="" \
+    expect "env-token without a variable name is a scanner error" error 2
+
 # login mode still works unchanged (core), with the default Authorization/Bearer header
 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
 WARN-NEW: Some Warning Alert [10038] x 5

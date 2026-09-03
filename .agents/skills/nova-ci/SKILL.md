@@ -477,9 +477,10 @@ Preserve these behaviors:
   JSON APIs with no browser surface, so the baseline measured almost nothing on them.
   Their real coverage is the authenticated `api-scan` (OpenAPI-driven), live today for
   `novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
-  extending it to the remaining connectors that publish a spec (whatsapp, signal, dialer)
-  is the tracked Phase 2, each verified against its own code, and `uspacy`/`geoip` have no
-  OpenAPI spec. The verified ports/health/db facts above are kept for that work — they
+  the `db-insert` and `env-token` auth-modes exist for whatsapp/signal and dialer
+  respectively, but none of the three has a `targets.sh` arm yet, so wiring each in is
+  the remaining tracked Phase 2 work, each verified against its own code; `uspacy`/`geoip`
+  have no OpenAPI spec. The verified ports/health/db facts above are kept for that work — they
   were established against the chart and Dockerfiles, not guessed. The `needs-nats` input
   still exists on `dast/action.yml` (and its NATS bring-up in `scan.sh`); no arm sets it
   `true` today because `novatalks.dialer` no longer reaches the baseline — but the
@@ -526,22 +527,35 @@ Preserve these behaviors:
   `/api-docs-json`. **Parameterised auth**: `auth-mode` is `login` (POST username/password,
   read the token from the response — core, `Authorization: Bearer`), `db-token` (read the
   seeded token straight out of the DB with a caller-supplied `SELECT` — telegram, injected
-  raw under `api_access_token`), or `db-insert` (write a generated token into the DB with a
+  raw under `api_access_token`), `db-insert` (write a generated token into the DB with a
   caller-supplied `INSERT`, `%TOKEN%` substituted in — built for whatsapp/signal, whose
   Dockerfiles `npm prune --omit=dev` the seeder away, leaving migrated-but-empty tables
   `db-token` would `SELECT` nothing from forever; not yet wired into either repo's
-  `targets.sh` arm). The header, scheme prefix and token `SELECT`/`INSERT` are per-repo
-  inputs; the token is masked with `::add-mask::` whatever its source; an empty token
-  (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
-  auth — `db-insert` cannot produce an empty token (generated locally, not read back), so
-  its own loud skip is a failed `INSERT` instead, meaning the migration never created the
-  table. **Safe mode `-S` by default, `active` a deliberate exception** — a `scan-mode`
+  `targets.sh` arm), or `env-token` (generate a token before the app container starts and
+  hand it in as `-e <token-env-var>=<token>` — built for `novatalks.dialer`, whose auth
+  middleware accepts any token present in the `API_ACCESS_TOKENS` env var and never calls
+  the engine at all; no DB, no seed; not yet wired into a `targets.sh` arm either). Every
+  other mode acquires its token *after* boot; `env-token` is the one mode that must
+  generate and `::add-mask::` its token before the container exists, right beside
+  `ADMIN_PASS` — the application only reads the variable once, at its own startup, so a
+  token acquired later would authenticate nothing. The header, scheme prefix and token
+  `SELECT`/`INSERT` are per-repo inputs; the token is masked with `::add-mask::` whatever
+  its source; an empty token (no login token, or the `SELECT` matched no row) is a loud
+  `not-run`, never a scan without auth — `db-insert` and `env-token` cannot produce an
+  empty token (both generated locally, never read back), so their own loud-skip/error
+  paths differ instead: `db-insert`'s is a failed `INSERT` (`not-run`, the migration never
+  created the table), `env-token`'s is a missing `token-env-var` name (a **scanner
+  error** — nothing to generate a token for). **Safe mode `-S` by default, `active` a
+  deliberate exception** — a `scan-mode`
   input (`passive` default, `active`) reaches `scan.sh` as `DAST_API_SCAN_MODE`; only
   `active` drops `-S`, turning the tool into a real-writes active scan against the seeded
   API. Safe only because the stack is the ephemeral one this action starts and kills, so
   `active` is never the default and an unrecognised mode is a scanner error, not a silent
-  fallback. `scripts/test-dast-api-scan.sh` (56 checks) asserts `-S` on the default, its
-  absence under `active`, and the mask. The seed admin password is
+  fallback. `scripts/test-dast-api-scan.sh` (60 checks) asserts `-S` on the default, its
+  absence under `active`, and the mask — including a mutation check that a
+  mismatched `env-token` value (ZAP holding a different token than the one handed to the
+  app) fails the harness, since that scan would look authenticated while checking nothing.
+  The seed admin password is
   `openssl rand`-generated per run and stored nowhere
   (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). `DEFAULT_ADMIN_USER` must be a
   syntactically valid email at a domain that can never be real: `@local` failed the
@@ -557,7 +571,11 @@ Preserve these behaviors:
 - **Each connector's auth model is read from its own code before its `targets.sh` arm is
   written.** Telegram's `db-token`/`api_access_token`/`tokens` shape is not
   assumed for the Sequelize connectors (whatsapp, signal) or dialer — the tracked Phase 2,
-  each with its own token storage, header and seed path.
+  each with its own token storage, header and seed path. Dialer's was verified this way:
+  `src/auth/auth.middleware.ts` accepts any token in `app.apiAccessTokens`
+  (`src/config/app.config.ts` splits it from `API_ACCESS_TOKENS`), which is why it gets
+  `env-token` rather than `db-token`/`db-insert` — there is no database row behind it at
+  all.
 - **The tally parse lives once, in `dast/dast-common.sh`.** `zap_tally_parse` (anchor +
   numeric guard) is sourced by `dast`, `dast-api` and the live-baseline workflow. Never
   re-inline or copy it — the ANSI-C `\t` and the shape-not-prefix anchor are the exact

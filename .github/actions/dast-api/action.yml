@@ -22,7 +22,7 @@ inputs:
     required: false
     default: "/api-docs-json"
   auth-mode:
-    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), or db-insert (write a generated token into the seeded database with a caller-supplied INSERT, for an image whose seeder was pruned out of the runtime stage)"
+    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), db-insert (write a generated token into the seeded database with a caller-supplied INSERT, for an image whose seeder was pruned out of the runtime stage), or env-token (generate a token before the container starts and hand it in as an environment variable, for an app that accepts any token present in a var it reads at boot — no database involved)"
     required: false
     default: "login"
   scan-mode:
@@ -47,6 +47,10 @@ inputs:
     default: ""
   token-insert-sql:
     description: "INSERT run against the seeded database when auth-mode is db-insert; %TOKEN% is replaced with a token generated for this run. Required in that mode."
+    required: false
+    default: ""
+  token-env-var:
+    description: "Environment variable the application reads its accepted API tokens from, when auth-mode is env-token. Required in that mode. novatalks.dialer uses API_ACCESS_TOKENS."
     required: false
     default: ""
   setup-command:
@@ -106,6 +110,7 @@ runs:
         DAST_AUTH_PREFIX: ${{ inputs.auth-scheme-prefix }}
         DAST_TOKEN_SQL: ${{ inputs.token-sql }}
         DAST_TOKEN_INSERT_SQL: ${{ inputs.token-insert-sql }}
+        DAST_TOKEN_ENV_VAR: ${{ inputs.token-env-var }}
         DAST_SETUP_CMD: ${{ inputs.setup-command }}
         DAST_SWAGGER_ENABLE: ${{ inputs.swagger-enable }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
