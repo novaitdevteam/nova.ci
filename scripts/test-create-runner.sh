@@ -167,9 +167,16 @@ runner_name=<generated>
 runner_labels=small
 runner_need=true'
 
-SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx33:running dev-00-gh-runner-b:cx33:running \
+# Eight servers, because MAX_TOTAL_RUNNERS is 8 (2 small + 4 medium + 2 large). With the
+# old six-server fixture this scenario still passed after the cap moved — but via the
+# per-size cap, not the global one, so it silently stopped testing what it is named
+# after. The global cap is only exercised when the small pool alone is under its own cap
+# and the total is not, hence one small server here, not two.
+SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx33:running \
     dev-00-gh-runner-c:cx43:running dev-00-gh-runner-d:cx43:running \
-    dev-00-gh-runner-e:cx53:running dev-00-gh-runner-f:cx53:running) \
+    dev-00-gh-runner-g:cx43:running dev-00-gh-runner-h:cx43:running \
+    dev-00-gh-runner-e:cx53:running dev-00-gh-runner-f:cx53:running \
+    dev-00-gh-runner-i:cx53:running) \
 SHIM_RUNNERS=$(runners) \
 check "waits at the global cap" \
     refs/tags/build-NC2-1 novatalks.ui \
@@ -178,10 +185,39 @@ runner_labels=small'
 
 SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx33:running dev-00-gh-runner-b:cx33:starting) \
 SHIM_RUNNERS=$(runners) \
-check "waits at the per-size cap" \
+check "waits at the small per-size cap of 2" \
     refs/tags/build-NC2-1 novatalks.ui \
     'runner_need=false
 runner_labels=small'
+
+# The medium pool is the scan pool and carries the parallel trivy/sast/dast/api fan-out
+# of two build targets at once, so its cap is 4 where the others are 2. Two mediums busy
+# used to mean "wait"; it must now mean "create".
+SHIM_SERVERS=$(servers dev-00-gh-runner-c:cx43:running dev-00-gh-runner-d:cx43:running) \
+SHIM_RUNNERS=$(runners) \
+check "medium creates a third VM where small would already be waiting" \
+    refs/tags/scan-NC2-1 novatalks.core \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=medium
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-c:cx43:running dev-00-gh-runner-d:cx43:running \
+    dev-00-gh-runner-g:cx43:starting dev-00-gh-runner-h:cx43:running) \
+SHIM_RUNNERS=$(runners) \
+check "waits at the medium per-size cap of 4" \
+    refs/tags/scan-NC2-1 novatalks.core \
+    'runner_need=false
+runner_labels=medium'
+
+# The larger medium cap must not leak into the other pools: a third large would idle,
+# because int-test is one long job by construction.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e:cx53:running dev-00-gh-runner-f:cx53:running) \
+SHIM_RUNNERS=$(runners) \
+check "large keeps its cap of 2" \
+    refs/tags/int-test-NC2-1 novatalks.core \
+    'runner_need=false
+runner_labels=large'
 
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
 check "novatalks.core int-test tag takes a large VM" \

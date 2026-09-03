@@ -825,13 +825,21 @@ jobs:
     # before the branch merges. The trunk/`scan*` narrowing that trivy-scan and dast-scan
     # keep is only about having a release to attach a report to; that concern moved to
     # PUBLISH_RELEASE below, where it actually belongs. `pull_request` stays excluded —
-    # build-image does not run there, so there is no build to scan. Sequential after
-    # trivy-scan: three parallel scan jobs would only queue against the per-size cap of 2.
+    # build-image does not run there, so there is no build to scan.
     if: >-
       ${{ always()
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success' }}
-    needs: [build-image, trivy-scan]
+    # build-image only. The scans used to run trivy → sast → dast in a chain, on the
+    # reasoning that three parallel jobs "would only queue against the per-size cap of
+    # 2" — but a chain does not avoid the queue, it guarantees one even when a runner is
+    # free, and every hop between jobs costs a fresh dispatch. Measured on
+    # novatalks.core run 33614788933: 1083s of work against 1017s of gaps, of which 397s
+    # was waiting to start dast-scan alone. The medium pool went to 4 in the same change
+    # so the fan-out has somewhere to land. Publishing is race-safe:
+    # softprops/action-gh-release retries a 422 `already_exists` and updates the release
+    # whichever scanner created first (verified in its source, not assumed).
+    needs: [build-image]
     outputs:
       SCANNED: 'true'
       OUTCOME: ${{ steps.semgrep.outputs.outcome }}
@@ -901,7 +909,9 @@ jobs:
       && needs.build-image.result == 'success'
       && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan'))
       && contains(fromJSON('["novatalks.ui","novatalks.core","nova.botflow"]'), github.event.repository.name) }}
-    needs: [build-image, sast-scan]
+    # build-image only — sast-scan was never anything this job needed, and waiting on it
+    # cost a dispatch hop. See the note on sast-scan's own `needs`.
+    needs: [build-image]
     outputs:
       SCANNED: 'true'
       OUTCOME: ${{ steps.dast.outputs.outcome }}
