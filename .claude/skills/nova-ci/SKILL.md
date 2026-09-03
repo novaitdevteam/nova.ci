@@ -608,21 +608,24 @@ Preserve these behaviors:
 - **Pentest (`ci-dast-pentest.yaml`, `workflow_dispatch`).** The one workflow that runs
   either scanner in **active** mode — `dast-api`'s `scan-mode: active` (drops `-S`,
   real writes) or `dast`'s `scan-mode: full` (`zap-full-scan.py`, modern spider, active
-  rule set) — against an ephemeral GHCR image it boots and tears down itself, never the
-  live deployment. `workflow_dispatch` only, **no `schedule:`**: an attacking scan is a
+  rule set). `workflow_dispatch` only, **no `schedule:`**: an attacking scan is a
   decision someone makes, with an actor and a timestamp on the run. **No free-text URL
   input anywhere** — `repository` is a `type: choice`, `surface` is `api`/`browser`, and
-  the port/health/auth wiring comes from the same `dast_resolve_target` table every
-  other DAST caller sources; an attacking scanner that cannot be pointed anywhere cannot
-  be pointed somewhere it must not go. Only three repository/surface pairs have a
-  `targets.sh` arm today (`novatalks.ui`/`nova.botflow` browser, `novatalks.core` both,
-  telegram api); an unwired choice fails loudly at the resolve step, which is correct —
-  do not add placeholder arms to `targets.sh` to silence it. Its single `Resolve target`
-  step emits **every** `DT_*` key unconditionally, not just the surface's own subset:
-  the step feeds both the `dast-api` and `dast` scan steps below it, and the browser
-  scan needs `needs-db`/`needs-nats` regardless of which surface was actually chosen —
-  emitting only the api-scan keys would boot a browser pentest with no database behind
-  it. `image_tag` is **required** and names the exact published tag to scan, never a
+  for its default `target: ephemeral` the port/health/auth wiring comes from the same
+  `dast_resolve_target` table every other DAST caller sources; an attacking scanner that
+  cannot be pointed anywhere cannot be pointed somewhere it must not go. Only three
+  repository/surface pairs have a `targets.sh` arm today (`novatalks.ui`/`nova.botflow`
+  browser, `novatalks.core` both, telegram api); an unwired choice fails loudly at the
+  resolve step (which only runs for `target: ephemeral`), which is correct — do not add
+  placeholder arms to `targets.sh` to silence it. Its `Resolve target` step emits
+  **every** `DT_*` key unconditionally, not just the surface's own subset: the step
+  feeds both the `dast-api` and `dast` scan steps below it, and the browser scan needs
+  `needs-db`/`needs-nats` regardless of which surface was actually chosen — emitting
+  only the api-scan keys would boot a browser pentest with no database behind it.
+  `image_tag` is **required for `target: ephemeral`** (`required: false` at the input
+  level; a guard inside `Resolve target` fails loudly if it is blank there — a blank tag
+  would otherwise reach `docker pull` as `ghcr.io/<owner>/<repo>:`, a confusing registry
+  error instead of a clear one) and names the exact published tag to scan, never a
   host — no "leave blank for the most recent" lookup, and no `Log in to GHCR`/login
   step either. Both were tried and removed: `nova.ci`'s own `GITHUB_TOKEN` cannot read
   a package published by a *different* repository (no cross-repo `packages:read`, and
@@ -639,6 +642,36 @@ Preserve these behaviors:
   and so no release to attach to), the scan step emits a verdict and nothing else, and
   a separate `Compose notification` step assembles the artifact's download link plus
   the run link once `artifact-url` exists.
+- **Pentest live target (`ci-dast-pentest.yaml`, `target: live`).** Points the same
+  active pentest scan at a real, running host instead of an ephemeral container — **real
+  writes and deletions**: entities created, settings changed, data possibly broken. This
+  is acceptable at all only because the allowlisted host is a dedicated
+  security-testing instance, never production; adding a second host is a deliberate
+  edit to the `case` in this file, never a runtime choice. Same allowlist shape as the
+  live baseline — one host (`novatalks-security.cloud.novatalks.com.ua`), keyed off
+  `repository` (`novatalks.core`/`novatalks.ui`) in the `Validate live target` step
+  (`id: confirm_live`), which runs ahead of every other step. `confirm` must equal the
+  allowlisted host **literally**, checked before anything is scanned — typing the host
+  name is the point: it cannot be done by accident, and it cannot be done without
+  reading which host is about to be attacked. The `id: confirm_live` is structural, not
+  cosmetic: the live scan step reads `steps.confirm_live.outputs.host`, and GitHub
+  Actions resolves a reference to a missing step output as the **empty string** rather
+  than erroring, so a missing or renamed `id` here would produce `https://` as the scan
+  target — a broken scan that reports something plausible. The two ephemeral scan steps
+  are gated on `inputs.target == 'ephemeral'` so exactly one of the three scan steps
+  (API, browser, live) ever runs per dispatch. The inline `Active scan against the live
+  host` step is the second place in this repository — after
+  `ci-dast-live-baseline.yaml` — that invokes `zap-full-scan.py` directly, because
+  neither `dast` nor `dast-api` applies to a host with no image to boot and no token to
+  seed; `scripts/validate.sh`'s ZAP-direct-invocation guard carries a named exemption
+  for this file's live path alongside the pre-existing one for
+  `ci-dast-live-baseline.yaml` — do not widen either exemption to a third file. It keeps
+  the same `0|1|2` exit ladder as every ZAP caller and sources `zap_tally_parse` from
+  `dast-common.sh`, never re-inlining the tally anchor. **Unmistakable three months
+  later**: the report's first line, the job summary banner and the notification message
+  each open with `⚠️ LIVE TARGET <host> — this scan performed real writes. Dispatched by
+  <actor>.` — a report that could pass for an ephemeral run is exactly the failure this
+  exists to prevent.
 
 ## Documentation Assets
 

@@ -265,16 +265,24 @@ fi
 # three scripts above. Say so rather than claim coverage this pattern does not have - a
 # guard described as stronger than it is, is worse than an honestly narrow one.
 #
-# One deliberate exemption: ci-dast-live-baseline.yaml, the same shape of carve-out as
-# ci-self-validate.yaml gets elsewhere in this file. It is a meta/ops workflow, not a
-# product build — a workflow_dispatch one-off that points the pinned ZAP image at a
-# single allowlisted live URL, not at a product image, so neither .github/actions/dast
-# (boots an image) nor .github/actions/dast-api (boots + logs in) applies. It still
-# pins the same digest and calls the shared zap_tally_parse from dast/dast-common.sh,
-# so the drift-dangerous parsing logic is not copied. Do not widen this exemption to
-# any other file.
+# Two deliberate exemptions, same shape of carve-out as ci-self-validate.yaml gets
+# elsewhere in this file. Both are meta/ops workflows, not a product build:
+#
+#   - ci-dast-live-baseline.yaml: a workflow_dispatch one-off that points the pinned ZAP
+#     image at a single allowlisted live URL, not at a product image, so neither
+#     .github/actions/dast (boots an image) nor .github/actions/dast-api (boots + logs
+#     in) applies.
+#   - ci-dast-pentest.yaml: only its `target: live` path runs ZAP directly (the
+#     `target: ephemeral` path still goes through dast/dast-api, unexempted). Same
+#     reason as above — the allowlisted live host has no image to boot and no token to
+#     seed, so scanning it inline is the only option once the ephemeral composite
+#     actions structurally do not apply.
+#
+# Both still pin the same digest and call the shared zap_tally_parse from
+# dast/dast-common.sh, so the drift-dangerous parsing logic is not copied. Do not widen
+# this exemption to any other file.
 zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|zap-api-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
-  | grep -v '^\.github/workflows/ci-dast-live-baseline\.yaml:' \
+  | grep -vE '^\.github/workflows/ci-dast-live-baseline\.yaml:|^\.github/workflows/ci-dast-pentest\.yaml:' \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$zap_offenders" ]; then
   echo "OK: no workflow runs ZAP directly"

@@ -1048,25 +1048,30 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
 - **Manual only.** `workflow_dispatch`, no `schedule:`. An attacking scan is a decision
   somebody makes, with an actor and a timestamp against the run — never something a
   branch push or a cron tick triggers on its own.
-- **No URL input, anywhere.** `repository` is a `type: choice` dropdown and the port,
-  health path, spec path and auth wiring are all derived from it through the same
-  [`dast_resolve_target`](../.github/actions/dast/targets.sh) table the trunk build
-  uses. There is no free-text host field to validate — an attacking scanner that
-  cannot be pointed anywhere cannot be pointed somewhere it must not go, which is a
-  stronger guarantee than any regex on a string input would be. `image_tag` is
-  **required** and names the exact published tag to scan, never a host — there is no
-  "leave blank for the most recent" lookup. That was tried and reverted: this
+- **No free-text URL input, anywhere.** `repository` is a `type: choice` dropdown and
+  the port, health path, spec path and auth wiring are all derived from it through the
+  same [`dast_resolve_target`](../.github/actions/dast/targets.sh) table the trunk
+  build uses — an attacking scanner that cannot be pointed anywhere cannot be pointed
+  somewhere it must not go, which is a stronger guarantee than any regex on a string
+  input would be. `target: live` does add a real host to the picture, but it is picked
+  from a one-host allowlist inside the workflow file, never typed — see
+  [Live target](#live-target-real-writes-against-a-real-host) below. `image_tag` is
+  **required for `target: ephemeral`** and names the exact published tag to scan, never
+  a host — there is no "leave blank for the most recent" lookup, and it is unused (and
+  may be left blank) for `target: live`, which has no image at all. That was tried and
+  reverted: this
   repository's own `GITHUB_TOKEN` cannot read a package published by a *different*
   repository, and the registry's own tag list is not date-ordered, so a "most recent"
   heuristic built on it could silently pick an arbitrary old image and report the scan
   as current — the exact "a scan that could not run looks exactly like a clean one"
   failure this page's [scanner-that-could-not-run](#a-scanner-that-could-not-run-is-not-a-clean-scan)
   rule exists to refuse. Naming the tag by hand is the fix.
-- **Ephemeral targets only.** Every target this workflow can select is a GHCR image it
-  boots on the runner and tears down — the same isolated stack the trunk `dast-scan` /
-  `api-scan` jobs use, just with the safe-mode guard removed. It cannot reach the live
-  deployment; that is [Live baseline](#live-baseline-the-real-deployment)'s job, and
-  turning that one active is a separate, deliberately unshipped decision.
+- **Ephemeral by default, live behind a typed confirmation.** The `target` input
+  defaults to `ephemeral`: a GHCR image this workflow boots on the runner and tears
+  down — the same isolated stack the trunk `dast-scan` / `api-scan` jobs use, just with
+  the safe-mode guard removed. Setting `target: live` instead points the same active
+  scan at a real, running host. See [Live target](#live-target-real-writes-against-a-real-host)
+  below — it is not a smaller version of the same decision, it is a different one.
 - **What "active" means.** `surface: browser` runs `zap-full-scan.py` with the modern
   spider and the active rule set (`dast/action.yml`'s `scan-mode: full`); `surface: api`
   runs `zap-api-scan.py` with `-S` dropped (`dast-api/action.yml`'s `scan-mode: active`).
@@ -1086,6 +1091,48 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   build's: there is no release to attach to (no build ran), so the `.report` is a run
   artifact only (`if-no-files-found: warn`), and the notification is composed after the
   upload so it can carry the artifact's own download link, not just the run's.
+
+### Live target: real writes against a real host
+
+Setting `target: live` points the same active scan at a real, running host instead of
+an ephemeral container. **Say this plainly: an active scan performs real writes and
+deletions** — entities get created, settings get changed, data can be broken. It is
+not a hypothetical side effect; it is what an active ZAP scan does by design. The whole
+reason this mode is acceptable at all is that the allowlisted host is a dedicated
+security-testing instance, never production. Adding a second host to that allowlist is
+a separate decision made by editing the `case` in `ci-dast-pentest.yaml`, never a
+runtime choice.
+
+- **The allowlist is the whole safety mechanism.** One host —
+  `novatalks-security.cloud.novatalks.com.ua` — named in a `case` inside
+  `ci-dast-pentest.yaml` and nowhere else, keyed off `repository` (`novatalks.core` and
+  `novatalks.ui` today). The same shape as `ci-dast-live-baseline.yaml`'s allowlist, and
+  the same reason: a scanner that can be pointed anywhere eventually is.
+- **Typing the host name back is the confirmation.** The `confirm` input must equal the
+  allowlisted host exactly, checked before anything is scanned. This cannot be done by
+  accident, and it cannot be done without reading which host is about to be attacked —
+  a checkbox or a `type: boolean` would fail both tests.
+- **`image_tag` is unused.** There is no image to boot for a live scan; the host is
+  already running. Leaving `image_tag` blank is correct for `target: live` — it stays
+  optional at the input level, and the `Resolve target` step (which only runs for
+  `target: ephemeral`) is what enforces it there instead.
+- **The scan runs `zap-full-scan.py` directly**, the one place in this workflow — or in
+  any workflow in this repository other than `ci-dast-live-baseline.yaml` — that
+  invokes ZAP without going through `.github/actions/dast` or `.github/actions/dast-api`.
+  Neither composite action applies: there is no image to boot, no database to bring up,
+  no token to seed. `scripts/validate.sh`'s guard against invoking ZAP directly carries
+  a second named exemption for exactly this file's live path, next to the existing one
+  for `ci-dast-live-baseline.yaml`. The tally-line parse still comes from
+  [`dast-common.sh`](../.github/actions/dast/dast-common.sh)'s `zap_tally_parse`, never
+  re-implemented, and the exit ladder is the same `0|1|2` accepted / anything else an
+  error.
+- **Unmistakable three months later.** The report's first line, the job summary
+  banner, and the notification all open with
+  `⚠️ LIVE TARGET <host> — this scan performed real writes. Dispatched by <actor>.` A
+  report that could be mistaken for an ephemeral run is the exact failure this
+  requirement exists to prevent — nothing about a clean-looking ZAP report otherwise
+  says whether it came from a throwaway container or a scan that just mutated real
+  data.
 
 ## Where the reports are
 
