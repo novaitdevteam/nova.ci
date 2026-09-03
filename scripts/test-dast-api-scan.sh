@@ -51,6 +51,9 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
     exec)
         case "$*" in
             *db:setup:prod*) exit "${SHIM_DBSETUP_RC:-0}" ;;
+            *"psql -tAq"*)
+                printf '%s\n' "${SHIM_TOKEN_SQL_RESULT-}"
+                exit 0 ;;
             *) exit 0 ;;
         esac ;;
     rm|pull|logs) exit 0 ;;
@@ -178,6 +181,20 @@ assert_cleanup() { # assert_cleanup <name>
     fi
 }
 
+# assert_mask_emitted <name> <value>
+# Greps the script's stdout for the ::add-mask:: line — the one thing that keeps a
+# token out of the persisted, world-readable step log, whichever auth-mode produced it.
+assert_mask_emitted() {
+    local name="$1" value="$2"
+    if grep -q "::add-mask::${value}" "$WORK/log"; then
+        echo "ok   $name"; pass=$((pass + 1))
+    else
+        echo "FAIL $name — no ::add-mask:: line for: $value"
+        sed 's/^/     /' "$WORK/log"
+        fail=$((fail + 1))
+    fi
+}
+
 echo "=== dast-api scan.sh — $SCAN ==="
 
 # --- clean --------------------------------------------------------------------------
@@ -255,6 +272,33 @@ if [ -f "$WORK/zap-api-console.log" ]; then
 else
     echo "ok   the ZAP console log is deleted once the process exits"; pass=$((pass + 1))
 fi
+
+# --- db-token mode: a connector's own header, not the engine's login -------------------
+# db-token mode: migrate+seed run, the SELECT returns a token, it is injected under the
+# configured header (not Authorization), and the scan runs safe-mode.
+DAST_AUTH_MODE="db-token" DAST_AUTH_HEADER="api_access_token" DAST_AUTH_PREFIX="" \
+DAST_TOKEN_SQL="SELECT token FROM api_tokens ORDER BY id DESC LIMIT 1" \
+SHIM_TOKEN_SQL_RESULT="nova-ci-fake-token" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "db-token mode: seed, read token, scan clean" clean 0
+assert_zap_flag "the configured auth header is injected" 'replacer.full_list(0).matchstr=api_access_token'
+assert_zap_flag "no Bearer prefix when the scheme prefix is empty" 'replacement=nova-ci-fake-token'
+assert_mask_emitted "the db-token value is masked" 'nova-ci-fake-token'
+
+# empty token from the SELECT is a loud skip, never a scan without auth
+DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="SELECT token FROM api_tokens ORDER BY id DESC LIMIT 1" \
+SHIM_TOKEN_SQL_RESULT="" \
+    expect "db-token mode: empty SELECT is a loud skip" not-run 0
+
+# db-token mode with no token-sql is a broken configuration, not a scan: fail loud.
+DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="" expect "db-token without token-sql is a scanner error" error 2
+
+# login mode still works unchanged (core), with the default Authorization/Bearer header
+SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
+WARN-NEW: Some Warning Alert [10038] x 5
+FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 30" \
+    expect "login mode still injects Authorization: Bearer" findings 0
+assert_zap_flag "login mode keeps the Bearer prefix" 'replacement=Bearer '
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

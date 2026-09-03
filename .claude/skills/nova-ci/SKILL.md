@@ -457,9 +457,10 @@ Preserve these behaviors:
   `needs-nats`), `novatalks.uspacy.connector` (3000, `/`, `needs-db`) and
   `novatalks.geoip-api` (3000, `/`, no db — an inference, not a verified fact). They are
   JSON APIs with no browser surface, so the baseline measured almost nothing on them.
-  Their real coverage is the authenticated `api-scan` (OpenAPI-driven, `novatalks.core`
-  only today); extending it to the four connectors that publish a spec (telegram,
-  whatsapp, signal, dialer) is a per-repo tracked expansion, and `uspacy`/`geoip` have no
+  Their real coverage is the authenticated `api-scan` (OpenAPI-driven), live today for
+  `novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
+  extending it to the remaining connectors that publish a spec (whatsapp, signal, dialer)
+  is the tracked Phase 2, each verified against its own code, and `uspacy`/`geoip` have no
   OpenAPI spec. The verified ports/health/db facts above are kept for that work — they
   were established against the chart and Dockerfiles, not guessed. The `needs-nats` input
   still exists on `dast/action.yml` (and its NATS bring-up in `scan.sh`); no arm sets it
@@ -501,18 +502,28 @@ Preserve these behaviors:
   header and cookie hygiene, not logic flaws. It is not a penetration test. The
   authenticated `apiscan*` scan adds real logged-in endpoints but stays passive — no
   IDOR, no privilege escalation, no business-logic flaw — and is not a pentest either.
-- **API scan (`apiscan*`, `novatalks.core` only, opt-in).** `dast-api/action.yml` +
-  `scan.sh` boot the engine on ephemeral postgres/redis, seed and log in as an admin, and
-  run `zap-api-scan.py -f openapi` against the engine's own `/api-docs-json`. **Safe mode
-  `-S` is mandatory** — without it the tool active-scans, i.e. real writes against the
-  seeded API; `scripts/test-dast-api-scan.sh` asserts `-S`. The admin password is
-  `openssl rand`-generated per run and stored nowhere (`DEFAULT_ADMIN_USER` /
-  `DEFAULT_USER_PASSWORD`); the JWT reaches ZAP only as a header-replacer rule. ZAP echoes
-  that rule, token included, back on its own stdout — a public repo's persisted step
-  log — so `scan.sh` masks it with `::add-mask::` the moment login confirms it, and the
-  local console file carrying the echo is deleted on exit. The engine needs `SWAGGER_ENABLE=true` or the spec is
-  empty and the scan is a loud `not-run`. Same four outcomes and same tally parse as the
-  baseline; its own triage register `dast-api/zap-api-scan.conf`, not the baseline's.
+- **API scan (`apiscan*`, opt-in — `novatalks.core` and the telegram connector today).**
+  `dast-api/action.yml` + `scan.sh` boot the image on ephemeral postgres/redis, migrate and
+  seed, acquire a token, and run `zap-api-scan.py -f openapi` against the app's own
+  `/api-docs-json`. **Parameterised auth**: `auth-mode` is `login` (POST username/password,
+  read the token from the response — core, `Authorization: Bearer`) or `db-token` (read the
+  seeded token straight out of the DB with a caller-supplied `SELECT` — telegram, injected
+  raw under `api_access_token`). The header, scheme prefix and token `SELECT` are per-repo
+  inputs; the token is masked with `::add-mask::` whatever its source; an empty token
+  (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
+  auth. **Safe mode `-S` is mandatory** — without it the tool active-scans, i.e. real writes
+  against the seeded API; `scripts/test-dast-api-scan.sh` (29 checks) asserts `-S` and the
+  mask. The seed admin password is `openssl rand`-generated per run and stored nowhere
+  (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). ZAP echoes the token-bearing replacer
+  rule to its own stdout — a public repo's persisted step log — which is why the mask, plus
+  the console file deleted on exit. Serving the spec can be conditional (`swagger-enable`:
+  core needs `SWAGGER_ENABLE=true`, telegram serves it unconditionally and sets `false`); an
+  empty spec is a loud `not-run`. Same four outcomes and tally parse as the baseline; its own
+  triage register `dast-api/zap-api-scan.conf`, not the baseline's.
+- **Each connector's auth model is read from its own code before its `Resolve api-scan
+  target` arm is written.** Telegram's `db-token`/`api_access_token`/`tokens` shape is not
+  assumed for the Sequelize connectors (whatsapp, signal) or dialer — the tracked Phase 2,
+  each with its own token storage, header and seed path.
 - **The tally parse lives once, in `dast/dast-common.sh`.** `zap_tally_parse` (anchor +
   numeric guard) is sourced by `dast`, `dast-api` and the live-baseline workflow. Never
   re-inline or copy it — the ANSI-C `\t` and the shape-not-prefix anchor are the exact

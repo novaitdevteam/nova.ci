@@ -1037,13 +1037,14 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: write
-    # Opt-in only: an apiscan* tag on novatalks.core. The authenticated scan is a
-    # 341-operation run against a seeded stack, not something every build should pay for.
+    # Opt-in only: an apiscan* tag on novatalks.core or the telegram connector. The
+    # authenticated scan is a 341-operation run against a seeded stack, not something
+    # every build should pay for.
     if: >-
       ${{ always()
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success'
-      && github.event.repository.name == 'novatalks.core'
+      && contains(fromJSON('["novatalks.core","nova.chatsconnector.telegram-client-api"]'), github.event.repository.name)
       && startsWith(github.ref_name, 'apiscan') }}
     needs: [build-image]
     outputs:
@@ -1077,11 +1078,85 @@ jobs:
       - name: Pull built image
         run: docker pull --platform linux/amd64 "$DAST_TARGET_IMAGE"
 
+      - name: Resolve api-scan target
+        id: apiscan_target
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+
+          case "$REPO_NAME" in
+            novatalks.core)
+              port=3000; health_path=/livez; spec_path=/api-docs-json
+              auth_mode=login; login_path=/auth/sign_in
+              auth_header=Authorization; auth_scheme_prefix='Bearer '
+              token_sql=''; setup_command='npm run db:setup:prod'; swagger_enable=true
+              extra_env=''
+              ;;
+            nova.chatsconnector.telegram-client-api)
+              # Verified in the connector's code: api_access_token header (setup-swagger.ts),
+              # DB-backed token in tokens.api_token joined to token_roles.role (schema.prisma),
+              # seeded by `npm run db:seed`, Swagger served unconditionally, no health route so "/".
+              port=3000; health_path=/; spec_path=/api-docs-json
+              auth_mode=db-token; login_path=''
+              auth_header=api_access_token; auth_scheme_prefix=''
+              token_sql="SELECT t.api_token FROM tokens t JOIN token_roles r ON t.role_id = r.id WHERE r.role = 'SUPER_ADMIN' ORDER BY t.id LIMIT 1;"
+              setup_command='npm run db:setup'; swagger_enable=false  # db:setup = migrate + prisma db seed (the repo's canonical combined script)
+              # Boot dummies the connector's config validator rejects a blank for — the same
+              # values the removed baseline arm used; DATABASE_URL for Prisma is built by scan.sh.
+              extra_env='TELEGRAM_API_ID=12345
+          TELEGRAM_API_HASH=00000000000000000000000000000000
+          NOVATALKS_ACCESS_TOKEN=dast-dummy-dummy-token
+          ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy'
+              ;;
+            *)
+              echo "::error::No api-scan configuration for '$REPO_NAME'."
+              exit 1
+              ;;
+          esac
+
+          echo "port=$port" | tee -a "$GITHUB_OUTPUT"
+          echo "health_path=$health_path" | tee -a "$GITHUB_OUTPUT"
+          echo "spec_path=$spec_path" | tee -a "$GITHUB_OUTPUT"
+          echo "auth_mode=$auth_mode" | tee -a "$GITHUB_OUTPUT"
+          echo "login_path=$login_path" | tee -a "$GITHUB_OUTPUT"
+          echo "auth_header=$auth_header" | tee -a "$GITHUB_OUTPUT"
+          {
+            echo "auth_scheme_prefix<<APISCAN_AUTH_PREFIX_EOF"
+            printf '%s\n' "$auth_scheme_prefix"
+            echo "APISCAN_AUTH_PREFIX_EOF"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "token_sql<<APISCAN_TOKEN_SQL_EOF"
+            printf '%s\n' "$token_sql"
+            echo "APISCAN_TOKEN_SQL_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "setup_command=$setup_command" | tee -a "$GITHUB_OUTPUT"
+          echo "swagger_enable=$swagger_enable" | tee -a "$GITHUB_OUTPUT"
+          {
+            echo "extra_env<<APISCAN_EXTRA_ENV_EOF"
+            printf '%s\n' "$extra_env"
+            echo "APISCAN_EXTRA_ENV_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved api-scan target for $REPO_NAME: port=$port health-path=$health_path auth-mode=$auth_mode swagger-enable=$swagger_enable"
+
       - name: ZAP API scan
         id: dast_api
         uses: novaitdevteam/nova.ci/.github/actions/dast-api@main
         with:
           image: ${{ env.DAST_TARGET_IMAGE }}
+          port: ${{ steps.apiscan_target.outputs.port }}
+          health-path: ${{ steps.apiscan_target.outputs.health_path }}
+          spec-path: ${{ steps.apiscan_target.outputs.spec_path }}
+          auth-mode: ${{ steps.apiscan_target.outputs.auth_mode }}
+          login-path: ${{ steps.apiscan_target.outputs.login_path }}
+          auth-header: ${{ steps.apiscan_target.outputs.auth_header }}
+          auth-scheme-prefix: ${{ steps.apiscan_target.outputs.auth_scheme_prefix }}
+          token-sql: ${{ steps.apiscan_target.outputs.token_sql }}
+          setup-command: ${{ steps.apiscan_target.outputs.setup_command }}
+          swagger-enable: ${{ steps.apiscan_target.outputs.swagger_enable }}
+          extra-env: ${{ steps.apiscan_target.outputs.extra_env }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
 

@@ -9,6 +9,50 @@ inputs:
     description: "Seconds to wait for the first HTTP response on /livez before giving up — the engine's own startupProbe budget"
     required: false
     default: "300"
+  port:
+    description: "TCP port the application listens on and ZAP scans"
+    required: false
+    default: "3000"
+  health-path:
+    description: "Path polled until the container answers, before migration/seed proceeds to login or scan"
+    required: false
+    default: "/livez"
+  spec-path:
+    description: "Path serving the OpenAPI spec zap-api-scan.py drives the scan from"
+    required: false
+    default: "/api-docs-json"
+  auth-mode:
+    description: "How the scan acquires its token: login (POST username/password, read the token from the response) or db-token (read a token straight out of the seeded database with a caller-supplied SELECT)"
+    required: false
+    default: "login"
+  login-path:
+    description: "POST route used to log in when auth-mode is login"
+    required: false
+    default: "/auth/sign_in"
+  auth-header:
+    description: "Request header ZAP injects the token under"
+    required: false
+    default: "Authorization"
+  auth-scheme-prefix:
+    description: "Prefix ZAP prepends to the token when injecting it — note the trailing space in the default; empty for a raw token"
+    required: false
+    default: "Bearer "
+  token-sql:
+    description: "SELECT run against the seeded database when auth-mode is db-token; required in that mode"
+    required: false
+    default: ""
+  setup-command:
+    description: "Command run inside the app container to migrate and seed the database before boot"
+    required: false
+    default: "npm run db:setup:prod"
+  swagger-enable:
+    description: "Set SWAGGER_ENABLE=true on the app container; the engine needs it to serve its spec, a connector may have no such var at all"
+    required: false
+    default: "true"
+  extra-env:
+    description: "Newline-separated KEY=VALUE lines applied to the application container via -e, for per-repository env the engine's own vars don't cover"
+    required: false
+    default: ""
   report-file:
     description: "Path the .report is written to"
     required: true
@@ -44,6 +88,17 @@ runs:
       env:
         DAST_IMAGE: ${{ inputs.image }}
         DAST_BOOT_TIMEOUT: ${{ inputs.boot-timeout }}
+        DAST_PORT: ${{ inputs.port }}
+        DAST_HEALTH_PATH: ${{ inputs.health-path }}
+        DAST_SPEC_PATH: ${{ inputs.spec-path }}
+        DAST_AUTH_MODE: ${{ inputs.auth-mode }}
+        DAST_LOGIN_PATH: ${{ inputs.login-path }}
+        DAST_AUTH_HEADER: ${{ inputs.auth-header }}
+        DAST_AUTH_PREFIX: ${{ inputs.auth-scheme-prefix }}
+        DAST_TOKEN_SQL: ${{ inputs.token-sql }}
+        DAST_SETUP_CMD: ${{ inputs.setup-command }}
+        DAST_SWAGGER_ENABLE: ${{ inputs.swagger-enable }}
+        DAST_EXTRA_ENV: ${{ inputs.extra-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}
         REPORT_URL: ${{ inputs.report-url }}
