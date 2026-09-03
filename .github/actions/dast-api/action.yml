@@ -25,6 +25,10 @@ inputs:
     description: "How the scan acquires its token: login (POST username/password, read the token from the response) or db-token (read a token straight out of the seeded database with a caller-supplied SELECT)"
     required: false
     default: "login"
+  scan-mode:
+    description: "passive (default) observes only, via zap-api-scan.py's -S safe mode. active drops -S and sends real POST/PUT/DELETE and injection payloads — only ever against the ephemeral stack this action starts and kills."
+    required: false
+    default: "passive"
   login-path:
     description: "POST route used to log in when auth-mode is login"
     required: false
@@ -92,6 +96,7 @@ runs:
         DAST_HEALTH_PATH: ${{ inputs.health-path }}
         DAST_SPEC_PATH: ${{ inputs.spec-path }}
         DAST_AUTH_MODE: ${{ inputs.auth-mode }}
+        DAST_API_SCAN_MODE: ${{ inputs.scan-mode }}
         DAST_LOGIN_PATH: ${{ inputs.login-path }}
         DAST_AUTH_HEADER: ${{ inputs.auth-header }}
         DAST_AUTH_PREFIX: ${{ inputs.auth-scheme-prefix }}

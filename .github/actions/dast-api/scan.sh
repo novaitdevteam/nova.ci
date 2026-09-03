@@ -22,10 +22,11 @@
 # it is acquired (see below), and the console file that carries it is still deleted
 # in the trap — belt and suspenders, not full containment on the file alone.
 #
-# Safe mode (-S) is mandatory: without it, zap-api-scan.py actively scans, i.e. sends
+# Safe mode (-S) is the default: without it, zap-api-scan.py actively scans, i.e. sends
 # real POST/PUT/DELETE against the seeded API using the very session this script just
-# created. -f openapi drives the scan from the spec's real routes rather than a spider —
-# a NestJS SPA-less API has no pages to spider in the first place.
+# created. scan-mode: active drops -S deliberately — see the DAST_API_SCAN_MODE case
+# above the docker run below. -f openapi drives the scan from the spec's real routes
+# rather than a spider — a NestJS SPA-less API has no pages to spider in the first place.
 #
 set -euo pipefail
 
@@ -352,8 +353,19 @@ jq -e '.paths | length > 0' "$spec_file" >/dev/null 2>&1 \
 op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo 0)"
 
 # --- scan --------------------------------------------------------------------------
-# -S is mandatory: without it zap-api-scan.py active-scans, i.e. real writes against the
-# seeded API. -f openapi drives from the spec's real routes, not a spider. The token is
+# -S is safe mode: passive observation only. Dropping it turns this into an active scan
+# that sends real POST/PUT/DELETE and injection payloads against the seeded API using the
+# session this script just created. That is safe here and nowhere else — the database is
+# ours, it was created seconds ago and it dies with this job — but it is the most
+# dangerous flag in this repository, so it is an explicit mode, never a default.
+zap_mode_args=()
+case "${DAST_API_SCAN_MODE:-passive}" in
+    passive) zap_mode_args+=(-S) ;;
+    active)  : ;;
+    *) scanner_error "unknown scan-mode: ${DAST_API_SCAN_MODE}" ;;
+esac
+
+# -f openapi drives from the spec's real routes, not a spider. The token is
 # injected on every request via a replacer rule so ZAP need not model the login itself,
 # under the caller's own header and prefix (Authorization/Bearer  for core, unchanged);
 # -c/-w and the report/summary shape follow the baseline scan exactly.
@@ -374,7 +386,8 @@ op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo
 set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" "$ZAP_IMAGE" \
-    zap-api-scan.py -t "$spec_url" -f openapi -S -I \
+    zap-api-scan.py -t "$spec_url" -f openapi \
+    ${zap_mode_args[@]+"${zap_mode_args[@]}"} -I \
     -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" \
     -z "-config replacer.full_list(0).description=auth \
         -config replacer.full_list(0).enabled=true \

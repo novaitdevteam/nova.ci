@@ -880,10 +880,15 @@ auth.
   instant it is written, which is why `scan.sh` masks the token with `::add-mask::` the
   moment it is acquired and deletes the local console file on exit — belt and suspenders,
   not the only guard.
-- **Safe mode only (`-S`).** `zap-api-scan.py` runs passive — it observes requests and
-  responses, it does not write. Without `-S` the same tool active-scans, sending real
-  `POST`/`PUT`/`DELETE` against the seeded API using the very session this script just
-  created. `-S` is mandatory and the harness asserts it is passed.
+- **Safe mode by default (`-S`), active as a deliberate exception.** `zap-api-scan.py`
+  runs passive by default — it observes requests and responses, it does not write. The
+  `scan-mode` input (`passive`, the default, or `active`) reaches `scan.sh` as
+  `DAST_API_SCAN_MODE`; `active` drops `-S`, and the same tool then sends real
+  `POST`/`PUT`/`DELETE` and injection payloads against the seeded API using the very
+  session this script just created. That is safe only because the stack is ephemeral —
+  this action starts and kills it — so `active` is never the default and an unrecognised
+  mode is a scanner error, not a silent fallback to either one. The harness asserts both
+  directions: `-S` present when unset, absent under `active`.
 - **Spec-driven (`-f openapi`).** The scan walks the real routes the application publishes
   at its spec path (`/api-docs-json`), not a spider — a backend API has no pages to spider.
   Serving that spec can be conditional: the engine needs `SWAGGER_ENABLE=true` (its

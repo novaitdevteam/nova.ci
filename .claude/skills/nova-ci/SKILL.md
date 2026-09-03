@@ -517,9 +517,14 @@ Preserve these behaviors:
   raw under `api_access_token`). The header, scheme prefix and token `SELECT` are per-repo
   inputs; the token is masked with `::add-mask::` whatever its source; an empty token
   (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
-  auth. **Safe mode `-S` is mandatory** — without it the tool active-scans, i.e. real writes
-  against the seeded API; `scripts/test-dast-api-scan.sh` (46 checks) asserts `-S` and the
-  mask. The seed admin password is `openssl rand`-generated per run and stored nowhere
+  auth. **Safe mode `-S` by default, `active` a deliberate exception** — a `scan-mode`
+  input (`passive` default, `active`) reaches `scan.sh` as `DAST_API_SCAN_MODE`; only
+  `active` drops `-S`, turning the tool into a real-writes active scan against the seeded
+  API. Safe only because the stack is the ephemeral one this action starts and kills, so
+  `active` is never the default and an unrecognised mode is a scanner error, not a silent
+  fallback. `scripts/test-dast-api-scan.sh` (51 checks) asserts `-S` on the default, its
+  absence under `active`, and the mask. The seed admin password is
+  `openssl rand`-generated per run and stored nowhere
   (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). ZAP echoes the token-bearing replacer
   rule to its own stdout — a public repo's persisted step log — which is why the mask, plus
   the console file deleted on exit. Serving the spec can be conditional (`swagger-enable`:

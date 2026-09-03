@@ -435,5 +435,27 @@ else
     echo "FAIL nova-pg is not a postgres:N image"; fail=$((fail + 1))
 fi
 
+# --- active mode: -S comes off, and that is the whole difference --------------------
+# -S is safe mode. With it, zap-api-scan.py only observes; without it, it sends real
+# POST/PUT/DELETE and injection payloads. That is the entire point of an active scan and
+# also the single most dangerous flag in this repository, so both directions are pinned.
+DAST_API_SCAN_MODE=active SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "active mode still reports a clean scan" clean 0
+if grep -E 'zap-api-scan\.py' "$WORK/dockerlog" | grep -qE '(^| )-S( |$)'; then
+    echo "FAIL active mode kept -S — it would still be a passive scan reported as active"
+    fail=$((fail + 1))
+else
+    echo "ok   active mode drops -S"; pass=$((pass + 1))
+fi
+
+# Passive stays the default: nobody gets an attacking scan by omitting an input.
+unset DAST_API_SCAN_MODE
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "the default is still passive" clean 0
+assert_zap_flag "an unset scan-mode keeps -S" '-S'
+
+# An unrecognised mode is a broken configuration, not a silent fallback to either one.
+DAST_API_SCAN_MODE=aggressive expect "an unknown scan-mode is a scanner error" error 2
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
