@@ -791,6 +791,26 @@ header it is injected under is a per-repository input — a connector's is not t
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
 
+> [!CAUTION]
+> **The Postgres image must be one whose entrypoint actually starts Postgres.** It was
+> `ghcr.io/cloudnative-pg/postgresql` for weeks. That is the CloudNativePG *operator*
+> image: `Entrypoint: null`, `Cmd: ["bash"]`. Under `docker run -d` it started bash, bash
+> exited immediately, and `POSTGRES_PASSWORD` / `_USER` / `_DB` were read by nobody
+> because there is no `docker-entrypoint.sh` in it. A container ID still came back, so
+> `|| not_run "postgres did not start"` never fired; `pg_isready` then failed for sixty
+> seconds while the wait loop fell through **in silence**; and the application finally
+> died with `ECONNREFUSED`, reported as *"the image did not come up"* — blaming the image
+> for a database that was never there.
+>
+> Every database-backed DAST scan was a loud skip from then until 2026-09-03:
+> `novatalks.core` and `nova.botflow` for the baseline, every repository for the API
+> scan. Only `novatalks.ui`, which sets `needs-db: false`, was ever really scanned.
+>
+> Two guards now hold it shut, and both are mutation-tested: the harness asserts the
+> `postgres:N` Docker Official family, and the readiness loop prints
+> `docker logs nova-pg` and loud-skips with `postgres never became ready` instead of
+> carrying on.
+
 > [!IMPORTANT]
 > **The image sets itself up; `scan.sh` does not.** `setup-command` defaults to empty
 > because both images wired up so far run their migrate-and-seed from their own
