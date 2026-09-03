@@ -135,17 +135,50 @@ cp "$zap_conf_src" "$zap_conf"
 
 if [ "$DAST_NEEDS_DB" = "true" ]; then
     docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+    # The Docker Official image, and the same expression the integration suite uses
+    # (ci-build-ntk-on-push-tags-run-test.yaml) — that postgres demonstrably works.
+    #
+    # It used to be ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie, which is the
+    # CloudNativePG *operator* image: its config is `Entrypoint: null`, `Cmd: ["bash"]`.
+    # Under `docker run -d` it starts bash, bash exits at once, and POSTGRES_PASSWORD /
+    # _USER / _DB are ignored entirely because there is no docker-entrypoint.sh to read
+    # them. `docker run -d` still returns a container ID, so `|| not_run` never fired.
+    # Every database-backed DAST scan had been a loud skip ever since — novatalks.core and
+    # nova.botflow for the baseline, every repository for api-scan. Only novatalks.ui,
+    # which sets needs-db false, was ever really scanned.
+    # novatalks.core mirrors the production PG major version; everything else takes 16 —
+    # the same split ci-build-ntk-on-push-tags-run-test.yaml makes, so the DAST stack and
+    # the integration stack cannot disagree about what database the app is talking to.
+    case "${GITHUB_REPOSITORY##*/}" in
+        novatalks.core) PG_IMAGE="${PG_IMAGE:-postgres:17.9-trixie}" ;;
+        *)              PG_IMAGE="${PG_IMAGE:-postgres:16}" ;;
+    esac
     docker run -d --name nova-pg -p 5432:5432 \
         -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
         -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
         -e POSTGRES_DB="${DATABASE_NAME:-db_name}" \
-        ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie \
+        "$PG_IMAGE" \
         || not_run "postgres did not start"
     docker run -d --name nova-redis -p 6379:6379 redis:8.6.4 || not_run "redis did not start"
+    pg_ready=no
     for _ in $(seq 1 30); do
-        docker exec nova-pg pg_isready -U "${DATABASE_USERNAME:-postgres}" >/dev/null 2>&1 && break
+        if docker exec nova-pg pg_isready -U "${DATABASE_USERNAME:-postgres}" >/dev/null 2>&1; then
+            pg_ready=yes
+            break
+        fi
         sleep 2
     done
+    # The loop used to end here and fall straight through. That silence is exactly what let a
+    # postgres image with no entrypoint go unnoticed: the container "started", pg_isready
+    # failed for sixty seconds, the script carried on, and the application then died with
+    # ECONNREFUSED — reported as "the image did not come up", which blamed the image for a
+    # database that was never there. A wait that gives up has to say so.
+    if [ "$pg_ready" != yes ]; then
+        echo "--- docker logs nova-pg (never became ready), last 40 lines ---"
+        docker logs --tail 40 nova-pg 2>&1 || echo "(no output — the container may have exited at once)"
+        echo "--- end ---"
+        not_run "postgres never became ready in 60s — the application would fail with ECONNREFUSED"
+    fi
     docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
         psql -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
         -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null 2>&1 || true

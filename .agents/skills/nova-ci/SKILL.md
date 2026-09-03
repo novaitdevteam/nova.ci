@@ -517,7 +517,7 @@ Preserve these behaviors:
   inputs; the token is masked with `::add-mask::` whatever its source; an empty token
   (no login token, or the `SELECT` matched no row) is a loud `not-run`, never a scan without
   auth. **Safe mode `-S` is mandatory** — without it the tool active-scans, i.e. real writes
-  against the seeded API; `scripts/test-dast-api-scan.sh` (42 checks) asserts `-S` and the
+  against the seeded API; `scripts/test-dast-api-scan.sh` (46 checks) asserts `-S` and the
   mask. The seed admin password is `openssl rand`-generated per run and stored nowhere
   (`DEFAULT_ADMIN_USER` / `DEFAULT_USER_PASSWORD`). ZAP echoes the token-bearing replacer
   rule to its own stdout — a public repo's persisted step log — which is why the mask, plus

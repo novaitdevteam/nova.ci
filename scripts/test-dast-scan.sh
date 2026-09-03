@@ -133,7 +133,15 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
                 fi
                 exit "${SHIM_APP_RC:-0}" ;;
         esac ;;
-    rm|exec|pull|logs) exit 0 ;;
+    exec)
+        # pg_isready is the postgres readiness oracle. It has to be controllable: the
+        # whole point of the new guard is what happens when it never succeeds, and with
+        # a shim that always says yes that path is unreachable.
+        case "$*" in
+            *pg_isready*) exit "${SHIM_PG_READY_RC:-0}" ;;
+            *) exit 0 ;;
+        esac ;;
+    rm|pull|logs) exit 0 ;;
     *) exit 0 ;;
 esac
 SHIM
@@ -900,6 +908,42 @@ fi
 # rule ran at all. Both are broken gates.
 SHIM_CURL_RC=0 SHIM_ZAP_RC=3 \
     expect "exit 3 stays a scanner error" error 2
+
+# --- a postgres that never comes up says so, and says it about postgres ---------------
+# This is the regression that hid for weeks. The image was
+# ghcr.io/cloudnative-pg/postgresql — the CloudNativePG *operator* image, whose config is
+# `Entrypoint: null`, `Cmd: ["bash"]`. Under `docker run -d` bash exits at once and the
+# POSTGRES_* variables are read by nobody, but a container ID still comes back, so
+# `|| not_run "postgres did not start"` never fired. pg_isready then failed for sixty
+# seconds, the loop fell through in silence, and the application died with ECONNREFUSED —
+# reported as "the image did not come up", blaming the image for a database that was
+# never there. Every database-backed scan had been a loud skip since.
+DAST_NEEDS_DB=true SHIM_PG_READY_RC=1 SHIM_CURL_RC=0 SHIM_ZAP_RC=0 \
+    expect "a postgres that never becomes ready is a loud skip" not-run 0
+if grep -q "postgres never became ready" "$WORK/report"; then
+    echo "ok   the skip names postgres, not the application image"; pass=$((pass + 1))
+else
+    echo "FAIL the skip still blames the image for a database that never started"
+    fail=$((fail + 1))
+fi
+if grep -q "docker logs nova-pg" "$WORK/log"; then
+    echo "ok   and prints postgres's own output"; pass=$((pass + 1))
+else
+    echo "FAIL no postgres log — the skip is a dead end again"; fail=$((fail + 1))
+fi
+
+# The image must stay one whose entrypoint actually starts postgres. Asserting the
+# Docker Official name is a blunt guard, and deliberately so: the failure it prevents is
+# somebody reaching for a vendor image again, and the family is what distinguishes them.
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "a database-backed scan runs" clean 0
+if grep -E "^run .*--name nova-pg" "$WORK/dockerlog" | grep -qE " postgres:[0-9]"; then
+    echo "ok   postgres comes from the Docker Official image"; pass=$((pass + 1))
+else
+    echo "FAIL nova-pg is not a postgres:N image — check it has an entrypoint that starts postgres"
+    grep -E "^run .*--name nova-pg" "$WORK/dockerlog" | sed 's/^/     /'
+    fail=$((fail + 1))
+fi
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
