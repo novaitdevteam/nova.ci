@@ -103,7 +103,8 @@ These are the rules `docs/` describes. Breaking one is a regression even when th
 **Runners**
 
 - Keep the `small`/`medium`/`large` sizing matrix scoped to `novatalks.core`; every other repository always resolves to `small`.
-- Keep the global `MAX_TOTAL_RUNNERS` cap and Hetzner-state-based per-size counting intact.
+- Keep the global `MAX_TOTAL_RUNNERS` cap and Hetzner-state-based per-size counting intact. The per-size cap is **not one number**: `medium` is 4 because it is the scan pool that carries two build targets' parallel `trivy`/`sast`/`dast`/`api` fan-out; `small` and `large` stay 2, where a third VM would idle. `MAX_TOTAL_RUNNERS` (8) is the sum of the three — move them together or the global cap starts denying what the per-size caps allow.
+- Keep the four scan jobs on `needs: [build-image]` and **nothing else**. They were chained (`trivy → sast → dast`) on the reasoning that parallel scans would only queue against the cap; the measurement said otherwise — run 33614788933 spent 1017s in gaps against 1083s of work, 397s of it waiting to start `dast-scan`. A chain does not avoid a queue, it guarantees one. Concurrent publishing to the same release is safe because `action-gh-release` retries a `422 already_exists`; do not add a chain back to "fix" a race that upstream already handles.
 - Keep the create lock failing open: a lock-machinery error must warn and proceed, never block runner creation.
 
 **Repository-scoped exceptions** — all gated on `github.event.repository.name == 'novatalks.core'`, none of them apply to other repositories without an explicit request:
@@ -142,7 +143,7 @@ Run the harness after any workflow, action or documentation change:
 ./scripts/validate.sh   # or: make validate
 ```
 
-It parses every workflow and action YAML, runs `git diff --check`, verifies the `.agents` ↔ `.claude` skill mirror, runs the offline `ci-build-create-runner.sh` self-check (`scripts/test-create-runner.sh`, 23 checks, `curl` stubbed), runs the secret-scan self-check (`scripts/test-secret-scan.sh`, 24 checks against real git fixtures and the pinned Gitleaks binary), runs the SAST and DAST self-checks (`scripts/test-sast-scan.sh`, 43 checks, `scripts/test-dast-scan.sh`, 112 checks, and `scripts/test-dast-api-scan.sh`, 42 checks, `docker` and `curl` stubbed), guards that no workflow invokes Gitleaks, Semgrep or ZAP directly, and runs `actionlint` when installed (advisory — the repo has a pre-existing backlog; set `STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI on pull requests and pushes to `main`.
+It parses every workflow and action YAML, runs `git diff --check`, verifies the `.agents` ↔ `.claude` skill mirror, runs the offline `ci-build-create-runner.sh` self-check (`scripts/test-create-runner.sh`, 26 checks, `curl` stubbed), runs the secret-scan self-check (`scripts/test-secret-scan.sh`, 24 checks against real git fixtures and the pinned Gitleaks binary), runs the SAST and DAST self-checks (`scripts/test-sast-scan.sh`, 43 checks, `scripts/test-dast-scan.sh`, 112 checks, and `scripts/test-dast-api-scan.sh`, 42 checks, `docker` and `curl` stubbed), guards that no workflow invokes Gitleaks, Semgrep or ZAP directly, and runs `actionlint` when installed (advisory — the repo has a pre-existing backlog; set `STRICT_ACTIONLINT=1` to enforce). The same harness runs in CI on pull requests and pushes to `main`.
 
 Then review the diff:
 

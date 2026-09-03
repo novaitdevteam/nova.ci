@@ -9,7 +9,7 @@ Connected repositories download and run [`ci-build-create-runner.sh`](../.github
 - fetches the full Hetzner server list with pagination (`per_page=50`), so cap counts are not truncated to the API's default first page of 25
 - lists GitHub self-hosted runners named `dev-00-gh-runner-*` (paginated, `per_page=100`, so idle runners past the first page stay visible)
 - **reuses** an online idle runner whose size priority is at least the required size **and** whose backing Hetzner VM is in `running` status — registrations whose VM is deleting or gone (ghosts) are skipped, since a job queued on them would never start
-- enforces a global `MAX_TOTAL_RUNNERS` cap (env-overridable, default `6`) counting **all** `dev-00-gh-runner-*` Hetzner servers in any status, across all sizes; at the cap the run goes to the wait queue regardless of per-size counts
+- enforces a global `MAX_TOTAL_RUNNERS` cap (env-overridable, default `8` — the sum of the per-size caps: 2 small + 4 medium + 2 large) counting **all** `dev-00-gh-runner-*` Hetzner servers in any status, across all sizes; at the cap the run goes to the wait queue regardless of per-size counts
 - otherwise counts per-size Hetzner servers (`starting`, `initializing`, `running` of the required `server_type`) straight from the Hetzner API, and creates up to two runners per size
 - emits `runner_need`, `runner_labels`, `runner_size`, `runner_name`
 - runs under `set -euo pipefail` and fails the step loudly (`::error::`) on any Hetzner/GitHub API or parse error, instead of deciding on empty counts
@@ -50,7 +50,7 @@ The matrix applies **only to real tag pushes** (`refs/tags/*`). Branch pushes an
 
 One tag push provisions one runner size for the whole run, so a `full-test` tag runs both suites on the `large` runner (acceptable — only unit-only runs get `medium`), sequentially, since `integration-tests` needs `unit-tests`.
 
-Each size class has its own **max-2** cap, measured from Hetzner server state rather than GitHub registrations, so in-flight creations count and offline ghost registrations do not. `medium` and `large` are independent pools, so unit-test and integration-test runs never contend. Trunk and `scan*` builds do share the `medium` pool with unit-test runs — that is the cost of the DAST sizing branch, and the reason it is kept as narrow as it is. All pools also share the global `MAX_TOTAL_RUNNERS` cap.
+Each size class has its own cap, measured from Hetzner server state rather than GitHub registrations, so in-flight creations count and offline ghost registrations do not. **`medium` is 4; `small` and `large` are 2** (`MAX_MEDIUM_RUNNERS` / `MAX_PER_SIZE` override either). `medium` is the scan pool: a `novatalks.core` trunk push builds two targets at once, and each fans out into `trivy-scan`, `sast-scan`, `dast-scan` and `api-scan` in parallel rather than in a chain — a fan-out is worth nothing without somewhere to fan out to. `small` and `large` have no such fan-out (one feature build; one long `int-test` job), so a third VM there would idle. `medium` and `large` are independent pools, so unit-test and integration-test runs never contend. Trunk and `scan*` builds do share the `medium` pool with unit-test runs — that is the cost of the DAST sizing branch, and the reason it is kept as narrow as it is. All pools also share the global `MAX_TOTAL_RUNNERS` cap.
 
 **All other repositories always use `small`, regardless of tag.**
 
