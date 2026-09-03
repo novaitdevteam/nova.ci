@@ -53,6 +53,70 @@ reset_dt; dast_resolve_target nova.botflow browser
 check "botflow port"             1880     "$DT_PORT"
 check "botflow health"           /        "$DT_HEALTH_PATH"
 
+# whatsapp: db-insert (its Dockerfile ships no npm at runtime, but the seeder survives
+# as compiled JS the entrypoint already runs — see the arm's own comment). Header and
+# schema read from roles.guard.ts / token.model.ts / token-role.model.ts.
+reset_dt; dast_resolve_target nova.chatsconnector.whatsapp-client-api api
+check "whatsapp auth mode"       db-insert          "$DT_AUTH_MODE"
+check "whatsapp header"          api_access_token   "$DT_AUTH_HEADER"
+check "whatsapp prefix"          ""                 "$DT_AUTH_SCHEME_PREFIX"
+check "whatsapp health path"     /health            "$DT_HEALTH_PATH"
+check "whatsapp spec path"       /api-docs-json     "$DT_SPEC_PATH"
+check "whatsapp setup command"   ""                 "$DT_SETUP_COMMAND"
+if [ -n "$DT_TOKEN_INSERT_SQL" ]; then
+    echo "ok   whatsapp carries an INSERT"; pass=$((pass + 1))
+else
+    echo "FAIL whatsapp has no INSERT — db-insert would loud-skip"; fail=$((fail + 1))
+fi
+# The role value is 'super_admin' (token-role.enum.ts) — lowercase, unlike the telegram
+# connector's 'SUPER_ADMIN'. A guessed uppercase value would insert a token nothing can
+# join to, silently.
+case "$DT_TOKEN_INSERT_SQL" in
+    *"'super_admin'"*) echo "ok   whatsapp INSERT targets the lowercase role value"; pass=$((pass + 1)) ;;
+    *) echo "FAIL whatsapp INSERT does not reference the real 'super_admin' role value"; fail=$((fail + 1)) ;;
+esac
+
+# signal: expected to match whatsapp, verified independently rather than copied. It does
+# NOT match on two points — no health controller at all (so "/", like telegram/botflow),
+# and a Joi env-validation schema (env.validation.ts) that requires five storage/S3 vars
+# non-blank, which whatsapp has no equivalent of.
+reset_dt; dast_resolve_target nova.chatsconnector.signal-client-api api
+check "signal auth mode"       db-insert          "$DT_AUTH_MODE"
+check "signal header"          api_access_token   "$DT_AUTH_HEADER"
+check "signal prefix"          ""                 "$DT_AUTH_SCHEME_PREFIX"
+check "signal health path"     /                  "$DT_HEALTH_PATH"
+check "signal spec path"       /api-docs-json     "$DT_SPEC_PATH"
+if [ -n "$DT_TOKEN_INSERT_SQL" ]; then
+    echo "ok   signal carries an INSERT"; pass=$((pass + 1))
+else
+    echo "FAIL signal has no INSERT — db-insert would loud-skip"; fail=$((fail + 1))
+fi
+for var in STORAGE_PATH S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET; do
+    case "$DT_EXTRA_ENV" in
+        *"$var="*) echo "ok   signal extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL signal extra-env is missing $var — env.validation.ts rejects it blank"; fail=$((fail + 1)) ;;
+    esac
+done
+
+# novatalks.dialer: env-token, confirmed in auth.middleware.ts/app.config.ts. Its Joi
+# schema itself never rejects a blank var (every field has a default), but
+# nats.config.ts's registerAs factory calls NATS_SUBJECTS.split(',') unconditionally at
+# config-load time — a missing NATS_SUBJECTS throws before app.listen() regardless of
+# whether a NATS server is reachable.
+reset_dt; dast_resolve_target novatalks.dialer api
+check "dialer auth mode"      env-token               "$DT_AUTH_MODE"
+check "dialer header"         api_access_token        "$DT_AUTH_HEADER"
+check "dialer prefix"         ""                      "$DT_AUTH_SCHEME_PREFIX"
+check "dialer token env var"  API_ACCESS_TOKENS       "$DT_TOKEN_ENV_VAR"
+check "dialer port"           3000                    "$DT_PORT"
+check "dialer health path"    /readyz                 "$DT_HEALTH_PATH"
+check "dialer spec path"      /api/v1/dialer/api-docs-json "$DT_SPEC_PATH"
+check "dialer needs nats"     true                    "$DT_NEEDS_NATS"
+case "$DT_EXTRA_ENV" in
+    *"NATS_SUBJECTS="*) echo "ok   dialer extra-env carries NATS_SUBJECTS"; pass=$((pass + 1)) ;;
+    *) echo "FAIL dialer extra-env is missing NATS_SUBJECTS — nats.config.ts would crash on boot"; fail=$((fail + 1)) ;;
+esac
+
 # A guessed target scans the wrong port and reports it clean, so an unknown pair must
 # fail loudly rather than fall through to a default.
 reset_dt

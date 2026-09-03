@@ -31,7 +31,7 @@ Primary files:
 - `.github/actions/semgrep/action.yml` + `scan.sh` + `canary.yaml`: the only place any workflow may invoke Semgrep (SAST)
 - `.github/actions/dast/action.yml` + `scan.sh` + `dast-common.sh`: the unauthenticated OWASP ZAP scan (DAST) — `scan-mode` picks `zap-baseline.py` (default) or `zap-full-scan.py` (`full`, modern spider); `dast-common.sh` holds the shared tally parse sourced by all three ZAP callers
 - `.github/actions/dast/targets.sh`: the one per-repository DAST table (port, health path, auth) — `dast_resolve_target <repo> <api|browser>`, sourced by the `Resolve DAST target` / `Resolve api-scan target` steps and every later consumer
-- `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core` only)
+- `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core`, telegram, whatsapp, signal, dialer)
 - `.github/workflows/ci-dast-live-baseline.yaml`: the `workflow_dispatch` live baseline against the real deployment, target allowlisted
 - `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`, `scripts/test-dast-api-scan.sh`, `scripts/test-dast-targets.sh`: offline scenario self-checks (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
 - `scripts/gitleaks-baseline.sh`: one-time full-history secret audit across product repositories; deliberately not a CI job
@@ -476,19 +476,21 @@ Preserve these behaviors:
   `novatalks.geoip-api` (3000, `/`, no db — an inference, not a verified fact). They are
   JSON APIs with no browser surface, so the baseline measured almost nothing on them.
   Their real coverage is the authenticated `api-scan` (OpenAPI-driven), live today for
-  `novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
-  the `db-insert` and `env-token` auth-modes exist for whatsapp/signal and dialer
-  respectively, but none of the three has a `targets.sh` arm yet, so wiring each in is
-  the remaining tracked Phase 2 work, each verified against its own code; `uspacy`/`geoip`
-  have no OpenAPI spec. The verified ports/health/db facts above are kept for that work — they
-  were established against the chart and Dockerfiles, not guessed. The `needs-nats` input
-  still exists on `dast/action.yml` (and its NATS bring-up in `scan.sh`); no arm sets it
-  `true` today because `novatalks.dialer` no longer reaches the baseline — but the
-  api-scan work will need it: dialer reaches NestJS startup and dies with
-  `ECONNREFUSED ::1:4222` without a NATS on 4222, and `scan.sh` brings up a bare,
-  unconfigured `nats:2.10-alpine` (tag-pinned like `postgres:16`/`redis:8`) forcing
-  `-e NATS_SERVERS=127.0.0.1:4222` after `--env-file`, since the failure was IPv6
-  resolution of `localhost`, not a missing server.
+  `novatalks.core` (`login`), `nova.chatsconnector.telegram-client-api` (`db-token`),
+  `…whatsapp-client-api`/`…signal-client-api` (`db-insert`) and `novatalks.dialer`
+  (`env-token`) — each its own `targets.sh` arm, verified against its own code, not
+  assumed from telegram's or from each other's (signal was expected to match whatsapp
+  and was checked anyway: same header/schema, but no health controller at all — `/`, not
+  `/health` — and a `Joi` schema requiring five `STORAGE_PATH`/`S3_*` vars whatsapp has
+  no equivalent of). `uspacy`/`geoip` have no OpenAPI spec, so neither is tracked for an
+  arm — `api-scan` is spec-driven with no spider fallback, and adding one would only ever
+  loud-skip forever. The `needs-nats` input still exists on `dast/action.yml` and its
+  NATS bring-up in `scan.sh` — the browser-surface baseline's `scan.sh`, not
+  `dast-api/scan.sh`'s, which has no NATS bring-up at all yet. `novatalks.dialer`'s
+  `api` arm sets `DT_NEEDS_NATS=true` honestly (its `main.ts` awaits
+  `microService.listen()`, a real NATS connection, before `app.listen()`), so until that
+  gap in `dast-api/scan.sh` is closed, its `apiscan*` runs are expected to loud-skip on
+  the NATS connection rather than silently scan the wrong thing.
 - **`.env.example` is documentation and must not decide anything the scan depends on.**
   Four boot failures traced back to trusting it literally: a trailing `//` comment glued
   onto `NODE_ENV`, dotenv-style surrounding quotes that `docker --env-file` does not
@@ -500,15 +502,26 @@ Preserve these behaviors:
 - **`dast/action.yml`'s `extra-env` is the per-repository escape hatch** for template
   values no filter can fix — newline-separated `KEY=VALUE`, applied as `-e` flags after
   `--env-file` so each overrides the seeded value. The input still exists on the action,
-  but no resolver arm uses it today — the three that did are all removed headless repos,
-  knowledge kept for the api-scan expansion:
+  but no baseline resolver arm uses it today — the three repos that once did are removed
+  headless repos, kept here as history of how the mechanism was established (via
+  `.env.example`-shaped boot failures), not a current baseline arm:
   `nova.chatsconnector.telegram-client-api` (four blanks its Joi schema rejects one per
   CI run), `nova.chatsconnector.signal-client-api` (an `S3_ENDPOINT` written as
   `https://<account-id>.…`, plus the blanks behind it), and `novatalks.dialer` (five
   `AWS_S3_*` — `multer-s3` throws `bucket is required` at boot and `FILE_DRIVER=s3` is
-  the only driver it supports). Every value is a dummy and none is a credential; a real
-  one belongs in a secret. `example.com` is the placeholder host — IANA-reserved, so it
-  satisfies URL validators and is never contacted. Keep `TELEGRAM_API_HASH` as
+  the only driver it supports). `dast-api/action.yml`'s own `extra-env` input (separate
+  from this one) now has its own, independently-verified per-repo arms for the same three
+  connectors plus whatsapp — not a reuse of the values above, because the failure being
+  worked around differs: whatsapp needs none at all (no boot-time config validator
+  anywhere in its `src/config/*.ts`); signal needs `STORAGE_PATH` plus four `S3_*` vars
+  (`env.validation.ts`'s `Joi` schema, which whatsapp has no equivalent of — not the same
+  five as the old baseline arm's `S3_ENDPOINT`-plus-blanks); dialer needs
+  `NATS_SUBJECTS=campaign.*` (`nats.config.ts`'s `registerAs` factory calls
+  `NATS_SUBJECTS.split(',')` unconditionally at config-load time, unrelated to the old
+  arm's `AWS_S3_*` set). Every value is a dummy and none is a credential; a real
+  one belongs in a secret. `example.com`/`example.invalid` are the placeholder hosts —
+  IANA/RFC 2606 reserved, so they satisfy URL/email validators and are never contacted.
+  Keep `TELEGRAM_API_HASH` as
   thirty-two *identical* hex characters: a realistic-looking hash trips Gitleaks'
   `generic-api-key` entropy heuristic and reds the required `secret-scan` check.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
@@ -521,20 +534,23 @@ Preserve these behaviors:
   header and cookie hygiene, not logic flaws. It is not a penetration test. The
   authenticated `apiscan*` scan adds real logged-in endpoints but stays passive — no
   IDOR, no privilege escalation, no business-logic flaw — and is not a pentest either.
-- **API scan (`apiscan*`, opt-in — `novatalks.core` and the telegram connector today).**
+- **API scan (`apiscan*`, opt-in — `novatalks.core`, telegram, whatsapp, signal and dialer today).**
   `dast-api/action.yml` + `scan.sh` boot the image on ephemeral postgres/redis, migrate and
   seed, acquire a token, and run `zap-api-scan.py -f openapi` against the app's own
   `/api-docs-json`. **Parameterised auth**: `auth-mode` is `login` (POST username/password,
   read the token from the response — core, `Authorization: Bearer`), `db-token` (read the
   seeded token straight out of the DB with a caller-supplied `SELECT` — telegram, injected
   raw under `api_access_token`), `db-insert` (write a generated token into the DB with a
-  caller-supplied `INSERT`, `%TOKEN%` substituted in — built for whatsapp/signal, whose
-  Dockerfiles `npm prune --omit=dev` the seeder away, leaving migrated-but-empty tables
-  `db-token` would `SELECT` nothing from forever; not yet wired into either repo's
-  `targets.sh` arm), or `env-token` (generate a token before the app container starts and
-  hand it in as `-e <token-env-var>=<token>` — built for `novatalks.dialer`, whose auth
+  caller-supplied `INSERT`, `%TOKEN%` substituted in, `role_id` filled from
+  `SELECT id FROM token_roles WHERE role = 'super_admin'` — lowercase, per
+  `token-role.enum.ts`, unlike telegram's uppercase `SUPER_ADMIN` — for whatsapp/signal,
+  whose Dockerfiles `npm prune --omit=dev` away `ts-node`, but whose entrypoints still
+  self-seed via compiled JS (`node dist/scripts/run-seed.js up`), so a token exists
+  either way; `db-insert` writes its own rather than depending on the seeder's own
+  `findOrCreate` key), or `env-token` (generate a token before the app container starts and
+  hand it in as `-e <token-env-var>=<token>` — for `novatalks.dialer`, whose auth
   middleware accepts any token present in the `API_ACCESS_TOKENS` env var and never calls
-  the engine at all; no DB, no seed; not yet wired into a `targets.sh` arm either). Every
+  the engine at all; no DB, no seed). Every
   other mode acquires its token *after* boot; `env-token` is the one mode that must
   generate and `::add-mask::` its token before the container exists, right beside
   `ADMIN_PASS` — the application only reads the variable once, at its own startup, so a
@@ -569,9 +585,13 @@ Preserve these behaviors:
   empty spec is a loud `not-run`. Same four outcomes and tally parse as the baseline; its own
   triage register `dast-api/zap-api-scan.conf`, not the baseline's.
 - **Each connector's auth model is read from its own code before its `targets.sh` arm is
-  written.** Telegram's `db-token`/`api_access_token`/`tokens` shape is not
-  assumed for the Sequelize connectors (whatsapp, signal) or dialer — the tracked Phase 2,
-  each with its own token storage, header and seed path. Dialer's was verified this way:
+  written.** Telegram's `db-token`/`api_access_token`/`tokens` shape was not
+  assumed for the Sequelize connectors (whatsapp, signal) or dialer, each verified
+  independently with its own token storage, header and seed path — including signal,
+  expected to match whatsapp and checked anyway rather than copied (same `roles.guard.ts`
+  header, same `token.model.ts`/`token-role.model.ts` schema, but no health controller at
+  all and a `Joi` env-validation schema whatsapp has no equivalent of). Dialer's was
+  verified this way:
   `src/auth/auth.middleware.ts` accepts any token in `app.apiAccessTokens`
   (`src/config/app.config.ts` splits it from `API_ACCESS_TOKENS`), which is why it gets
   `env-token` rather than `db-token`/`db-insert` — there is no database row behind it at
@@ -613,9 +633,9 @@ Preserve these behaviors:
   input anywhere** — `repository` is a `type: choice`, `surface` is `api`/`browser`, and
   for its default `target: ephemeral` the port/health/auth wiring comes from the same
   `dast_resolve_target` table every other DAST caller sources; an attacking scanner that
-  cannot be pointed anywhere cannot be pointed somewhere it must not go. Only three
+  cannot be pointed anywhere cannot be pointed somewhere it must not go. Only eight
   repository/surface pairs have a `targets.sh` arm today (`novatalks.ui`/`nova.botflow`
-  browser, `novatalks.core` both, telegram api); an unwired choice fails loudly at the
+  browser, `novatalks.core` both, telegram/whatsapp/signal/dialer api); an unwired choice fails loudly at the
   resolve step (which only runs for `target: ephemeral`), which is correct — do not add
   placeholder arms to `targets.sh` to silence it. Its `Resolve target` step emits
   **every** `DT_*` key unconditionally, not just the surface's own subset: the step

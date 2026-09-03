@@ -206,9 +206,10 @@ broken tooling and the job goes red, exactly like a Semgrep failure.
 > `nova.chatsconnector.telegram-client-api`, `novatalks.dialer`) are headless repositories
 > that were **removed from the baseline on 2026-09-01** (see [Which repositories](#which-repositories)),
 > so no `Resolve DAST target` arm exercises them today. They are kept here because the
-> machinery is exactly what api-scan reuses — `nova.chatsconnector.telegram-client-api` already does, via its
-> `extra-env` in the `Resolve api-scan target` arm, and `whatsapp`, `signal` and `dialer`
-> are the tracked Phase 2. The examples are how the mechanic was established, not a claim
+> machinery is exactly what api-scan reuses — `nova.chatsconnector.telegram-client-api`,
+> `whatsapp`, `signal` and `dialer` all now have their own `extra-env` in the `Resolve
+> api-scan target` arm too (see [Four ways to acquire the token](#four-ways-to-acquire-the-token)).
+> The examples are how the mechanic was established, not a claim
 > that those repos are scanned by the baseline now. `novatalks.core`, which is kept, still exercises the `.env.example` seeding
 > and the `DATABASE_URL` build.
 
@@ -694,13 +695,18 @@ green line was measuring almost nothing while reading as coverage.
 
 Their real coverage is the authenticated **[api-scan](#api-scanning-authenticated-zap)**,
 which walks an OpenAPI spec rather than spidering pages. It ships today for
-`novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
-the `db-insert` and `env-token` auth-modes exist for `whatsapp`/`signal` and `dialer`
-respectively, but none of the three has a `targets.sh` arm yet, so wiring each into the
-opt-in table is the remaining tracked **Phase 2** work, each a per-repository integration —
-seed data, its own token model, the spec endpoint — verified against that repository's own
-code, never assumed from telegram's. `novatalks.uspacy.connector` and `novatalks.geoip-api`
-publish no OpenAPI spec, so they have no api-scan path either.
+`novatalks.core` (`login`), `nova.chatsconnector.telegram-client-api` (`db-token`),
+`nova.chatsconnector.whatsapp-client-api` and `…signal-client-api` (`db-insert`), and
+`novatalks.dialer` (`env-token`) — each wired into `targets.sh` as its own per-repository
+integration: seed data, its own token model, the spec endpoint, all verified against that
+repository's own code, never assumed from telegram's or from each other's (`whatsapp` and
+`signal` share a token schema, but `signal` diverges on health path and boot env — see
+[Four ways to acquire the token](#four-ways-to-acquire-the-token)). `novatalks.uspacy.connector`
+and `novatalks.geoip-api` publish no OpenAPI spec — no `@fastify/swagger`-equivalent
+dependency anywhere in `novatalks.geoip-api`'s single-file `index.js`/`package.json`, verified
+directly — so `zap-api-scan.py -f openapi`, which has no spider fallback, has nothing to
+discover routes from. Neither has an api-scan path; adding one without a spec would only
+ever produce a guaranteed, permanent loud skip.
 
 Their boot inputs are kept here rather than deleted: each was established against the
 deployment chart or the Dockerfile, and the api-scan expansion will reuse them.
@@ -810,10 +816,10 @@ parse as the baseline, driven a different way. It is
 [`dast-api/action.yml`](../.github/actions/dast-api/action.yml) +
 [`scan.sh`](../.github/actions/dast-api/scan.sh), run by the `api-scan` job.
 
-**Opt-in, two repositories today.** It runs when the triggering tag ref starts with
-`apiscan` and the repository is `novatalks.core` **or**
-`nova.chatsconnector.telegram-client-api` — never on any other repository and never
-automatically on a trunk build. The authenticated run against a seeded stack is a
+**Opt-in, five repositories today.** It runs when the triggering tag ref starts with
+`apiscan` and the repository is `novatalks.core`, `nova.chatsconnector.telegram-client-api`,
+`…whatsapp-client-api`, `…signal-client-api` or `novatalks.dialer` — never on any other
+repository and never automatically on a trunk build. The authenticated run against a seeded stack is a
 hundreds-of-operations scan, not something every build should pay for. Every per-repository
 value (port, health path, spec path, auth mode, header, scheme prefix, token query, setup
 command, swagger toggle) is resolved by the same
@@ -841,20 +847,25 @@ header it is injected under is a per-repository input — a connector's is not t
   straight out of it with a caller-supplied `SELECT` (`tokens.api_token` joined to the
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
-- **`db-insert` (built for `nova.chatsconnector.whatsapp-client-api` and
-  `…signal-client-api`, not yet wired into either — see Phase 2 above).** Both Dockerfiles
-  run `npm prune --omit=dev` in the runtime stage, which removes `ts-node` and the seeder
-  with it — there is no seeder in the image at all, so `db-token`'s `SELECT` would match
-  nothing, forever. `sequelize-cli` survives as a runtime dependency, so migrations still
-  ran and the tables exist, just empty. `scan.sh` generates its own token
-  (`nova-ci-apiscan-$(openssl rand -hex 24)`) and writes it in with a caller-supplied
-  `INSERT` (the `token-insert-sql` input, `%TOKEN%` substituted in before it runs). A
-  failed `INSERT` is a loud skip, not a scanner error — it means the migration never
-  created the table, a broken setup rather than a finding. The value is generated for this
-  run only and lives in a database that dies with the container: nothing is stored,
-  nothing to rotate.
-- **`env-token` (built for `novatalks.dialer`, not yet wired into `targets.sh` — see
-  Phase 2 above).** No database and no seed at all: `novatalks.dialer`'s
+- **`db-insert` (`nova.chatsconnector.whatsapp-client-api` and `…signal-client-api`).**
+  Both connectors share the same `tokens`/`token_roles` schema (`token.model.ts`,
+  `token-role.model.ts`, `tableName: 'tokens'`/`'token_roles'`, `schema: 'public'`) and the
+  same `api_access_token` header (`roles.guard.ts`), verified independently in each
+  repository rather than assumed from the other. Both Dockerfiles run
+  `npm prune --omit=dev` in the runtime stage, which removes `ts-node`, but their
+  entrypoints still migrate and seed themselves — `node dist/scripts/run-seed.js up`, a
+  compiled seeder, not one driven by `ts-node` — so a `super_admin`-role token does exist
+  in the database by the time the health probe passes. `db-insert` is used anyway: `scan.sh`
+  generates its own token (`nova-ci-apiscan-$(openssl rand -hex 24)`) and writes it in with
+  a caller-supplied `INSERT` (the `token-insert-sql` input, `%TOKEN%` substituted in before
+  it runs, `role_id` filled from a `SELECT id FROM token_roles WHERE role = 'super_admin'`
+  subquery — lowercase, per `token-role.enum.ts`, unlike the telegram connector's
+  uppercase `SUPER_ADMIN`), rather than depending on the seeder's own `findOrCreate` key
+  staying exactly as it is today. A failed `INSERT` is a loud skip, not a scanner error —
+  it means the migration never created the table, a broken setup rather than a finding.
+  The value is generated for this run only and lives in a database that dies with the
+  container: nothing is stored, nothing to rotate.
+- **`env-token` (`novatalks.dialer`).** No database and no seed at all: `novatalks.dialer`'s
   `src/auth/auth.middleware.ts` accepts any token present in `app.apiAccessTokens`, which
   `src/config/app.config.ts` builds by splitting the `API_ACCESS_TOKENS` environment
   variable — a token on that list short-circuits before the middleware would call out to
@@ -936,11 +947,14 @@ for — a broken configuration, not a scan that ran without one).
 > [!IMPORTANT]
 > **Each connector's auth model is read from its own code before its arm is written (D7).**
 > Telegram's shape — a `db-token` read from a `tokens` table and injected under
-> `api_access_token` — is **not** assumed for the Sequelize connectors (`whatsapp`,
-> `signal`) or `novatalks.dialer`, which are the tracked **Phase 2**. Each of those has its
-> token storage, header name and seed path verified against its own code before an arm is
-> added. Copying telegram's shape onto them is exactly the mistake this rule exists to
-> prevent.
+> `api_access_token` — was **not** assumed for the Sequelize connectors (`whatsapp`,
+> `signal`) or `novatalks.dialer`. Each had its token storage, header name and seed path
+> verified against its own code before its arm was added — including `signal`, which was
+> expected to match `whatsapp` and was checked anyway: same `roles.guard.ts`, same
+> `token.model.ts`/`token-role.model.ts` shape, but no health controller at all (`/` is
+> its health path, not `/health`) and a `Joi` env-validation schema `whatsapp` has no
+> equivalent of. Copying telegram's shape, or one connector's shape onto the other, is
+> exactly the mistake this rule exists to prevent.
 
 - **Authenticated, with no stored credential.** In `login` mode the admin password is
   `openssl rand`-generated in `scan.sh` for this run only and used once; in `db-token` mode
@@ -1151,7 +1165,7 @@ https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><s
 | Trivy | `trivy-<repo>-<ref><suffix>-<sha>.report` |
 | Semgrep | `semgrep-<repo>-<ref><suffix>-<sha>.report` |
 | ZAP baseline | `zap-<repo>-<ref><suffix>-<sha>.report` |
-| ZAP API scan (`apiscan*`, `novatalks.core` + telegram connector) | `zap-api-<repo>-<ref>-<sha>.report` |
+| ZAP API scan (`apiscan*`, `novatalks.core`, telegram, whatsapp, signal or dialer) | `zap-api-<repo>-<ref>-<sha>.report` |
 
 > [!NOTE]
 > **The `TRIVY.SCAN_` release-tag prefix is historical.** It now carries three
@@ -1186,7 +1200,7 @@ build already sends — see [Notifications](notifications.md).
 | `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |
 | `🕷 DAST (ZAP API): 🟢 clean · <n> operations · <n> info · <n> accepted` | authenticated API scan ran, no must-fix or warning findings |
 | `🕷 DAST (ZAP API): 🟡 <n> warnings` / `🔴 <n> must-fix · <n> warnings` / `⚠️ not run — <reason>` / `❌ scanner failed — <reason>` | the same four states as the baseline, worded by `dast-api/scan.sh` |
-| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on a covered repo (`novatalks.core`, telegram connector) |
+| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on a covered repo (`novatalks.core`, telegram, whatsapp, signal, dialer) |
 
 The text is composed inside each `scan.sh`, not in the workflow, so the harnesses cover
 it — the same reason the [secret-scan alert](secret-detection.md#the-secret-scan-notify-job)

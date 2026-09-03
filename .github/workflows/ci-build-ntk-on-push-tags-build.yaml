@@ -1011,7 +1011,7 @@ jobs:
       ${{ always()
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success'
-      && contains(fromJSON('["novatalks.core","nova.chatsconnector.telegram-client-api"]'), github.event.repository.name)
+      && contains(fromJSON('["novatalks.core","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api","novatalks.dialer"]'), github.event.repository.name)
       && startsWith(github.ref_name, 'apiscan') }}
     needs: [build-image]
     outputs:
@@ -1071,6 +1071,12 @@ jobs:
             printf '%s\n' "$DT_TOKEN_SQL"
             echo "APISCAN_TOKEN_SQL_EOF"
           } >> "$GITHUB_OUTPUT"
+          {
+            echo "token_insert_sql<<APISCAN_TOKEN_INSERT_SQL_EOF"
+            printf '%s\n' "$DT_TOKEN_INSERT_SQL"
+            echo "APISCAN_TOKEN_INSERT_SQL_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "token_env_var=$DT_TOKEN_ENV_VAR" | tee -a "$GITHUB_OUTPUT"
           echo "setup_command=$DT_SETUP_COMMAND" | tee -a "$GITHUB_OUTPUT"
           echo "swagger_enable=$DT_SWAGGER_ENABLE" | tee -a "$GITHUB_OUTPUT"
           {
@@ -1094,6 +1100,8 @@ jobs:
           auth-header: ${{ steps.apiscan_target.outputs.auth_header }}
           auth-scheme-prefix: ${{ steps.apiscan_target.outputs.auth_scheme_prefix }}
           token-sql: ${{ steps.apiscan_target.outputs.token_sql }}
+          token-insert-sql: ${{ steps.apiscan_target.outputs.token_insert_sql }}
+          token-env-var: ${{ steps.apiscan_target.outputs.token_env_var }}
           setup-command: ${{ steps.apiscan_target.outputs.setup_command }}
           swagger-enable: ${{ steps.apiscan_target.outputs.swagger_enable }}
           extra-env: ${{ steps.apiscan_target.outputs.extra_env }}
