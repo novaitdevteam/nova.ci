@@ -37,10 +37,14 @@ dast_resolve_target() {
             ;;
         nova.botflow/browser)
             # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is
-            # correct: the boot wait-loop accepts any HTTP response, 404 included, because
-            # it tests whether the process is listening, not whether a route exists.
-            # Do not "fix" this to /livez.
-            DT_PORT=1880; DT_HEALTH_PATH=/; DT_NEEDS_DB=true
+            # correct here: the boot wait-loop accepts any HTTP response, 404 included,
+            # because it is only testing whether the process is listening, not whether
+            # a route exists. Do not "fix" this to /livez.
+            DT_PORT=1880; DT_HEALTH_PATH=/
+            # Needs redis or postgres depending on its storage configuration; bringing
+            # up both is simpler than modelling the choice, and an unused container
+            # costs a few seconds.
+            DT_NEEDS_DB=true
             ;;
         novatalks.core/api)
             DT_PORT=3000; DT_HEALTH_PATH=/livez; DT_SPEC_PATH=/api-docs-json
@@ -51,21 +55,28 @@ dast_resolve_target() {
             # No setup command: docker/engine.Dockerfile's runtime stage installs
             # nodejs-24 and not npm, and its entrypoint.sh already runs create-database,
             # sequelize db:migrate and seed-database with plain `node` before the app
-            # serves anything.
+            # serves anything. `npm run db:setup:prod` here could only ever answer
+            # `sh: npm: not found` — and did, on run 33752263531.
             DT_SETUP_COMMAND=''
             ;;
         nova.chatsconnector.telegram-client-api/api)
-            # api_access_token header (setup-swagger.ts), DB-backed token in
-            # tokens.api_token joined to token_roles.role (schema.prisma), seeded by
-            # the image's own entrypoint, Swagger served unconditionally, no health route.
+            # Verified in the connector's code: api_access_token header (setup-swagger.ts),
+            # DB-backed token in tokens.api_token joined to token_roles.role (schema.prisma),
+            # seeded by `npm run db:seed`, Swagger served unconditionally, no health route so "/".
             DT_PORT=3000; DT_HEALTH_PATH=/; DT_SPEC_PATH=/api-docs-json
             DT_NEEDS_DB=true
             DT_AUTH_MODE=db-token
             DT_AUTH_HEADER=api_access_token; DT_AUTH_SCHEME_PREFIX=''
             DT_TOKEN_SQL="SELECT t.api_token FROM tokens t JOIN token_roles r ON t.role_id = r.id WHERE r.role = 'SUPER_ADMIN' ORDER BY t.id LIMIT 1;"
+            # No setup_command either: this image's entrypoint.sh runs `npm run
+            # db:setup` itself before starting the app, so the exec was racing it and
+            # both failed the same way — Prisma P1012, DATABASE_URL not found. scan.sh
+            # now sets DATABASE_URL for the container, which fixes the entrypoint's own
+            # run; a second one over `docker exec` buys nothing.
             DT_SETUP_COMMAND=''
             DT_SWAGGER_ENABLE=false
-            # Boot dummies the connector's config validator rejects a blank for.
+            # Boot dummies the connector's config validator rejects a blank for — the same
+            # values the removed baseline arm used; DATABASE_URL for Prisma is built by scan.sh.
             DT_EXTRA_ENV='TELEGRAM_API_ID=12345
 TELEGRAM_API_HASH=00000000000000000000000000000000
 NOVATALKS_ACCESS_TOKEN=dast-dummy-dummy-token

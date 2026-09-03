@@ -618,18 +618,24 @@ first. Those are per-repository inputs on
 established against the real runtime image — a wrong path scans an error page and
 reports it clean, which is the failure this whole design is built to avoid.
 
-These per-repository values are resolved by a **`Resolve DAST target`** step in
-`dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
-and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
-repository, every value set explicitly (no arm inherits from another), writing `port`,
-`health_path`, `needs_db`, `needs_nats` and `extra_env` to `$GITHUB_OUTPUT`. This
-replaced a chain of inline ternaries that did not scale past two repositories. The
-default arm is not a fallback: a repository that reaches `dast-scan` with no configured
-arm is a wiring mistake, and guessing a port would scan nothing and report it clean — so
-the default arm emits `::error::` and exits non-zero instead. `pg-image` stays a
-two-branch ternary (`postgres:17.9-trixie` for `novatalks.core`, the action's
-`postgres:16` default for everyone else) rather than a resolver arm, since it only ever
-has two truthy branches.
+These per-repository values are resolved by
+[`dast/targets.sh`](../.github/actions/dast/targets.sh)'s `dast_resolve_target <repo>
+<api|browser>`: a `case "${repo}/${surface}"` in bash, one arm per repository/surface
+pair, every value set explicitly (no arm inherits from another), setting `DT_PORT`,
+`DT_HEALTH_PATH`, `DT_NEEDS_DB`, `DT_NEEDS_NATS` and `DT_EXTRA_ENV` (among others) in the
+caller's scope. The **`Resolve DAST target`** step in `dast-scan` sources it and writes
+those to `$GITHUB_OUTPUT`, following the same house pattern as `Resolve scan policy` in
+`trivy-scan` and `Resolve test plan` in the test workflow. The table is a single sourced
+file rather than a `case` inline in each step because it now has three consumers —
+`dast-scan`'s browser surface, `api-scan`'s api surface, and the live-baseline dispatch —
+and a copy in each step is a copy that drifts: a port fixed in one and not the others
+silently reverts to guessing. This replaced a chain of inline ternaries that did not
+scale past two repositories. The default arm is not a fallback: a repository/surface
+pair that reaches a scan with no configured arm is a wiring mistake, and guessing a port
+would scan nothing and report it clean — so the default arm emits `::error::` and returns
+non-zero instead. `pg-image` stays a two-branch ternary (`postgres:17.9-trixie` for
+`novatalks.core`, the action's `postgres:16` default for everyone else) rather than a
+resolver arm, since it only ever has two truthy branches.
 
 Adding a fourth repository to the baseline needs an explicit request, a real browser
 surface worth spidering, **and a boot probe first** — port and health path verified
@@ -768,9 +774,12 @@ parse as the baseline, driven a different way. It is
 automatically on a trunk build. The authenticated run against a seeded stack is a
 hundreds-of-operations scan, not something every build should pay for. Every per-repository
 value (port, health path, spec path, auth mode, header, scheme prefix, token query, setup
-command, swagger toggle) is resolved in the `Resolve api-scan target` step's `case` in
-[`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml),
-one arm per repository; the default arm fails loudly rather than guessing.
+command, swagger toggle) is resolved by the same
+[`dast/targets.sh`](../.github/actions/dast/targets.sh) table the baseline above uses —
+`dast_resolve_target <repo> api` — one arm per repository, read by the `Resolve api-scan
+target` step in
+[`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml);
+the default arm fails loudly rather than guessing.
 
 ```bash
 git tag apiscan-NC2-1234
