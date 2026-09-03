@@ -605,6 +605,30 @@ Preserve these behaviors:
   unauthenticated while reporting a plausible result. `db-token` connectors hid it
   because their prefix is empty. The harness reproduces ZAP's own `shlex.split`;
   grepping the raw string passes either way.
+- **Pentest (`ci-dast-pentest.yaml`, `workflow_dispatch`).** The one workflow that runs
+  either scanner in **active** mode — `dast-api`'s `scan-mode: active` (drops `-S`,
+  real writes) or `dast`'s `scan-mode: full` (`zap-full-scan.py`, modern spider, active
+  rule set) — against an ephemeral GHCR image it boots and tears down itself, never the
+  live deployment. `workflow_dispatch` only, **no `schedule:`**: an attacking scan is a
+  decision someone makes, with an actor and a timestamp on the run. **No free-text URL
+  input anywhere** — `repository` is a `type: choice`, `surface` is `api`/`browser`, and
+  the port/health/auth wiring comes from the same `dast_resolve_target` table every
+  other DAST caller sources; an attacking scanner that cannot be pointed anywhere cannot
+  be pointed somewhere it must not go. Only three repository/surface pairs have a
+  `targets.sh` arm today (`novatalks.ui`/`nova.botflow` browser, `novatalks.core` both,
+  telegram api); an unwired choice fails loudly at the resolve step, which is correct —
+  do not add placeholder arms to `targets.sh` to silence it. Its single `Resolve target`
+  step emits **every** `DT_*` key unconditionally, not just the surface's own subset:
+  the step feeds both the `dast-api` and `dast` scan steps below it, and the browser
+  scan needs `needs-db`/`needs-nats` regardless of which surface was actually chosen —
+  emitting only the api-scan keys would boot a browser pentest with no database behind
+  it. `image_tag` picks which published tag of that repository's own image to scan
+  (blank resolves the most recent via the packages API), never a host. Report and
+  notification follow the live-baseline shape: run artifact only
+  (`if-no-files-found: warn`, there is no build and so no release to attach to), the
+  scan step emits a verdict and nothing else, and a separate `Compose notification`
+  step assembles the artifact's download link plus the run link once `artifact-url`
+  exists.
 
 ## Documentation Assets
 

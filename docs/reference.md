@@ -24,6 +24,8 @@
 
 Plus one non-reusable meta workflow: [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml), which validates this repository's own workflows, actions and agent docs, and runs `secret-scan` over nova.ci itself.
 
+Plus two `workflow_dispatch`-only DAST workflows — no `workflow_call`, dispatched by hand from this repository's own Actions tab, never `uses:`-referenced by a caller: [`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml), a passive ZAP baseline against the real deployed host through Cloudflare, and [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml), a manual **active** ZAP scan (`scan-mode: active`/`full`) against an ephemeral GHCR image for a `choice`-selected repository — no URL input, ever. See [SAST and DAST](sast-dast.md#pentest-active-scan).
+
 The `secret-scan` job lives inline in the switcher rather than in its own file, so the required-status-check name stays two segments — see [Secret detection](secret-detection.md). The pull-request `sast-scan` job is inline for a different reason: `novatalks.core`'s PR route is a two-entry `build_target` matrix, and source only needs scanning once — see [SAST and DAST](sast-dast.md#semgrep-on-the-pull-request).
 
 </details>

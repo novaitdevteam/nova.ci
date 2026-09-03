@@ -1030,6 +1030,56 @@ The drift-dangerous part — the tally-line parse — is sourced from
 so this out-of-band workflow cannot silently disagree with the two in-pipeline scanners
 about what a completed scan looks like.
 
+## Pentest (active scan)
+
+Every scan on this page so far — the baseline, the authenticated `api-scan`, the live
+baseline — is passive: it observes and comments on responses, never sends a payload
+meant to break something. **The pentest workflow** is the one exception, and it exists
+as its own file for that reason: [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml)
+drives the same two composite actions (`dast`, `dast-api`) with `scan-mode: full` /
+`scan-mode: active`, which drops the safe-mode guard and sends real injection,
+traversal, command-execution and `POST`/`PUT`/`DELETE` payloads against whatever it is
+pointed at.
+
+```text
+Actions → DAST Pentest (active scan) → Run workflow → repository, surface, image_tag (optional)
+```
+
+- **Manual only.** `workflow_dispatch`, no `schedule:`. An attacking scan is a decision
+  somebody makes, with an actor and a timestamp against the run — never something a
+  branch push or a cron tick triggers on its own.
+- **No URL input, anywhere.** `repository` is a `type: choice` dropdown and the port,
+  health path, spec path and auth wiring are all derived from it through the same
+  [`dast_resolve_target`](../.github/actions/dast/targets.sh) table the trunk build
+  uses. There is no free-text host field to validate — an attacking scanner that
+  cannot be pointed anywhere cannot be pointed somewhere it must not go, which is a
+  stronger guarantee than any regex on a string input would be. `image_tag` picks
+  *which* published tag of that repository's own image to scan, never a host.
+- **Ephemeral targets only.** Every target this workflow can select is a GHCR image it
+  boots on the runner and tears down — the same isolated stack the trunk `dast-scan` /
+  `api-scan` jobs use, just with the safe-mode guard removed. It cannot reach the live
+  deployment; that is [Live baseline](#live-baseline-the-real-deployment)'s job, and
+  turning that one active is a separate, deliberately unshipped decision.
+- **What "active" means.** `surface: browser` runs `zap-full-scan.py` with the modern
+  spider and the active rule set (`dast/action.yml`'s `scan-mode: full`); `surface: api`
+  runs `zap-api-scan.py` with `-S` dropped (`dast-api/action.yml`'s `scan-mode: active`).
+  Both still run only against the ephemeral container this workflow itself starts and
+  kills — see [`scan-mode`: baseline or full](#scan-mode-baseline-or-full) and
+  [Four ways to acquire the token](#four-ways-to-acquire-the-token) for what each mode
+  changes.
+- **What it still cannot find.** An active ZAP scan has no model of what an endpoint is
+  *for*. It finds routes that mishandle a malformed or hostile input — the same class of
+  bug the passive scan's header/cookie checks miss — but it does not find **IDOR**, does
+  not find **privilege escalation**, and does not find any other **business-logic
+  flaw**, because none of those are visible from the outside without knowing what the
+  correct behaviour was supposed to be. This is not a penetration test; it is a passive
+  scanner's active sibling, still bounded by the same "no model of intent" limit called
+  out for `api-scan` above.
+- **The report and notification follow the live-baseline pattern**, not the trunk
+  build's: there is no release to attach to (no build ran), so the `.report` is a run
+  artifact only (`if-no-files-found: warn`), and the notification is composed after the
+  upload so it can carry the artifact's own download link, not just the run's.
+
 ## Where the reports are
 
 All three scanners publish onto the **one release the build already creates**, because
