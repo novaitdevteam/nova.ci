@@ -308,8 +308,20 @@ Preserve these behaviors:
 
 ## SAST and DAST Semantics
 
+The switcher carries an **inline `sast-scan` job on `pull_request`** for the same eleven
+repositories `secret-scan` covers. Builds are the evidence path, not the feedback path —
+an ordinary pull request builds no image and so reaches no `sast-scan` in the build
+workflow, which would leave a developer learning about a finding only after it is on
+trunk. It checks out the merge commit, runs the same pinned `semgrep` action, and leaves
+a job summary (counts **plus** the findings: severity, `path:line`, rule ID, message,
+capped at 25 with a `Showing 25 of N` note) and the complete `.report` artifact. It is
+advisory (only a broken scanner reds it) and has no notifier line. It is inline for the
+same reason `secret-scan` is: `novatalks.core`'s PR route is a two-entry `build_target`
+matrix, so a job in the build workflow would scan identical source twice per event.
+
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
-repositories) and `dast-scan` (OWASP ZAP baseline, three browser-surface repositories:
+repositories, **every build on any branch**) and `dast-scan` (OWASP ZAP baseline, trunk
+and `scan*` builds only, three browser-surface repositories:
 `novatalks.ui`, `novatalks.core`, `nova.botflow`; six headless ones were removed on
 2026-09-01, tracked for the api-scan expansion — see below)
 after `trivy-scan`, both delegating to a composite action. Three scanners, three
@@ -317,11 +329,12 @@ questions: Semgrep reads our source, Trivy reads the image, ZAP probes the runni
 Gitleaks covers secrets; ESLint answers none of them. See `docs/sast-dast.md`.
 
 `ci-build-ntk-on-push-tags-widget-build.yaml` (`novatalks.chatwidget`'s workflow, not the
-standard one) has its own `sast-scan` job mirroring the pattern above: same trunk gate
-(`build-widget`'s `prep` step now also emits `IS_TRUNK`, resolved the same way
-`build-image`'s is), SHA-pinned checkout, `install-docker`, the same `semgrep` composite
-action, and it upserts its report onto the release `build-widget` already creates
-(`NTK.CHATWIDGET_<release>_<ref>_<sha>`) rather than a second one. It has **no Trivy and
+standard one) has its own `sast-scan` job mirroring the pattern above: same
+every-non-`pull_request`-build gate, SHA-pinned checkout, `install-docker`, the same
+`semgrep` composite action, and it upserts its report onto the release `build-widget`
+already creates (`NTK.CHATWIDGET_<release>_<ref>_<sha>`) rather than a second one. It
+needs no `PUBLISH_RELEASE` equivalent — `build-widget`'s `Create a Release` step is
+itself ungated, so every build it follows already has a release to attach to. It has **no Trivy and
 no DAST job** — that workflow zips `dist` and publishes it as a release asset, so there
 is no container image for either to point at. Do not add one without inventing a target.
 The notifier's `Compose SAST line` step is the same three-state shape as the main
@@ -352,14 +365,25 @@ Preserve these behaviors:
   in the report, a `WARNING` summary banner, and `⚠️ not run — <reason>` in the
   notification. Never silence it and never red it. ZAP itself failing (a non-zero exit
   that is not "warnings present", or no report file) is `error` and reds the job.
-- **Gate:** `always() && github.event_name != 'pull_request' && needs.build-image.result
-  == 'success' && (needs.build-image.outputs.IS_TRUNK == 'true' ||
-  startsWith(github.ref_name, 'scan'))`. No Semgrep on `pull_request`: `build-image` is
-  gated off there, so there is no release and no stable report URL, and the evidence
-  pack is the point. `build-image` resolves `IS_TRUNK` once as a job output because a
-  job-level `if` cannot reach a step in another job. `trivy-scan` deliberately keeps its
-  own `Resolve scan policy` step — two sources of truth for one predicate, accepted, and
-  not to be "simplified" without reading spec D6.
+- **SAST gate:** `always() && github.event_name != 'pull_request' &&
+  needs.build-image.result == 'success'` — **every build on any branch**. Semgrep reads
+  the checkout, so it needs no running app, no database and no seeded stack, and a
+  finding is cheapest before the branch merges. No Semgrep on `pull_request`:
+  `build-image` is gated off there, so there is no build to read. The trunk/`scan*`
+  narrowing was never about cost — it was about having a release to attach a report to
+  — so it lives on as the job-level `PUBLISH_RELEASE` env
+  (`IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')`), which gates the
+  `Publish report release` step and picks the notifier's report URL (release asset when
+  publishing, otherwise the run, where the artifact is). Do not let `sast-scan` create
+  the release: `TRIVY.SCAN_*` only exists where `trivy-scan` made it, and
+  `action-gh-release` would mint a `TRIVY.SCAN_*` git tag per feature build.
+- **DAST gate:** the same, **plus** `(needs.build-image.outputs.IS_TRUNK == 'true' ||
+  startsWith(github.ref_name, 'scan'))` and the three-repository list — it boots the
+  built image next to its database, which is the cost that keeps it narrow.
+  `build-image` resolves `IS_TRUNK` once as a job output because a job-level `if` cannot
+  reach a step in another job. `trivy-scan` deliberately keeps its own `Resolve scan
+  policy` step — two sources of truth for one predicate, accepted, and not to be
+  "simplified" without reading spec D6.
 - **Jobs are sequential** (`build-image → trivy-scan → sast-scan → dast-scan → notify`):
   both need `RELEASE`/`SHORT_REF_NAME`/`SHORT_SHA` from `build-image`, and parallel scans
   would only queue against the per-size cap of 2. Each carries `if: always() && …` so one

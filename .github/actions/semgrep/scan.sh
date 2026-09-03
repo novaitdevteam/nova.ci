@@ -173,6 +173,41 @@ fi
     echo "- Report: ${REPORT_URL:-not published}"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
+# The findings themselves, inline in the summary, not only in the .report. A summary
+# that says "3 error" and nothing else makes the reader go and download an artifact,
+# and that is the step that does not happen — so the finding is read at the next audit
+# instead of by the developer who wrote it. Capped, because the summary is a place to
+# start triage, not the register: the artifact carries every finding, always.
+SUMMARY_LIST_CAP=25
+
+list_capped() { # list_capped <cap> — ERROR first, then WARNING; the canary never appears
+    jq -r --argjson cap "$1" '
+        [ .results[]
+          | select((.extra.severity == "ERROR" or .extra.severity == "WARNING")
+                   and (.check_id | test("nova-ci-semgrep-canary") | not)) ]
+        | sort_by(.extra.severity)
+        | .[:$cap][]
+        | "\(.extra.severity)  \(.path):\(.start.line)  [\(.check_id)]\n    \((.extra.message // "") | gsub("\n"; " ") | .[0:160])"' "$json"
+}
+
+if [ "$outcome" = findings ]; then
+    total=$(( errors + warnings ))
+    {
+        echo ""
+        echo "<details><summary>Findings</summary>"
+        echo ""
+        echo '```'
+        list_capped "$SUMMARY_LIST_CAP"
+        echo '```'
+        if [ "$total" -gt "$SUMMARY_LIST_CAP" ]; then
+            echo ""
+            echo "Showing ${SUMMARY_LIST_CAP} of ${total}. The full list is in the \`$(basename "$SEMGREP_REPORT_FILE")\` artifact."
+        fi
+        echo ""
+        echo "</details>"
+    } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+fi
+
 emit outcome "$outcome"
 emit findings "$errors"
 emit warnings "$warnings"

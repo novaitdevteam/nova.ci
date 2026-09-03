@@ -12,7 +12,8 @@ ghcr.io/<owner>/<repo>:<release>_<short-ref-name><image-suffix>_<short-sha>
 
 Like the rest of the pipeline, it never runs on `pull_request` events. It covers the
 image only — our own source and the running application are
-[Semgrep's and ZAP's](sast-dast.md) jobs, on the same gate and the same release.
+[Semgrep's and ZAP's](sast-dast.md) jobs, publishing onto the same release. ZAP shares
+this gate; Semgrep runs on every build and only *publishes* on this gate.
 
 **When it runs.** The `Resolve scan policy` step enables the scan automatically when the build source branch (`SHORT_REF_NAME`) is `main`, `master`, or `development`, and on demand when the triggering tag ref **starts with** `scan` (`scan`, `scan-NC2-1234`, …). Otherwise the image is built and the scan is skipped with a logged reason. The tag name is only a trigger keyword — branch, repository and commit always come from push metadata (`base_ref`, `GITHUB_REPOSITORY`, `GITHUB_SHA`).
 
