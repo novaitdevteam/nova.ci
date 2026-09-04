@@ -58,6 +58,21 @@
   (e.g. novatalks.core) for the DAST scan, or proxies it through something that does.
   At that point both the verification regexes and the credential need a real answer,
   not the placeholders below.
+
+  4. UNVERIFIED AGAINST REAL ZAP: everything above is about the login-request fields
+     (URL, JSON field names) inside <authentication><config>, which genuinely are
+     verified against novatalks.ui's source and its live image. The surrounding XML
+     *structure* is not — there is no ZAP instance in this environment to export a real
+     context from or load this one into, so the <configuration>/<context> shape below
+     is written from documented ZAP conventions, not confirmed against ZAP itself.
+     Specific doubts, so the next person checks these first rather than starting from
+     scratch: a real ZAP context export is expected to also carry <tech>, <urlparser>,
+     <postparser>, <forceduser>, <session> and <authorization> elements, none of which
+     appear below; and the <users><user> line here is just "name;", where ZAP's own
+     format is documented as "id;enabled;name;credentials-json". Validate this file
+     against a real ZAP-exported context before setting DT_ZAP_CONTEXT for ANY
+     repository, novatalks.ui or otherwise — not just before trusting the parts
+     specific to novatalks.ui.
 -->
 <configuration>
   <context>

@@ -526,7 +526,9 @@ response ZAP can regex-match ever reflects it. There is consequently no reliable
 `loggedInIndicatorRegex`/`loggedOutIndicatorRegex` pair for this deployment shape, and per
 the warning above, guessing one would be worse than leaving the context unwired. Revisit
 once `novatalks.ui` is scanned alongside a real backend (or through something proxying to
-one).
+one). Separately from the login-request fields above, the context file's surrounding XML
+*structure* is written from documented ZAP conventions with no ZAP instance available to
+verify it against — the file's own header names the specific elements to check first.
 
 ### Recording a decision about a finding
 
