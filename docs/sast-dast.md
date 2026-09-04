@@ -532,6 +532,17 @@ are shared unchanged between both modes; see
 
 ### `zap-context`: teaching the crawl to log in
 
+> [!NOTE]
+> The table's `DT_ZAP_CONTEXT` is bridged to this input by
+> [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml)'s `Resolve target`
+> step (`zap_context` output → `zap-context:` on the browser scan step). It was not, for
+> a while: the table could set a value, the harness could assert it, and the scan would
+> still have crawled anonymously with no signal anywhere. `scripts/test-dast-targets.sh`
+> now asserts both directions — every `DT_*` the table sets is emitted by that step, and
+> every key that step emits is passed on to a scan step. The build workflow's
+> `dast-scan` runs in `baseline` mode, where `zap-context` is not consulted at all, so it
+> has nothing to bridge.
+
 `dast/action.yml`'s `zap-context` input (empty by default) names a file under
 [`.github/actions/dast/contexts/`](../.github/actions/dast/contexts/). When `scan-mode` is
 `full` and this is set, `scan.sh` copies that file into `RUNNER_TEMP` and appends
@@ -1168,13 +1179,15 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   the safe-mode guard removed. Setting `target: live` instead points the same active
   scan at a real, running host. See [Live target](#live-target-real-writes-against-a-real-host)
   below — it is not a smaller version of the same decision, it is a different one.
-- **What "active" means.** `surface: browser` runs `zap-full-scan.py` with the modern
-  spider and the active rule set (`dast/action.yml`'s `scan-mode: full`); `surface: api`
-  runs `zap-api-scan.py` with `-S` dropped (`dast-api/action.yml`'s `scan-mode: active`).
-  Both still run only against the ephemeral container this workflow itself starts and
-  kills — see [`scan-mode`: baseline or full](#scan-mode-baseline-or-full) and
+- **What "active" means.** For `target: ephemeral`, `surface: browser` runs
+  `zap-full-scan.py` with the modern spider and the active rule set (`dast/action.yml`'s
+  `scan-mode: full`), and `surface: api` runs `zap-api-scan.py` with `-S` dropped
+  (`dast-api/action.yml`'s `scan-mode: active`). Both run only against the ephemeral
+  container this workflow itself starts and kills — see
+  [`scan-mode`: baseline or full](#scan-mode-baseline-or-full) and
   [Four ways to acquire the token](#four-ways-to-acquire-the-token) for what each mode
-  changes.
+  changes. **`target: live` is browser-surface only** and rejects `surface: api`
+  outright; see [Live target](#live-target-real-writes-against-a-real-host).
 - **What it still cannot find.** An active ZAP scan has no model of what an endpoint is
   *for*. It finds routes that mishandle a malformed or hostile input — the same class of
   bug the passive scan's header/cookie checks miss — but it does not find **IDOR**, does
@@ -1208,6 +1221,16 @@ runtime choice.
   allowlisted host exactly, checked before anything is scanned. This cannot be done by
   accident, and it cannot be done without reading which host is about to be attacked —
   a checkbox or a `type: boolean` would fail both tests.
+- **`surface: api` is rejected, not relabelled.** The live path runs `zap-full-scan.py`
+  straight at the host: there is no image to boot, so no seeded database to read a token
+  out of and no `spec-path` to drive `zap-api-scan.py` from. Before this was refused,
+  `surface: api` ran the same anonymous browser crawl against the host root while the
+  report banner, the job summary (`- Surface: \`api\``) and the notification all said
+  `api` — the operator asked for the authenticated OpenAPI attack, got a crawl, and a
+  clean crawl reported `🟢 clean`. A mislabelled artifact is worse than a missing one, so
+  the `Validate live target` step fails the dispatch with a message naming the reason.
+  Use `target: ephemeral` for the authenticated API attack. `scripts/validate.sh` asserts
+  the rejection is still there.
 - **`image_tag` is unused.** There is no image to boot for a live scan; the host is
   already running. Leaving `image_tag` blank is correct for `target: live` — it stays
   optional at the input level, and the `Resolve target` step (which only runs for

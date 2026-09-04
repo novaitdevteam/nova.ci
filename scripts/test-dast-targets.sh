@@ -144,5 +144,52 @@ else
     echo "ok   a headless connector has no browser surface"; pass=$((pass + 1))
 fi
 
+# --- the table's consumers: a value nobody reads is the same as a scan nobody ran -----
+# DT_ZAP_CONTEXT was set by the table, declared as an input on dast/action.yml and
+# honoured by dast/scan.sh — and no resolve step bridged the two. Setting it on an arm,
+# updating this file, and watching everything pass would still have produced an anonymous
+# crawl with no signal anywhere. ci-dast-pentest.yaml's resolve step is the one consumer
+# that promises to emit EVERY key (it serves both surfaces), so that promise is what gets
+# asserted, for every field rather than only for the one that was missed.
+PENTEST="$ROOT/.github/workflows/ci-dast-pentest.yaml"
+TARGETS="$ROOT/.github/actions/dast/targets.sh"
+
+missing=""
+for v in $(grep -oE 'DT_[A-Z_]+' "$TARGETS" | sort -u); do
+    grep -qE "\\\$${v}\\b" "$PENTEST" || missing="$missing $v"
+done
+if [ -z "$missing" ]; then
+    echo "ok   every DT_* the table sets is emitted by ci-dast-pentest.yaml's resolve step"
+    pass=$((pass + 1))
+else
+    echo "FAIL ci-dast-pentest.yaml's resolve step never reads:$missing — the table can set them and nothing happens"
+    fail=$((fail + 1))
+fi
+
+# The other half: a key emitted into $GITHUB_OUTPUT that no scan step passes on is
+# equally inert. Both directions have to hold or the bridge has a hole at one end.
+unread=""
+for k in $(grep -oE '^ +echo "[a-z_]+(=|<<)' "$PENTEST" | grep -oE '"[a-z_]+' | tr -d '"' | sort -u); do
+    # Two keys belong to other steps, not the resolve step: `host` (the live-target
+    # allowlist) and `message` (the live scan's verdict). Both are read through their own
+    # step ids, so steps.target.outputs is the wrong place to look for them.
+    case "$k" in host|message) continue ;; esac
+    grep -q "steps.target.outputs.${k}" "$PENTEST" || unread="$unread $k"
+done
+if [ -z "$unread" ]; then
+    echo "ok   every key that step emits is passed on to a scan step"; pass=$((pass + 1))
+else
+    echo "FAIL ci-dast-pentest.yaml emits but never uses:$unread"; fail=$((fail + 1))
+fi
+
+# Named explicitly as well as covered by the loop above, because this is the one that
+# was actually broken and the loop's message is generic.
+if grep -q 'zap-context: ${{ steps.target.outputs.zap_context }}' "$PENTEST"; then
+    echo "ok   DT_ZAP_CONTEXT reaches the browser scan step"; pass=$((pass + 1))
+else
+    echo "FAIL nothing passes zap-context — setting it on an arm would do nothing"
+    fail=$((fail + 1))
+fi
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

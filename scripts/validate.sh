@@ -329,6 +329,19 @@ else
   fail=1
 fi
 
+# The live path is a browser full scan and nothing else: no image to boot means no spec
+# to drive zap-api-scan.py from and no token to inject. Without this rejection,
+# `surface: api` ran the same anonymous zap-full-scan.py against the host root while the
+# report banner, the job summary and the notification all said `api` — a mislabelled
+# artifact, which is worse than a missing one. Asserted here rather than left to review
+# because the label and the scan live in different steps of the file.
+if grep -q 'target=live supports surface=browser only' .github/workflows/ci-dast-pentest.yaml; then
+  echo "OK: ci-dast-pentest.yaml's live path rejects surface: api"
+else
+  echo "ERROR: ci-dast-pentest.yaml no longer rejects surface: api on the live path — a browser crawl would be reported as an API scan"
+  fail=1
+fi
+
 section "Notifier transport"
 # The Telegram and Google Chat transport lives in .github/actions/notify only. A
 # workflow that reaches either API itself is the copy-paste that action replaced.

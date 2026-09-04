@@ -506,6 +506,19 @@ Preserve these behaviors:
   `microService.listen()`, a real NATS connection, before `app.listen()`), so until that
   gap in `dast-api/scan.sh` is closed, its `apiscan*` runs are expected to loud-skip on
   the NATS connection rather than silently scan the wrong thing.
+- **`target: live` in `ci-dast-pentest.yaml` is browser-surface only.** The live path
+  runs `zap-full-scan.py` straight at the allowlisted host — no image to boot, so no
+  seeded database for a token and no spec for `zap-api-scan.py` — so `surface: api` was
+  an anonymous browser crawl while the banner, job summary and notification all said
+  `api`. `Validate live target` now rejects it before anything is scanned, `validate.sh`
+  asserts the rejection, and the live step's `-j` is unconditional as a result.
+- **Every `DT_*` the table sets must be bridged to a consumer, not just declared.**
+  `DT_ZAP_CONTEXT` was set by `targets.sh`, declared on `dast/action.yml` and honoured by
+  `dast/scan.sh`, with no resolve step emitting it — setting it on an arm would have
+  produced an anonymous crawl with no signal anywhere. `ci-dast-pentest.yaml` now emits
+  `zap_context` and passes `zap-context:` to the browser scan step, and
+  `scripts/test-dast-targets.sh` asserts both directions: nothing the table sets goes
+  unemitted, nothing emitted goes unread.
 - **Neither DAST `scan.sh` infers the scanned repository from the runner's repository.**
   Both take a `target-repository` input reaching the script as `DAST_TARGET_REPO`,
   defaulting to empty and falling back to `${GITHUB_REPOSITORY##*/}` — identical for the
