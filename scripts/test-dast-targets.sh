@@ -150,6 +150,22 @@ case "$DT_EXTRA_ENV" in
     *"NATS_SUBJECTS="*) echo "ok   dialer extra-env carries NATS_SUBJECTS"; pass=$((pass + 1)) ;;
     *) echo "FAIL dialer extra-env is missing NATS_SUBJECTS — nats.config.ts would crash on boot"; fail=$((fail + 1)) ;;
 esac
+# NATS_DELIVER_TO: the app creates its own push consumer (nats-config.service.ts's
+# consumerOptions), and nats' jsclient.js:365 throws "push consumer requires
+# deliver_subject" when this is absent — confirmed live on run 33873579035.
+# NATS_DELIVER_GROUP/NATS_DURABLE are deliberately not required here: both feed
+# no-op opts.*() calls when unset, so omitting them yields a plain ephemeral
+# consumer, not a crash.
+case "$DT_EXTRA_ENV" in
+    *"NATS_DELIVER_TO="*) echo "ok   dialer extra-env carries NATS_DELIVER_TO"; pass=$((pass + 1)) ;;
+    *) echo "FAIL dialer extra-env is missing NATS_DELIVER_TO — the consumer create would crash boot (run 33873579035)"; fail=$((fail + 1)) ;;
+esac
+# The consumer's deliver subject must stay outside the stream's own subject space
+# (NATS_SUBJECTS=campaign.*) or the consumer feeds the stream it reads from.
+case "$DT_EXTRA_ENV" in
+    *"NATS_DELIVER_TO=campaign."*) echo "FAIL dialer NATS_DELIVER_TO collides with the stream's own campaign.* subjects"; fail=$((fail + 1)) ;;
+    *) echo "ok   dialer NATS_DELIVER_TO does not collide with campaign.*"; pass=$((pass + 1)) ;;
+esac
 # HEALTH_ENABLED: src/app.module.ts only imports HealthModule when this is 'true',
 # checked directly against process.env before any ConfigService exists — without it
 # /readyz (DT_HEALTH_PATH above) 404s for the container's whole life.

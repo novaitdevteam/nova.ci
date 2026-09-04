@@ -526,6 +526,15 @@ Preserve these behaviors:
   `DT_NEEDS_NATS=true` (its `main.ts` awaits `microService.listen()`, a real NATS
   connection, before `app.listen()`), and both `scan.sh`s bring one up through the
   shared `dast_bring_up_nats` in `dast-common.sh` rather than two copies — see below.
+  Connecting is not booting: `novatalks.dialer` then creates its own JetStream push
+  consumer, and `nats`' own client throws `push consumer requires deliver_subject` when
+  `NATS_DELIVER_TO` is unset (confirmed live on pentest run 33873579035, after the stream
+  lookup had already succeeded) — `targets.sh`'s `api` arm now sets it in `DT_EXTRA_ENV`.
+  `NATS_DELIVER_GROUP`/`NATS_DURABLE` stay unset: both feed no-op calls when absent,
+  yielding a plain ephemeral consumer rather than a crash. The browser-surface arm this
+  repository used to have never hit this — `dast/scan.sh` seeds the whole product-repo
+  `.env.example`, which already carries `NATS_DELIVER_TO`; `dast-api/scan.sh` has no such
+  seeding step, only the hand-curated `DT_EXTRA_ENV` list.
 - **`target: live` in `ci-dast-pentest.yaml` is browser-surface only.** The live path
   runs `zap-full-scan.py` straight at the allowlisted host — no image to boot, so no
   seeded database for a token and no spec for `zap-api-scan.py` — so `surface: api` was

@@ -265,8 +265,44 @@ S3_BUCKET=dast-dummy'
             # comment two blocks up in this same file about "novatalks.dialer (five
             # AWS_S3_*...)" describes the old, removed dast/scan.sh baseline arm, not
             # this dast-api one, which shipped without them.
+            # Live pentest run 33873579035: the app connects to NATS, finds the
+            # 'campaign' stream dast_bring_up_nats creates, then dies creating its own
+            # push consumer — node_modules/nats/lib/jetstream/jsclient.js:365 throws
+            # "push consumer requires deliver_subject". Traced the whole path
+            # (nats.config.ts -> nats-config.service.ts's consumerOptions ->
+            # @nestjs-plugins/nestjs-nats-jetstream-transport's
+            # server-consumer-options-builder.js -> nats' own consumerOpts()): only
+            # `deliverTo` (NATS_DELIVER_TO) feeds `opts.deliverTo(createInbox(...))`,
+            # which is what sets `deliver_subject`; jsclient.js's subscribe() throws
+            # only when that is absent. NATS_DELIVER_GROUP and NATS_DURABLE feed
+            # opts.deliverGroup()/opts.durable(), both no-ops when unset — the resulting
+            # consumer is a plain ephemeral push consumer with no queue group, which is
+            # all a single short-lived scan container needs. Added NATS_DELIVER_TO only;
+            # the other two are not dereferenced by anything that can crash boot, so
+            # adding them here would be unused ballast. NATS_STREAM_ENABLED stays unset
+            # (nats.config.ts:16 default false) on purpose: it would make the app itself
+            # call setupStream() with NATS_STREAM_NAME/NATS_SUBJECTS, and the stream this
+            # arm already relies on is the one dast_bring_up_nats creates once, not one
+            # the app re-declares.
+            #
+            # The now-removed browser-surface arm for this repository never hit this:
+            # dast/scan.sh seeds the whole product-repo .env.example (its "DAST env
+            # file" step), which carries NATS_DELIVER_TO as a real line, into the
+            # container. dast-api/scan.sh has no such step — DT_EXTRA_ENV below is the
+            # only environment the app-scan container gets beyond the image's own
+            # defaults, so anything .env.example would have supplied has to be listed
+            # here by hand. That asymmetry is the actual bug class; this is one instance
+            # of it.
+            #
+            # dast-dialer-messages is deliberately outside the stream's own subject
+            # space: nats.config.ts's streamConfig.subjects is NATS_SUBJECTS
+            # (campaign.* below), and createInbox() turns this into
+            # "dast-dialer-messages.<nuid>" — never a "campaign.*" match, so the
+            # consumer's own deliver subject can never be re-ingested by the stream it
+            # reads from (a self-feeding JetStream loop).
             DT_EXTRA_ENV='NATS_SUBJECTS=campaign.*
 HEALTH_ENABLED=true
+NATS_DELIVER_TO=dast-dialer-messages
 AWS_S3_ACCESS_KEY_ID=dast-dummy-not-a-real-key
 AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
 AWS_S3_BUCKET=dast-dummy-bucket

@@ -1063,6 +1063,19 @@ A NATS that never becomes ready, or a stream that fails to create, takes the sam
 (`nats:2.10-alpine`), not digest-pinned, matching the existing `postgres:16`/`redis:8`
 precedent — digest pinning stays reserved for the scanners themselves.
 
+Bringing the stream up is not the whole story: once connected, `novatalks.dialer` creates
+its own JetStream push consumer (`nats-config.service.ts`'s `consumerOptions`, built from
+`nats.config.ts`), and the underlying `nats` client (`jsclient.js`) throws `Error: push
+consumer requires deliver_subject` when `NATS_DELIVER_TO` is unset — confirmed live on
+pentest run 33873579035, after the stream lookup had already succeeded. `targets.sh`'s
+`novatalks.dialer/api` arm now sets `NATS_DELIVER_TO=dast-dialer-messages` in
+`DT_EXTRA_ENV` for exactly this reason; `NATS_DELIVER_GROUP`/`NATS_DURABLE` are left unset
+because both feed no-op calls when absent, producing a plain ephemeral consumer rather
+than a crash. The browser-surface arm this repository used to have never hit this: `dast/
+scan.sh` seeds the whole product-repo `.env.example`, which already carries
+`NATS_DELIVER_TO`, while `dast-api/scan.sh` only ever passes the explicit
+`DT_EXTRA_ENV` list.
+
 The scan runs this NATS completely unconfigured — no auth, no TLS, no JetStream account
 provisioning — because that is all the client side needs: `novatalks.dialer`'s own
 `.env.example` already defaults to `NATS_SERVERS=localhost:4222` with `NATS_USER`,
