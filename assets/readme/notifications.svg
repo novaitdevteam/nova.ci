@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="480" viewBox="0 0 1200 480"
+     width="1200" height="540" viewBox="0 0 1200 540"
      role="img" aria-labelledby="ntTitle ntDesc">
   <title id="ntTitle">What the build notification carries</title>
-  <desc id="ntDesc">The Telegram and Google Chat message reports the build result, the lint status, the unit test status — passed, failed, or not applicable when the repository has no unit test plan — a Trivy line colour-coded by worst severity with CRITICAL and HIGH counts, a SAST line from Semgrep and a DAST line from the ZAP baseline, plus a link to the reports on the build release. The job summary shows a matching coloured banner. Under the default warn-only mode the build stays green, and a DAST scan that never ran says so rather than reporting clean.</desc>
+  <desc id="ntDesc">The Telegram and Google Chat message reports the build result, the lint status, the unit test status — passed, failed, or not applicable when the repository has no unit test plan — a Trivy line colour-coded by worst severity with CRITICAL and HIGH counts, a SAST line from Semgrep, a DAST line from the ZAP baseline and a fourth line from the authenticated ZAP API scan, plus a link to the reports on the build release. The job summary shows a matching coloured banner. Under the default warn-only mode the build stays green, and a DAST scan that never ran says so rather than reporting clean.</desc>
 
-  <rect width="1200" height="480" rx="20" fill="#0B0E11"/>
+  <rect width="1200" height="540" rx="20" fill="#0B0E11"/>
 
   <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
         font-size="19" letter-spacing="2.2" fill="#8B96A2">NOTIFICATIONS</text>
@@ -12,7 +12,7 @@
         font-size="18" fill="#6E7A87">Telegram + Google Chat · github-script, no Docker</text>
 
   <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
-    <rect x="40" y="82" width="640" height="356" rx="14" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
+    <rect x="40" y="82" width="640" height="414" rx="14" fill="#14181D" stroke="#2A3138" stroke-width="1.5"/>
     <text x="64" y="116" font-size="18" fill="#6E7A87">novatalks.core · build-NC2-1234 · run #4127</text>
     <line x1="64" y1="132" x2="656" y2="132" stroke="#1C2228" stroke-width="1.5"/>
 
@@ -33,7 +33,10 @@
     <circle cx="74" cy="363" r="7" fill="#E3862B"/>
     <text x="94" y="370" font-size="19" fill="#C9D1D9">DAST (ZAP): not run — the app did not boot</text>
 
-    <text x="94" y="410" font-size="18" fill="#1F93FF">trivy · semgrep · zap reports on the release ↓</text>
+    <circle cx="74" cy="403" r="7" fill="#3FB950"/>
+    <text x="94" y="410" font-size="19" fill="#C9D1D9">DAST (ZAP API): clean — 12 operations · 2 accepted</text>
+
+    <text x="94" y="450" font-size="18" fill="#1F93FF">trivy · semgrep · zap · zap-api reports on the release ↓</text>
   </g>
 
   <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
@@ -56,14 +59,17 @@
 
     <text x="716" y="308" font-size="18" fill="#6E7A87">right column: the job summary banner</text>
 
-    <text x="716" y="356" font-size="18" letter-spacing="1.4" fill="#6E7A87">SAST + DAST — one line each</text>
+    <text x="716" y="356" font-size="18" letter-spacing="1.4" fill="#6E7A87">SAST, DAST + DAST-API — one line each</text>
 
     <circle cx="726" cy="391" r="7" fill="#E3862B"/>
     <text x="746" y="398" font-size="19" fill="#F4F6F8">not run — never &quot;clean&quot;</text>
 
     <text x="716" y="432" font-size="18" fill="#6E7A87">an app that never booted is not clean</text>
+
+    <text x="716" y="472" font-size="18" fill="#6E7A87">four scanner lines total —</text>
+    <text x="716" y="496" font-size="18" fill="#6E7A87">Trivy, SAST, DAST, DAST-API</text>
   </g>
 
-  <text x="40" y="464" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+  <text x="40" y="524" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
         font-size="18" fill="#6E7A87">under the default warn-only mode the build stays green — the colour is the signal, not the exit code</text>
 </svg>

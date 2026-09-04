@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="480" viewBox="0 0 1200 480"
+     width="1200" height="580" viewBox="0 0 1200 580"
      role="img" aria-labelledby="pipeTitle pipeDesc">
-  <title id="pipeTitle">Build workflow pipeline and the pull request cut-off</title>
-  <desc id="pipeDesc">Linter runs first, then unit-test on the same runner, on every event including pull requests. Both are advisory and never block the build. Everything to the right — build-image, trivy-scan and the notifier — runs only on push and tag events, never on a pull request.</desc>
+  <title id="pipeTitle">Build workflow pipeline: four scans fan out from build-image and converge on notify</title>
+  <desc id="pipeDesc">Linter runs first, then unit-test on the same runner, on every event including pull requests. Both are advisory and never block the build. Everything to the right — build-image and the four scan jobs — runs only on push and tag events, never on a pull request. build-image feeds trivy-scan, sast-scan, dast-scan and api-scan in parallel; none of the four needs any of the others, they only need build-image's outputs, and all four converge on the notifier.</desc>
 
-  <rect width="1200" height="480" rx="20" fill="#0B0E11"/>
+  <rect width="1200" height="580" rx="20" fill="#0B0E11"/>
 
   <text x="40" y="48" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
         font-size="19" letter-spacing="2.2" fill="#8B96A2">BUILD PIPELINE</text>
@@ -13,89 +13,130 @@
 
   <!-- ============ zone 1: runs on everything ============ -->
   <g id="zone-all-events">
-    <rect x="40" y="76" width="328" height="344" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
+    <rect x="40" y="76" width="328" height="424" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
     <text x="64" y="110" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
           font-size="18" letter-spacing="1.4" fill="#1F93FF">PR + PUSH + TAGS</text>
 
     <g id="job-linter">
-      <rect x="64" y="140" width="280" height="108" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
-      <text x="88" y="184" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <rect x="64" y="180" width="280" height="108" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="88" y="224" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="22" fill="#F4F6F8">linter</text>
-      <text x="88" y="216" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <text x="88" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="18" fill="#8B96A2">advisory, runs first</text>
     </g>
 
     <g id="job-unit">
-      <rect x="64" y="272" width="280" height="108" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
-      <text x="88" y="316" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <rect x="64" y="312" width="280" height="108" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+      <text x="88" y="356" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="22" fill="#F4F6F8">unit-test</text>
-      <text x="88" y="348" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <text x="88" y="388" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="18" fill="#8B96A2">advisory, after lint</text>
     </g>
   </g>
 
   <!-- pull request boundary -->
-  <line x1="380" y1="76" x2="380" y2="420" stroke="#39424B" stroke-width="2" stroke-dasharray="6 8"/>
+  <line x1="380" y1="76" x2="380" y2="500" stroke="#39424B" stroke-width="2" stroke-dasharray="6 8"/>
 
   <!-- ============ zone 2: non-PR only ============ -->
   <g id="zone-non-pr">
-    <rect x="392" y="76" width="768" height="344" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
+    <rect x="392" y="76" width="768" height="424" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
     <text x="416" y="110" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
           font-size="18" letter-spacing="1.4" fill="#6E7A87">PUSH / TAG ONLY — SKIPPED ON EVERY PULL REQUEST</text>
 
     <!-- build-image -->
     <g id="job-build">
-      <rect x="416" y="170" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
-      <text x="440" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <rect x="416" y="244" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="440" y="288" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="22" fill="#F4F6F8">build-image</text>
-      <text x="440" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <text x="440" y="318" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="18" fill="#8B96A2">GHCR + Dockerhub</text>
-      <text x="440" y="270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <text x="440" y="344" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="18" fill="#8B96A2">+ registry cache</text>
     </g>
 
-    <!-- trivy-scan -->
+    <!-- four scans, fanned out in parallel -->
     <g id="job-trivy">
-      <rect x="668" y="170" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
-      <text x="692" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-            font-size="22" fill="#F4F6F8">trivy-scan</text>
-      <text x="692" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-            font-size="18" fill="#8B96A2">main/master/dev</text>
-      <text x="692" y="270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-            font-size="18" fill="#8B96A2">or a scan* tag</text>
+      <rect x="656" y="150" width="240" height="71" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="676" y="178" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="20" fill="#F4F6F8">trivy-scan</text>
+      <text x="676" y="202" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="18" fill="#8B96A2">the image</text>
+    </g>
+
+    <g id="job-sast">
+      <rect x="656" y="233" width="240" height="71" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="676" y="261" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="20" fill="#F4F6F8">sast-scan</text>
+      <text x="676" y="285" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="18" fill="#8B96A2">our source</text>
+    </g>
+
+    <g id="job-dast">
+      <rect x="656" y="316" width="240" height="71" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="676" y="344" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="20" fill="#F4F6F8">dast-scan</text>
+      <text x="676" y="368" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="18" fill="#8B96A2">the browser app</text>
+    </g>
+
+    <g id="job-api">
+      <rect x="656" y="399" width="240" height="71" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="676" y="427" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="20" fill="#F4F6F8">api-scan</text>
+      <text x="676" y="451" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="18" fill="#8B96A2">the API, authed</text>
     </g>
 
     <!-- notify -->
     <g id="job-notify">
-      <rect x="920" y="170" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
-      <text x="944" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <rect x="920" y="244" width="216" height="132" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+      <text x="944" y="288" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="22" fill="#F4F6F8">notify</text>
-      <text x="944" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+      <text x="944" y="318" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
             font-size="18" fill="#8B96A2">Telegram + GChat</text>
-      <text x="944" y="270" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-            font-size="18" fill="#8B96A2">lint · unit · trivy</text>
+      <text x="944" y="344" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+            font-size="18" fill="#8B96A2">all 4 scans</text>
     </g>
-
-    <text x="416" y="356" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-          font-size="18" fill="#6E7A87">every image is tagged</text>
-    <text x="416" y="386" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
-          font-size="20" fill="#9AA6B2">&lt;release&gt;_&lt;short-ref-name&gt;&lt;suffix&gt;_&lt;short-sha&gt;</text>
   </g>
 
   <!-- ============ connectors ============ -->
   <g id="conn-lint-unit">
-    <path d="M204 248 L 204 266" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M204 272 l -6 -10 h 12 z" fill="#2A3138"/>
-  </g>
-  <g id="conn-flow">
-    <path d="M344 326 C 372 326, 388 236, 410 236" fill="none" stroke="#1F93FF" stroke-width="2"/>
-    <path d="M410 236 l -10 -6 v 12 z" fill="#2A3138"/>
-    <path d="M632 236 L 662 236" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M668 236 l -10 -6 v 12 z" fill="#2A3138"/>
-    <path d="M884 236 L 914 236" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M920 236 l -10 -6 v 12 z" fill="#2A3138"/>
+    <path d="M204 288 L 204 306" fill="none" stroke="#2A3138" stroke-width="2"/>
+    <path d="M204 312 l -6 -10 h 12 z" fill="#2A3138"/>
   </g>
 
-  <text x="40" y="452" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+  <g id="conn-flow">
+    <path d="M344 366 C 376 366, 392 310, 410 310" fill="none" stroke="#1F93FF" stroke-width="2"/>
+    <path d="M410 310 l -10 -6 v 12 z" fill="#1F93FF"/>
+  </g>
+
+  <g id="conn-fanout">
+    <g fill="none" stroke="#2A3138" stroke-width="2">
+      <path d="M632 310 C 644 310, 644 186, 656 186"/>
+      <path d="M632 310 C 644 310, 644 269, 656 269"/>
+      <path d="M632 310 C 644 310, 644 352, 656 352"/>
+      <path d="M632 310 C 644 310, 644 435, 656 435"/>
+    </g>
+    <g fill="#2A3138">
+      <path d="M656 186 l -10 -6 v 12 z"/>
+      <path d="M656 269 l -10 -6 v 12 z"/>
+      <path d="M656 352 l -10 -6 v 12 z"/>
+      <path d="M656 435 l -10 -6 v 12 z"/>
+    </g>
+  </g>
+
+  <g id="conn-fanin">
+    <g fill="none" stroke="#2A3138" stroke-width="2">
+      <path d="M896 186 C 908 186, 908 310, 920 310"/>
+      <path d="M896 269 C 908 269, 908 310, 920 310"/>
+      <path d="M896 352 C 908 352, 908 310, 920 310"/>
+      <path d="M896 435 C 908 435, 908 310, 920 310"/>
+    </g>
+    <path d="M920 310 l -10 -6 v 12 z" fill="#2A3138"/>
+  </g>
+
+  <text x="40" y="530" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
         font-size="18" fill="#6E7A87">build-image: !cancelled() &amp;&amp; event_name != 'pull_request'   ·   unit-test: needs [linter], !cancelled()</text>
+  <text x="40" y="556" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">every image is tagged &lt;release&gt;_&lt;short-ref-name&gt;&lt;suffix&gt;_&lt;short-sha&gt;</text>
 </svg>
