@@ -19,7 +19,7 @@ When `build_target` is empty, behavior is resolved from `github.ref_name`. When 
 
 ## Pull request builds
 
-Pull request events run **lint and unit tests only**. The switcher routes supported PR events into the build workflow, but `build-image`, `trivy-scan` and the notifier are gated on `github.event_name != 'pull_request'`. No image is built or published, no scan runs, no notification is sent, and no tags are created or deleted.
+Pull request events run **lint and unit tests only**. The switcher routes supported PR events into the build workflow, but `build-image` and the notifier are gated on `github.event_name != 'pull_request'`, and every scan job in this workflow (`trivy-scan`, `sast-scan`, `dast-scan`, `api-scan`) in turn needs `build-image` — see [Container scanning](container-scanning.md) and [SAST and DAST](sast-dast.md). No image is built or published, no scan of any kind runs here, no notification is sent, and no tags are created or deleted. (The switcher's own inline `sast-scan` and `deps-scan` jobs are the exception — they scan the PR's proposed source directly and do run there; see [How a trigger is routed](routing.md).)
 
 **Drafts are linted too.** Skipping them used to look like a saving and was in fact a hole: `pull_request:` in the product callers carries no `types:`, so GitHub only ever sends `opened`, `synchronize` and `reopened` — never `ready_for_review`. A pull request opened as a draft and then marked ready got **no lint and no unit tests at all**, and reported `skipped` rather than red, so nobody noticed. [`novatalks.core#217`](https://github.com/novaitdevteam/novatalks.core/pull/217) sat open for a month that way.
 

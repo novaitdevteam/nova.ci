@@ -326,6 +326,20 @@ writes a job summary; a leak-detection job is the last place to hold a write tok
 SARIF upload (that would need `security-events: write`) and no report artifact — the
 job summary already carries every field remediation needs, redacted.
 
+## Credentials in the transcript
+
+This whole page is about a credential that reaches `git`. A credential can also reach
+an agent's transcript without ever being committed — read out of `.env` and echoed, or
+pasted in through an editor `@file` reference — and Gitleaks never sees either, since
+neither is a commit. [`scripts/guard-secret-echo.sh`](../scripts/guard-secret-echo.sh)
+covers the first case only: it runs as a `PreToolUse` hook and refuses a Bash command
+that would dump a `.env`'s contents. It cannot see an `@file` reference, a log line, or
+an API response — that is how three live credentials from this repository's own `.env`
+reached a transcript on 2026-08-31. When a value reaches the transcript anyway, rotation
+is the only remedy: this repository is public, so anything ever pushed stays fetchable
+after a force-push, and deleting the line later fixes nothing — it was readable the
+moment it appeared. See [Validation](validation.md#secret-echo-guard-self-check).
+
 ## Changing the scan
 
 `scan.sh` decides whether a pull request may merge, so
