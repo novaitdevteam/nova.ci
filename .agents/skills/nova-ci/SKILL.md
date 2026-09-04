@@ -570,6 +570,19 @@ Preserve these behaviors:
   Keep `TELEGRAM_API_HASH` as
   thirty-two *identical* hex characters: a realistic-looking hash trips Gitleaks'
   `generic-api-key` entropy heuristic and reds the required `secret-scan` check.
+  Two more gaps surfaced by reading every connector's boot path statically rather than
+  waiting for another five-minute loud skip: telegram's arm also carries `WEBHOOK_URL`
+  — required by the `Joi` schema in `src/app.module.ts` at the exact commit
+  (`9a879f10`) a failing live run was built from, three commits behind current
+  `master`, which since dropped it; kept anyway in case an older GHCR tag is scanned
+  again. Dialer's arm carries `HEALTH_ENABLED=true` — `src/app.module.ts` only imports
+  `HealthModule` inside `if (process.env.HEALTH_ENABLED === 'true')`, checked before any
+  `ConfigService` exists, so without it `/readyz` 404s for the container's whole life —
+  plus the same five `AWS_S3_*` boot dummies `novatalks.core`'s arm needed, for the
+  identical `multer-s3` "`bucket is required`" reason documented above for the old,
+  removed baseline arm: `ContactModule`/`DncListModule` (both unconditional imports)
+  register `MulterModule.registerAsync({ useClass: MulterConfigService })`, whose
+  factory runs at module-init time regardless of surface.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
   `scripts/test-dast-scan.sh` in the same change. `validate.sh` also fails if any
   workflow runs `semgrep scan`/`semgrep ci`, a `docker run` of a Semgrep image,

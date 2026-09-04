@@ -114,10 +114,22 @@ AWS_S3_ENDPOINT=http://s3.example.invalid'
             DT_SWAGGER_ENABLE=false
             # Boot dummies the connector's config validator rejects a blank for — the same
             # values the removed baseline arm used; DATABASE_URL for Prisma is built by scan.sh.
+            #
+            # WEBHOOK_URL: run against tag 2025_R4_master_9a879f10 loud-skipped with
+            # `Config validation error: "WEBHOOK_URL" is required`. Verified at that exact
+            # commit (an ancestor of current master, only 3 commits behind it):
+            # src/app.module.ts's ConfigModule.forRoot Joi validationSchema required it
+            # alongside TELEGRAM_API_ID/TELEGRAM_API_HASH/DATABASE_URL. Current master tip
+            # no longer requires it — "feat(remove unused env webhook_url)" (#58) dropped it
+            # from that same schema three commits later, and this local clone (branch
+            # NC2-2258, past that removal) greps clean, which is exactly why it looked
+            # missing. Kept here anyway: an unused var costs nothing, and GHCR may still
+            # serve an older tag built before the removal.
             DT_EXTRA_ENV='TELEGRAM_API_ID=12345
 TELEGRAM_API_HASH=00000000000000000000000000000000
 NOVATALKS_ACCESS_TOKEN=dast-dummy-dummy-token
-ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy'
+ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy
+WEBHOOK_URL=http://engine.example.invalid/webhook'
             ;;
         nova.chatsconnector.whatsapp-client-api/api)
             # Verified in the connector's own code, not copied from telegram: the
@@ -193,7 +205,12 @@ S3_BUCKET=dast-dummy'
             # /livez here only checks memory thresholds and reports healthy even before
             # the database connects, so it is the wrong probe for this repository
             # specifically. Both are excluded from the global "api/v1/dialer" prefix by
-            # global-prefix.ts, so they stay unprefixed. Port is 3000: app.config.ts's
+            # global-prefix.ts, so they stay unprefixed. Neither route exists at all
+            # unless HEALTH_ENABLED=true: src/app.module.ts (line 55) only pushes
+            # HealthModule onto the imports array inside `if (process.env.HEALTH_ENABLED
+            # === 'true')`, a raw process.env check made before Nest ever builds a
+            # ConfigService — an unset var here is a 404 on /readyz forever, reported as
+            # "the image did not come up" rather than the missing module it is. Port is 3000: app.config.ts's
             # Joi default is 3006 (matched by .env.example, a local-dev file not shipped
             # in the image) and docker/server.Dockerfile's EXPOSE says 3000, but neither
             # is what's deployed — docs/sast-dast.md's already-verified note on the
@@ -227,7 +244,34 @@ S3_BUCKET=dast-dummy'
             # is needed.
             DT_SETUP_COMMAND=''
             DT_SWAGGER_ENABLE=false
-            DT_EXTRA_ENV='NATS_SUBJECTS=campaign.*'
+            # HEALTH_ENABLED=true: see the DT_HEALTH_PATH comment above — without it
+            # HealthModule is never imported and /readyz 404s for the life of the
+            # container.
+            #
+            # AWS_S3_*: src/config/file.config.ts (line 4) defaults FILE_DRIVER to 's3'
+            # with no fallback for the five awsS3* keys it reads unconditionally (lines
+            # 6-10). ContactModule and DncListModule (both unconditional imports in
+            # app.module.ts) each register MulterModule.registerAsync({ useClass:
+            # MulterConfigService }), and MulterConfigService.createMulterOptions()
+            # (src/config/services/multer-config.service.ts:16-30) builds the S3 storage
+            # unconditionally for the 's3' driver, calling multerS3({ bucket:
+            # this.configService.get('file.awsS3Bucket'), ... }) — multer-s3's own
+            # constructor (node_modules/multer-s3/index.js:111-115) throws `Error('bucket
+            # is required')` the instant that value is undefined. A registerAsync factory
+            # runs at module init, i.e. before the app ever listens, so a blank bucket
+            # crashes boot exactly like it did for novatalks.core's awsS3* getOrThrow —
+            # same failure class, different call site (multer-s3's own constructor
+            # instead of a getOrThrow), and previously undocumented for this arm: the
+            # comment two blocks up in this same file about "novatalks.dialer (five
+            # AWS_S3_*...)" describes the old, removed dast/scan.sh baseline arm, not
+            # this dast-api one, which shipped without them.
+            DT_EXTRA_ENV='NATS_SUBJECTS=campaign.*
+HEALTH_ENABLED=true
+AWS_S3_ACCESS_KEY_ID=dast-dummy-not-a-real-key
+AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
+AWS_S3_BUCKET=dast-dummy-bucket
+AWS_S3_REGION=dast-dummy-region
+AWS_S3_ENDPOINT=http://s3.example.invalid'
             ;;
         # Only the three browser-surface repositories reach dast-scan (see the job
         # gate in ci-build-ntk-on-push-tags-build.yaml). The ZAP baseline is a browser

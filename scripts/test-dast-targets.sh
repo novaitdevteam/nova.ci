@@ -72,6 +72,15 @@ check "telegram auth mode"       db-token           "$DT_AUTH_MODE"
 check "telegram header"          api_access_token   "$DT_AUTH_HEADER"
 check "telegram prefix is empty" ""                 "$DT_AUTH_SCHEME_PREFIX"
 check "telegram health path"     /                  "$DT_HEALTH_PATH"
+# WEBHOOK_URL: required by the Joi validationSchema in src/app.module.ts at the exact
+# commit (9a879f10) the failing live run was built from — three commits behind current
+# master, which dropped it. Kept as a dummy in case an older tag is scanned again.
+for var in TELEGRAM_API_ID TELEGRAM_API_HASH NOVATALKS_ACCESS_TOKEN ENCRYPTION_SECRET WEBHOOK_URL; do
+    case "$DT_EXTRA_ENV" in
+        *"$var="*) echo "ok   telegram extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL telegram extra-env is missing $var — the config validator would crash on boot"; fail=$((fail + 1)) ;;
+    esac
+done
 
 # nova.botflow has no HTTP health route; "/" is correct and must not be "fixed".
 reset_dt; dast_resolve_target nova.botflow browser
@@ -141,6 +150,22 @@ case "$DT_EXTRA_ENV" in
     *"NATS_SUBJECTS="*) echo "ok   dialer extra-env carries NATS_SUBJECTS"; pass=$((pass + 1)) ;;
     *) echo "FAIL dialer extra-env is missing NATS_SUBJECTS — nats.config.ts would crash on boot"; fail=$((fail + 1)) ;;
 esac
+# HEALTH_ENABLED: src/app.module.ts only imports HealthModule when this is 'true',
+# checked directly against process.env before any ConfigService exists — without it
+# /readyz (DT_HEALTH_PATH above) 404s for the container's whole life.
+case "$DT_EXTRA_ENV" in
+    *"HEALTH_ENABLED=true"*) echo "ok   dialer extra-env enables HealthModule"; pass=$((pass + 1)) ;;
+    *) echo "FAIL dialer extra-env does not set HEALTH_ENABLED=true — /readyz would 404 forever"; fail=$((fail + 1)) ;;
+esac
+# AWS_S3_*: MulterConfigService (registered by ContactModule/DncListModule, both
+# unconditional imports) builds multer-s3 storage at module-init time; multer-s3's own
+# constructor throws "bucket is required" the instant file.awsS3Bucket is undefined.
+for var in AWS_S3_ACCESS_KEY_ID AWS_S3_SECRET_ACCESS_KEY AWS_S3_BUCKET AWS_S3_REGION AWS_S3_ENDPOINT; do
+    case "$DT_EXTRA_ENV" in
+        *"$var="*) echo "ok   dialer extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL dialer extra-env is missing $var — multer-s3 would crash on boot"; fail=$((fail + 1)) ;;
+    esac
+done
 
 # A guessed target scans the wrong port and reports it clean, so an unknown pair must
 # fail loudly rather than fall through to a default.

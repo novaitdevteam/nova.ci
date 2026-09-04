@@ -981,7 +981,13 @@ header it is injected under is a per-repository input — a connector's is not t
   `db:setup` migrates and seeds the database, and the seeded super-admin token is read
   straight out of it with a caller-supplied `SELECT` (`tokens.api_token` joined to the
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
-  own `api_access_token` header.
+  own `api_access_token` header. The `targets.sh` arm's boot dummies also carry
+  `WEBHOOK_URL`: a run against tag `2025_R4_master_9a879f10` loud-skipped with
+  `Config validation error: "WEBHOOK_URL" is required`, from a `Joi` schema in
+  `src/app.module.ts`'s `ConfigModule.forRoot` at that exact commit — three commits
+  behind current `master`, which dropped the requirement in "feat(remove unused env
+  webhook_url)". Kept as a dummy anyway, since an unused var costs nothing and an older
+  GHCR tag could still be the one a future scan is pointed at.
 - **`db-insert` (`nova.chatsconnector.whatsapp-client-api` and `…signal-client-api`).**
   Both connectors share the same `tokens`/`token_roles` schema (`token.model.ts`,
   `token-role.model.ts`, `tableName: 'tokens'`/`'token_roles'`, `schema: 'public'`) and the
@@ -1017,6 +1023,21 @@ header it is injected under is a per-repository input — a connector's is not t
   appends it with `-e <token-env-var>=<token>`. The same value is then injected into ZAP
   exactly as every other mode's token is. A missing `token-env-var` is a scanner error, not
   a scan without auth: there is no variable name to generate a value for.
+
+  This arm's boot dummies carry two fixes found by reading the code rather than by a live
+  failure. `HEALTH_ENABLED=true`: `src/app.module.ts` only pushes `HealthModule` onto its
+  `imports` array inside `if (process.env.HEALTH_ENABLED === 'true')` — a raw
+  `process.env` check made before Nest ever builds a `ConfigService` — so without it
+  `/readyz` (this arm's health path) 404s for the container's whole life, reported as "the
+  image did not come up" rather than the missing route it is. `AWS_S3_ACCESS_KEY_ID`,
+  `AWS_S3_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `AWS_S3_REGION` and `AWS_S3_ENDPOINT`: the
+  same `multer-s3` "`bucket is required`" failure documented above for the old, removed
+  baseline arm also applies here, undocumented until now — `ContactModule` and
+  `DncListModule`, both unconditional imports, each register
+  `MulterModule.registerAsync({ useClass: MulterConfigService })`, and
+  `MulterConfigService.createMulterOptions()` builds the S3 storage at module-init time,
+  unconditionally, because `FILE_DRIVER` defaults to `s3` and none of the five
+  `file.awsS3*` keys has a fallback.
 
 > [!CAUTION]
 > **The Postgres image must be one whose entrypoint actually starts Postgres.** It was
