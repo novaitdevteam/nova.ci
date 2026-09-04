@@ -58,12 +58,24 @@ fi
 # report header name the URL that was actually scanned, not the one that was polled.
 target="http://127.0.0.1:${DAST_PORT}"
 health_url="${target}${DAST_HEALTH_PATH}"
-zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
+# ZAP's own artifacts (the -w report, the copied triage register, and — in full mode —
+# the copied context file) live in a directory of their own, never the whole of
+# RUNNER_TEMP: that directory also holds app_tmp_env (a stripped-but-real
+# .env.example) and other job temp files, and the container needs this one
+# world-writable (see the "no --user" comment near the docker run below) — chmod'ing
+# the whole of RUNNER_TEMP would leave those other files' directory entries
+# world-writable too, and outlive this job's own cleanup trap on a pooled, reused
+# runner. Made and torn down here rather than by mkdir -p at first use, because the
+# permission bit has to be set before ZAP ever writes into it.
+zap_work_dir="${RUNNER_TEMP:-/tmp}/zap-wrk"
+mkdir -p "$zap_work_dir"
+chmod 777 "$zap_work_dir"
+zap_out="${zap_work_dir}/zap.md"
 # zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
 # The triage register: which findings must be fixed, which are accepted, and why. Copied
-# into RUNNER_TEMP because zap-baseline.py (and zap-full-scan.py, same resolution logic)
+# into zap_work_dir because zap-baseline.py (and zap-full-scan.py, same resolution logic)
 # resolves -c against /zap/wrk/ and nowhere else, and /zap/wrk is the bind mount of that
 # directory. zap_conf_src/zap_conf/zap_script/zap_mode_args are set below, once
 # scanner_error exists — the mode is invalid input, same as a missing register, and
@@ -158,14 +170,14 @@ case "${DAST_SCAN_MODE:-baseline}" in
             # this file that did not report itself. Same treatment as the triage register.
             zap_context_src="${DAST_ACTION_ROOT}/contexts/${DAST_ZAP_CONTEXT}"
             [ -r "$zap_context_src" ] || scanner_error "the ZAP context file is missing or unreadable: ${zap_context_src}"
-            cp "$zap_context_src" "${RUNNER_TEMP:-/tmp}/"
+            cp "$zap_context_src" "${zap_work_dir}/"
             zap_mode_args+=(-n "$DAST_ZAP_CONTEXT" -U nova-ci-dast)
         fi
         ;;
     *) scanner_error "unknown scan-mode: ${DAST_SCAN_MODE}" ;;
 esac
 zap_conf_src="${DAST_ACTION_ROOT}/${zap_conf_name}"
-zap_conf="${RUNNER_TEMP:-/tmp}/${zap_conf_name}"
+zap_conf="${zap_work_dir}/${zap_conf_name}"
 
 # Validated before anything is booted: a broken register means ZAP silently applies a
 # policy nobody wrote, and finding that out after a five-minute stack boot helps nobody.
@@ -444,20 +456,24 @@ if [ "$booted" != "yes" ]; then
     not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s${env_skip_note}"
 fi
 
-# --user: the zaproxy image runs as uid 1000, and /zap/wrk is a bind mount of
-# RUNNER_TEMP on a pooled self-hosted runner. If that directory is owned by another uid
-# without group write, write_report raises IOError and ZAP exits 3 — a red build from a
-# permission bit. Running as the runner's own uid sidesteps it.
+# No --user: the container runs as the image's own default user, `zap` (uid 1000), with
+# its real HOME=/home/zap and the add-ons it ships with. zap-baseline.py's Automation
+# Framework writes its plan there (Path.home(), zap-baseline.py:465-467), so overriding
+# HOME instead of the uid would move ~/.ZAP and orphan those add-ons — rejected for that
+# reason. Confirmed live (run 33867417238) that ci-dast-pentest.yaml's ubuntu-latest
+# runner (uid 1001) hit exactly the failure this predicts when --user forced ZAP to run
+# as 1001 with no write access to /home/zap: "Failed to start ZAP", exit 3, 0.26s after
+# the image pulled — before any scan happened.
 #
-# This works here only because the self-hosted runner's uid is itself 1000 — the image's
-# own `zap` user — so ZAP can still write its Automation Framework plan to
-# `Path.home()` = /home/zap (zap-baseline.py:465-467). On a runner with any other uid
-# that write fails with `PermissionError: '/home/zap/zap.yaml'` before any scan happens.
-# Do not move this job to `ubuntu-latest` (uid 1001) without dropping `--user` and making
-# the bind mount writable instead — which is exactly what ci-dast-live-baseline.yaml does,
-# and why it differs from this file.
+# zap_work_dir is chmod 777 above so the `zap` user can write into it regardless of
+# which uid the host process runs as: 1000 on the self-hosted pool (the same uid the
+# image defaults to, so this is a no-op change in effect there), 1001 on ubuntu-latest.
+# All four ZAP callers in this repository (this file, dast-api/scan.sh,
+# ci-dast-live-baseline.yaml, and the live-target step in ci-dast-pentest.yaml) now share
+# this one approach rather than the self-hosted-only `--user "$(id -u):$(id -g)"` this
+# file used to carry.
 set +e
-docker run --rm --network host --user "$(id -u):$(id -g)" \
+docker run --rm --network host \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
     "$ZAP_IMAGE" "$zap_script" -t "$target" \
     ${zap_mode_args[@]+"${zap_mode_args[@]}"} \
