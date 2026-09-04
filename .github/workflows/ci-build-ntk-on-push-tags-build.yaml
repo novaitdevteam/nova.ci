@@ -947,6 +947,9 @@ jobs:
             echo "extra_env<<DAST_EXTRA_ENV_EOF"
             printf '%s\n' "$DT_EXTRA_ENV"
             echo "DAST_EXTRA_ENV_EOF"
+            echo "unseeded_env<<DAST_UNSEEDED_ENV_EOF"
+            printf '%s\n' "$DT_UNSEEDED_ENV"
+            echo "DAST_UNSEEDED_ENV_EOF"
           } >> "$GITHUB_OUTPUT"
 
           echo "Resolved DAST target for $REPO_NAME: port=$DT_PORT health-path=$DT_HEALTH_PATH needs-db=$DT_NEEDS_DB needs-nats=$DT_NEEDS_NATS extra-env=$([ -n "$DT_EXTRA_ENV" ] && echo set || echo none)"
@@ -985,6 +988,14 @@ jobs:
           needs-db: ${{ steps.dast_target.outputs.needs_db }}
           needs-nats: ${{ steps.dast_target.outputs.needs_nats }}
           extra-env: ${{ steps.dast_target.outputs.extra_env }}
+          # This workflow always runs in the scanned repository's own checkout
+          # (target-repository above equals GITHUB_REPOSITORY's tail), so scan.sh's own
+          # scanned_repo/workspace_repo check never mismatches here and this input is a
+          # no-op on this path — it only ever fires from ci-dast-pentest.yaml. Passed
+          # anyway so a value the table sets is never silently unbridged on the one
+          # caller that seeds the real .env.example, and so a repository whose arm needs
+          # it is covered the moment it is added here.
+          unseeded-env: ${{ steps.dast_target.outputs.unseeded_env }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
 

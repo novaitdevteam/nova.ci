@@ -190,6 +190,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     DAST_NEEDS_DB="${DAST_NEEDS_DB:-true}" \
     DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}" \
     DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}" \
+    DAST_UNSEEDED_ENV="${DAST_UNSEEDED_ENV:-}" \
     GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$WORK}" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
     DAST_ACTION_ROOT="${DAST_ACTION_ROOT:-$ROOT/.github/actions/dast}" \
@@ -1125,6 +1126,65 @@ else
     fail=$((fail + 1))
 fi
 unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO
+
+# --- DAST_UNSEEDED_ENV: the pentest fallback for novatalks.core/browser ----------------
+# Live pentest run 33882314584: the browser scan of novatalks.core loud-skipped with
+# "the image did not come up within 180s", because GITHUB_WORKSPACE held nova.ci, not
+# novatalks.core, so nothing was seeded. targets.sh's novatalks.core/browser arm now
+# carries a DT_UNSEEDED_ENV fallback (DEFAULT_ADMIN_USER/PASSWORD plus five AWS_S3_*
+# dummies) for exactly this shape — same foreign-workspace mismatch as the scenario
+# above, but this time with a fallback supplied.
+GITHUB_WORKSPACE="$WS_WITH_ENV" GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+DAST_TARGET_REPO=novatalks.core DAST_UNSEEDED_ENV="DEFAULT_ADMIN_USER=nova-ci-dast@example.invalid" \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "unseeded-env fallback reaches the app container when nothing was seeded" clean 0
+if grep -qE -- '--name nova-app.*-e DEFAULT_ADMIN_USER=nova-ci-dast@example\.invalid( |$)' "$WORK/dockerlog"; then
+    echo "ok   the unseeded-env fallback is applied to the app container"; pass=$((pass + 1))
+else
+    echo "FAIL the unseeded-env fallback never reached the app container"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+fi
+if grep -qE '^run .*--env-file' "$WORK/dockerlog"; then
+    echo "FAIL a foreign workspace's .env.example was seeded despite the mismatch"; fail=$((fail + 1))
+else
+    echo "ok   still no --env-file — the fallback does not fake a real seeding"; pass=$((pass + 1))
+fi
+unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO DAST_UNSEEDED_ENV
+
+# The regression this fallback exists to guard against: DAST_UNSEEDED_ENV must be a
+# strict no-op whenever the real .env.example WAS seeded — i.e. scanned_repo equals
+# workspace_repo, the build workflow's own shape. Applying it unconditionally would
+# override novatalks.core's real S3 config on every trunk baseline scan with these
+# dummies, exactly what the "one place this is allowed to reach" comment in scan.sh
+# guards against — and would change a scan that already works (WARN-NEW: 2, PASS: 65).
+#
+# Mutation-tested by hand: hoisting the DAST_UNSEEDED_ENV merge out from behind the
+# `scanned_repo != workspace_repo` guard in scan.sh (folding it into DAST_EXTRA_ENV
+# unconditionally, before the if/elif that decides whether the real .env.example gets
+# seeded) makes this scenario fail. Restored immediately after; the failing line was:
+#   FAIL -e DEFAULT_ADMIN_USER=nova-ci-dast@example.invalid leaked in despite a matching workspace
+# — the `expect` outcome/rc check above it still read "ok" (outcome=clean rc=0
+# either way), because the mutation changes what reaches the docker command line, not
+# the scan's outcome — exactly why this scenario needs its own grep, not just `expect`.
+GITHUB_WORKSPACE="$WS_WITH_ENV" GITHUB_REPOSITORY=novaitdevteam/novatalks.core \
+DAST_TARGET_REPO=novatalks.core DAST_UNSEEDED_ENV="DEFAULT_ADMIN_USER=nova-ci-dast@example.invalid" \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "unseeded-env fallback must not apply when the real .env.example was seeded" clean 0
+if grep -qE -- '-e DEFAULT_ADMIN_USER=nova-ci-dast@example\.invalid' "$WORK/dockerlog"; then
+    echo "FAIL -e DEFAULT_ADMIN_USER=nova-ci-dast@example.invalid leaked in despite a matching workspace"
+    sed 's/^/     /' "$WORK/dockerlog"
+    fail=$((fail + 1))
+else
+    echo "ok   the unseeded-env fallback stays inert when the workspace matches"; pass=$((pass + 1))
+fi
+if grep -qE '^run .*--env-file' "$WORK/dockerlog"; then
+    echo "ok   the real .env.example is still seeded, unchanged"; pass=$((pass + 1))
+else
+    echo "FAIL the real .env.example was not seeded — the matching-workspace path regressed"
+    fail=$((fail + 1))
+fi
+unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO DAST_UNSEEDED_ENV
 
 # The build workflow's own shape: the input is set and it agrees with GITHUB_REPOSITORY,
 # so the workspace really is the scanned repository's checkout and seeding proceeds

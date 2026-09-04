@@ -40,6 +40,10 @@ inputs:
     description: "Newline-separated KEY=VALUE lines applied to the application container via -e, after --env-file so each overrides the seeded value of the same name. A per-repository escape hatch for a template placeholder in the product repo's own .env.example that the app refuses to boot with — never a place for a real credential."
     required: false
     default: ""
+  unseeded-env:
+    description: "Newline-separated KEY=VALUE lines applied ONLY when the scanned repository's .env.example could not be seeded at all (target-repository disagrees with the checkout in GITHUB_WORKSPACE — ci-dast-pentest.yaml's shape). Ignored on every path where seeding happened, so it can never override a value the real .env.example already got right — see CLAUDE.md's novatalks.core-scoped R2/S3 exception for why that distinction matters."
+    required: false
+    default: ""
   report-file:
     description: "Path the .report is written to"
     required: true
@@ -81,6 +85,7 @@ runs:
         DAST_ZAP_CONTEXT: ${{ inputs.zap-context }}
         DAST_TARGET_REPO: ${{ inputs.target-repository }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
+        DAST_UNSEEDED_ENV: ${{ inputs.unseeded-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}
         REPORT_URL: ${{ inputs.report-url }}

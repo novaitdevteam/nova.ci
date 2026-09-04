@@ -612,6 +612,28 @@ Preserve these behaviors:
   removed baseline arm: `ContactModule`/`DncListModule` (both unconditional imports)
   register `MulterModule.registerAsync({ useClass: MulterConfigService })`, whose
   factory runs at module-init time regardless of surface.
+- **`novatalks.core`'s `browser` arm needs the same boot dummies as its `api` arm, but
+  only through a second field, `unseeded-env` (`DT_UNSEEDED_ENV` in `targets.sh`,
+  `DAST_UNSEEDED_ENV` in `dast/scan.sh`), never through `extra-env`.** Live pentest run
+  33882314584 loud-skipped the browser scan of `novatalks.core`/ephemeral with "the image
+  did not come up within 180s — and no .env.example was seeded, because GITHUB_WORKSPACE
+  holds a checkout of 'nova.ci', not of 'novatalks.core'": `dast/scan.sh` (unlike
+  `dast-api/scan.sh`) normally seeds the engine from the product repository's own
+  `.env.example`, which already carries `DEFAULT_ADMIN_USER`/`DEFAULT_USER_PASSWORD` and
+  the real S3 config; `ci-dast-pentest.yaml` runs in `nova.ci`, so that seeding is
+  correctly skipped, and nothing filled the gap. `extra-env` was not the fix: `dast/
+  scan.sh` applies it with `-e` *after* `--env-file`, so on the build workflow's own path
+  — where the real `.env.example` is seeded — it would override novatalks.core's real S3
+  config with dummies, contradicting the R2/S3 exception above and changing a scan that
+  already works (`WARN-NEW: 2, PASS: 65`). `unseeded-env` is folded into `DAST_EXTRA_ENV`
+  only inside the branch where `scan.sh` has already determined nothing was seeded
+  (`scanned_repo != workspace_repo`) — a no-op on every existing caller, live only for
+  the pentest workflow. Both `ci-build-ntk-on-push-tags-build.yaml`'s `Resolve DAST
+  target` step and `ci-dast-pentest.yaml`'s `Resolve target` step bridge it from
+  `targets.sh` regardless, per the "every `DT_*` is bridged" rule below.
+  `scripts/test-dast-scan.sh` mutation-tests the guard: hoisting the merge out from
+  behind the `scanned_repo != workspace_repo` check makes the "must not apply when
+  seeded" scenario fail.
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or
   `scripts/test-dast-scan.sh` in the same change. `validate.sh` also fails if any
   workflow runs `semgrep scan`/`semgrep ci`, a `docker run` of a Semgrep image,
