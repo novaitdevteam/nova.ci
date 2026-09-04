@@ -49,6 +49,12 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
                 exit "${SHIM_ZAP_RC:-0}" ;;
             *"--name nova-pg"*)    exit "${SHIM_PG_RUN_RC:-0}" ;;
             *"--name nova-redis"*) exit "${SHIM_REDIS_RUN_RC:-0}" ;;
+            *"--name nova-nats"*)  exit "${SHIM_NATS_RUN_RC:-0}" ;;
+            # nats-box's own `stream add` container carries no --name, unlike every
+            # other container this script starts — matched on the image name instead,
+            # a separate control from SHIM_NATS_RUN_RC so "the server started but the
+            # stream could not be created" is its own distinguishable scenario.
+            *"nats-box"*)          exit "${SHIM_NATS_STREAM_RC:-0}" ;;
             *"--name nova-app"*)   exit "${SHIM_APP_RC:-0}" ;;
             *) exit 0 ;;
         esac ;;
@@ -79,13 +85,14 @@ esac
 SHIM
 chmod +x "$WORK/bin/docker"
 
-# curl shim: three distinct oracles behind one binary, dispatched on the URL each real
-# call carries — the boot probe (/livez), the login (/auth/sign_in, headers on stdout
-# via -D -), and the spec fetch (/api-docs-json, body written to whatever -o names).
-# SHIM_JWT unset means "answer with a token" (the common case for every scenario that
-# does not care about login); SHIM_JWT set to the empty string means "the login
-# succeeded but carried no token" — the one precondition this scanner has that the
-# baseline does not.
+# curl shim: four distinct oracles behind one binary, dispatched on the URL each real
+# call carries — the boot probe (/livez), the NATS monitoring endpoint
+# (:8222/healthz, only ever hit when needs-nats is true), the login (/auth/sign_in,
+# headers on stdout via -D -), and the spec fetch (/api-docs-json, body written to
+# whatever -o names). SHIM_JWT unset means "answer with a token" (the common case for
+# every scenario that does not care about login); SHIM_JWT set to the empty string
+# means "the login succeeded but carried no token" — the one precondition this scanner
+# has that the baseline does not.
 cat > "$WORK/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
 default_spec_body='{"paths":{"/foo":{"get":{}},"/bar":{"post":{},"delete":{}}}}'
@@ -96,6 +103,13 @@ for a in "$@"; do
     prev="$a"
 done
 case "$url" in
+    *8222/healthz*)
+        # Separate control from SHIM_CURL_RC, falling back to it when unset — needed to
+        # prove the NATS readiness check is load-bearing: a scenario can make NATS never
+        # answer while the app health probe still would.
+        rc="${SHIM_NATS_CURL_RC:-${SHIM_CURL_RC:-0}}"
+        [ "$rc" = "0" ] && { printf '200'; exit 0; }
+        printf '000'; exit 7 ;;
     *livez*)
         [ "${SHIM_CURL_RC:-0}" = "0" ] && { printf '200'; exit 0; }
         printf '000'; exit 7 ;;
@@ -134,6 +148,7 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     SHIM_ZAP_ARGV="$WORK/zap-argv" \
     DAST_IMAGE="ghcr.io/x/y:z" \
     DAST_BOOT_TIMEOUT="6" \
+    DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}" \
     ZAP_IMAGE="ghcr.io/zaproxy/zaproxy@sha256:deadbeef" \
     DAST_ACTION_ROOT="${DAST_ACTION_ROOT:-$ROOT/.github/actions/dast-api}" \
     DAST_REPORT_FILE="$WORK/report" \
@@ -193,7 +208,7 @@ assert_zap_flag() {
 }
 
 assert_cleanup() { # assert_cleanup <name>
-    if grep -qx 'rm -f nova-app nova-pg nova-redis' "$WORK/dockerlog"; then
+    if grep -qx 'rm -f nova-app nova-pg nova-redis nova-nats' "$WORK/dockerlog"; then
         echo "ok   $1"; pass=$((pass + 1))
     else
         echo "FAIL $1 — containers were not torn down"; fail=$((fail + 1))
@@ -544,6 +559,64 @@ if grep -E "^run .*--name nova-pg" "$WORK/dockerlog" | grep -qE " postgres:[0-9]
     echo "ok   postgres comes from the Docker Official image"; pass=$((pass + 1))
 else
     echo "FAIL nova-pg is not a postgres:N image"; fail=$((fail + 1))
+fi
+
+# --- needs-nats: novatalks.dialer's api-scan, ported from dast/scan.sh's identical
+# needs-db-shaped block, now shared as dast_bring_up_nats in dast-common.sh ------------
+# Default is false, so every existing caller (core, telegram, whatsapp, signal) is
+# byte-identical to before this input existed.
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" DAST_NEEDS_NATS=false \
+    expect "needs-nats false starts no NATS container" clean 0
+if grep -qE -- '^run .*--name nova-nats\b' "$WORK/dockerlog"; then
+    echo "FAIL a nova-nats container was started despite needs-nats being false"
+    fail=$((fail + 1))
+else
+    echo "ok   no nova-nats container appears in the docker log when needs-nats is false"
+    pass=$((pass + 1))
+fi
+
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" DAST_NEEDS_NATS=true \
+    expect "needs-nats true starts a nova-nats container and scans clean" clean 0
+if grep -qE -- '^run .*--name nova-nats\b.* -js( |$)' "$WORK/dockerlog"; then
+    echo "ok   the nova-nats container enables JetStream"; pass=$((pass + 1))
+else
+    echo "FAIL no nova-nats container with -js — \$JS.API.INFO would answer 503"
+    fail=$((fail + 1))
+fi
+if grep -qE -- 'stream add campaign' "$WORK/dockerlog" && grep -qE -- 'subjects campaign' "$WORK/dockerlog"; then
+    echo "ok   the 'campaign' JetStream stream is created"; pass=$((pass + 1))
+else
+    echo "FAIL the campaign stream was never created — dialer would throw 'no stream matches subject'"
+    fail=$((fail + 1))
+fi
+if grep -qE -- '--name nova-app.*-e NATS_SERVERS=127\.0\.0\.1:4222( |$)' "$WORK/dockerlog"; then
+    echo "ok   NATS_SERVERS=127.0.0.1:4222 is passed to the app container"; pass=$((pass + 1))
+else
+    echo "FAIL NATS_SERVERS missing from the app container's environment"; fail=$((fail + 1))
+fi
+assert_cleanup "needs-nats run tears nova-nats down alongside the rest"
+
+DAST_NEEDS_NATS=true SHIM_NATS_RUN_RC=1 expect "NATS that never starts is a loud skip" not-run 0
+if grep -q "NATS did not start" "$WORK/report"; then
+    echo "ok   the skip names the NATS server, not the application"; pass=$((pass + 1))
+else
+    echo "FAIL the skip does not name NATS"; fail=$((fail + 1))
+fi
+
+DAST_NEEDS_NATS=true SHIM_NATS_CURL_RC=7 SHIM_CURL_RC=0 \
+    expect "NATS that never becomes ready is a loud skip, not clean or error" not-run 0
+if grep -q "NATS did not become ready" "$WORK/report"; then
+    echo "ok   the skip names NATS readiness, not a boot timeout"; pass=$((pass + 1))
+else
+    echo "FAIL the skip does not name NATS readiness"; fail=$((fail + 1))
+fi
+
+DAST_NEEDS_NATS=true SHIM_NATS_STREAM_RC=1 \
+    expect "a JetStream stream that cannot be created is a loud skip" not-run 0
+if grep -q "could not create the 'campaign' JetStream stream" "$WORK/report"; then
+    echo "ok   the skip names the stream, not a generic NATS failure"; pass=$((pass + 1))
+else
+    echo "FAIL the skip does not name the JetStream stream"; fail=$((fail + 1))
 fi
 
 # --- active mode: -S comes off, and that is the whole difference --------------------

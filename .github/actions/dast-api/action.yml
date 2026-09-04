@@ -61,6 +61,10 @@ inputs:
     description: "Set SWAGGER_ENABLE=true on the app container; the engine needs it to serve its spec, a connector may have no such var at all"
     required: false
     default: "true"
+  needs-nats:
+    description: "Bring up a plain, unconfigured NATS server alongside the application"
+    required: false
+    default: "false"
   target-repository:
     description: "Bare name of the repository whose image is being scanned, e.g. novatalks.core. Defaults to empty, which falls back to the repository this job runs in (GITHUB_REPOSITORY) — correct for the reusable build workflow, which runs in the product repository's own context. ci-dast-pentest.yaml runs in nova.ci and must name the target explicitly, or the postgres major version is chosen for the wrong repository."
     required: false
@@ -117,6 +121,7 @@ runs:
         DAST_TOKEN_ENV_VAR: ${{ inputs.token-env-var }}
         DAST_SETUP_CMD: ${{ inputs.setup-command }}
         DAST_SWAGGER_ENABLE: ${{ inputs.swagger-enable }}
+        DAST_NEEDS_NATS: ${{ inputs.needs-nats }}
         DAST_TARGET_REPO: ${{ inputs.target-repository }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"

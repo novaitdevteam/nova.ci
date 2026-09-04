@@ -194,11 +194,10 @@ S3_BUCKET=dast-dummy'
             # NATS_SUBJECTS throws before the app ever reaches app.listen() — needed
             # regardless of whether a NATS broker is reachable. main.ts also awaits
             # `microService.listen()` (a real NATS connection) before app.listen(), so
-            # DT_NEEDS_NATS is set honestly here even though, as of this writing,
-            # dast-api/scan.sh has no NATS bring-up block (only dast/scan.sh, the
-            # browser-surface baseline, does) — until that gap is closed this arm's
-            # api-scan is expected to loud-skip on the NATS connection, not silently
-            # scan the wrong thing.
+            # this app-scan needs a real NATS server up, not just the env var — and now
+            # gets one: dast-api/action.yml's needs-nats input reaches scan.sh's
+            # dast_bring_up_nats (dast-common.sh), the same bring-up dast/scan.sh's
+            # browser-surface baseline already used.
             DT_NEEDS_NATS=true
             DT_AUTH_MODE=env-token
             DT_AUTH_HEADER=api_access_token; DT_AUTH_SCHEME_PREFIX=''
