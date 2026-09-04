@@ -33,7 +33,8 @@ Primary files:
 - `.github/actions/dast/targets.sh`: the one per-repository DAST table (port, health path, auth) — `dast_resolve_target <repo> <api|browser>`, sourced by the `Resolve DAST target` / `Resolve api-scan target` steps and every later consumer
 - `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core`, telegram, whatsapp, signal, dialer)
 - `.github/workflows/ci-dast-live-baseline.yaml`: the `workflow_dispatch` live baseline against the real deployment, target allowlisted
-- `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`, `scripts/test-dast-api-scan.sh`, `scripts/test-dast-targets.sh`: offline scenario self-checks (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
+- `.github/actions/deps-scan/action.yml` + `scan.sh`: dependency scan over the checkout's own lockfiles — Trivy fs (called directly in the switcher's `deps-scan` job, same as every other Trivy job here) and OSV-Scanner (`ghcr.io/google/osv-scanner`, tag- and digest-pinned; the only place any workflow may invoke it). Emits `clean` / `findings` / `no-manifests` / `error`. OSV-Scanner's exit code (not just its JSON) decides `error` — a network failure can leave a clean-looking JSON body behind; only `0`/`1`/`128` are acceptable exit codes.
+- `scripts/test-sast-scan.sh`, `scripts/test-deps-scan.sh`, `scripts/test-dast-scan.sh`, `scripts/test-dast-api-scan.sh`, `scripts/test-dast-targets.sh`: offline scenario self-checks (`docker`, and for DAST `curl`, stubbed); extend when adding a decision branch
 - `scripts/gitleaks-baseline.sh`: one-time full-history secret audit across product repositories; deliberately not a CI job
 - `.github/actions/notify/action.yml`: the only place that talks to Telegram and Google Chat
 - `.github/workflows/ci-self-validate.yaml`: CI that runs the harness on PRs and pushes to `main`
@@ -319,6 +320,25 @@ capped at 25 with a `Showing 25 of N` note) and the complete `.report` artifact.
 advisory (only a broken scanner reds it) and has no notifier line. It is inline for the
 same reason `secret-scan` is: `novatalks.core`'s PR route is a two-entry `build_target`
 matrix, so a job in the build workflow would scan identical source twice per event.
+
+The switcher also carries an **inline `deps-scan` job on `pull_request`**, same eleven
+repositories, same reason: `trivy-scan`'s image scan reads dependencies that ship inside
+a built image, and cannot see a manifest-less frontend bundle (`novatalks.ui`'s runtime
+image has no `node_modules`), a pruned devDependency (`novatalks.core`'s
+`npm prune --omit=dev`), or a repository that builds no image at all
+(`novatalks.chatwidget`, `novatalks.ui-lite`, `nova.docs`). Two independent, never
+de-duplicated databases: `trivy fs --scanners vuln` (Trivy called directly in the job,
+same as every other Trivy job here — no wrapper-action rule for Trivy) and OSV-Scanner
+(tag- and digest-pinned `ghcr.io/google/osv-scanner`, invoked only from
+`.github/actions/deps-scan/scan.sh`). Four outcomes: `clean` / `findings` / `no-manifests`
+(neither tool found a lockfile — a legitimate state, reported loudly, never `clean`) /
+`error`. **OSV-Scanner's exit code, not its JSON body, proves it ran**: a real
+`api.osv.dev` network failure still writes a well-formed JSON document with the package
+list populated and zero vulnerabilities, indistinguishable from clean in the JSON alone
+— reproduced live with `docker run --network none`. Only exit `0`/`1`/`128` are
+acceptable; anything else (`127`, `129` `ErrAPIFailed`, `130`) is `error` even with
+parseable JSON, the same shape as the ZAP `0|1|2` ladder. Advisory, notifier-free, same
+as `sast-scan`. See `docs/sast-dast.md#dependency-scanning-source-manifests`.
 
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
 repositories, **every build on any branch**) and `dast-scan` (OWASP ZAP baseline, trunk

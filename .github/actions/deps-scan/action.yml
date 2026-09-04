@@ -1,0 +1,47 @@
+name: "Dependency vulnerability scan (source manifests)"
+description: "Cross-checks declared dependencies in the checkout's lockfiles against two independent vulnerability databases: Trivy fs (aquasecurity) and OSV-Scanner (osv.dev / GHSA / npm advisories)"
+
+inputs:
+  report-file:
+    description: "Path the .report is written to"
+    required: true
+  report-url:
+    description: "Public URL the report will be published at, for the notifier line"
+    required: false
+    default: ""
+  trivy-json:
+    description: "Path to the JSON file the caller's own aquasecurity/trivy-action (scan-type: fs) step wrote. Trivy is called directly in the workflow, not from inside this action — the same place it is called everywhere else in this repository; there is no validate.sh guard requiring a wrapper for Trivy the way there is for Gitleaks, Semgrep and ZAP."
+    required: true
+  trivy-outcome:
+    description: "The outcome (success|failure|cancelled|skipped) of the caller's Trivy step. A composite action step's own failure would otherwise stop this action before it could produce a report — pass it in explicitly rather than letting the Trivy step's exit code decide alone, the same reason semgrep's scan.sh wraps its own docker run in `set +e`."
+    required: true
+
+outputs:
+  outcome:
+    description: "clean | findings | no-manifests | error — a scanner that could not run (or could not prove it ran) must never be reported clean, and a repository with no lockfile at all must never be reported clean either"
+    value: ${{ steps.scan.outputs.outcome }}
+  findings:
+    description: "Total number of vulnerability findings across both tools (no de-duplication between them — that is the point of running two databases)"
+    value: ${{ steps.scan.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    # OSV-Scanner runs from here, via a pinned digest, the same shape as Semgrep's
+    # pinned docker run. Trivy does not: it is called directly in the workflow with
+    # `uses: aquasecurity/trivy-action@v0.36.0`, exactly as every other Trivy job in
+    # this repository already does, and its JSON output path is handed in above.
+    - name: Scan and decide
+      id: scan
+      shell: bash
+      env:
+        OSV_IMAGE: "ghcr.io/google/osv-scanner:v2.5.1@sha256:8108ae94eadea5a02c9bec6e646909d5b790b44bd62d7f5b7f0b1d6d0ffc7734"
+        DEPS_SRC: ${{ github.workspace }}
+        DEPS_REPORT_FILE: ${{ inputs.report-file }}
+        DEPS_ACTION_ROOT: ${{ github.action_path }}
+        REPORT_URL: ${{ inputs.report-url }}
+        TRIVY_JSON: ${{ inputs.trivy-json }}
+        TRIVY_OUTCOME: ${{ inputs.trivy-outcome }}
+      run: |
+        set -euo pipefail
+        bash "${DEPS_ACTION_ROOT}/scan.sh"

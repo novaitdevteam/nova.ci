@@ -10,6 +10,12 @@ while it runs (DAST) on trunk and `scan*` builds. Both write a `.report` — ont
 release the build already creates, where there is one — and both add a line to the
 build notification.
 
+A fourth job, `deps-scan`, joins `secret-scan` and `sast-scan` inline in the switcher on
+every pull request: **Trivy fs** and **OSV-Scanner** read the checkout's own lockfiles —
+declared dependencies at declared versions, not the container image and not our own
+code — and neither is a substitute for `trivy-scan`'s image scan, which reads what
+actually ships. See [Dependency scanning](#dependency-scanning-source-manifests) below.
+
 ## Three scanners, three questions
 
 They are not redundant, and none of them is a substitute for another:
@@ -19,6 +25,7 @@ They are not redundant, and none of them is a substitute for another:
 | **Semgrep** | our source, in the checkout | *did we write an insecure pattern?* |
 | **Trivy** | the container image we just pushed | *are the OS packages and libraries we ship vulnerable?* |
 | **ZAP baseline** | the application, over HTTP, while it runs | *does the thing we deploy expose itself badly?* |
+| **Trivy fs + OSV-Scanner** | the checkout's own lockfiles, on every pull request | *did we declare a dependency version with a known vulnerability?* — see [Dependency scanning](#dependency-scanning-source-manifests) |
 | Gitleaks | the commits a change adds | *did a credential get committed?* — see [Secret detection](secret-detection.md) |
 | ESLint | our source | *is the code well-formed?* — **not a security question at all** |
 
@@ -146,6 +153,173 @@ job-level `if:` cannot reach a step inside another job.
 > `IS_TRUNK`. Two sources of truth for one predicate is a real wart, accepted
 > deliberately: consolidating them would change the behaviour of the only scanner
 > currently working, for cosmetics. Read the spec's D6 before "simplifying" it.
+
+## Dependency scanning (source manifests)
+
+`trivy-scan` already reads dependencies that ship **inside a built image**
+(`TRIVY_PKG_TYPES: library`) — real coverage, exercised on `novatalks.core`'s production
+`node_modules` today. What it structurally cannot see:
+
+- **a frontend bundle with no manifest.** `novatalks.ui`'s runtime image is
+  `FROM cgr.dev/chainguard/nginx` plus `COPY --from=builder /app/dist` — no
+  `node_modules`, no `package.json`, no lockfile in the image at all. A vulnerable
+  library minified into a `.js` file has no manifest entry for any scanner to read.
+- **devDependencies.** `novatalks.core` runs `npm prune --omit=dev` before the image is
+  built; a vulnerable build-time dependency never reaches it.
+- **a repository that builds no image**, or builds one only after merge.
+  `novatalks.chatwidget` zips `dist` and publishes it as a release asset;
+  `novatalks.ui-lite` and `nova.docs` build no container at all. And on an ordinary pull
+  request `build-image` never runs regardless of repository, so there is no dependency
+  signal until after merge for anyone.
+
+So this is a **source** scan, not an image scan: it reads whatever lockfiles are in the
+checkout, on the same inline pull-request gate as [`sast-scan`](#semgrep-on-the-pull-request)
+above and for the same reason — a developer should hear about a known-vulnerable
+dependency before the change merges, not at the next quarterly audit.
+
+**Be honest about what this reads.** A lockfile entry is a *declared* dependency at a
+*declared* version. This finds a known-vulnerable version of something `package.json`
+and its lockfile say is there. It does not find vulnerable code we wrote ourselves (that
+is Semgrep's job), and it cannot find a vulnerable library that was vendored into the
+tree with no manifest entry at all — there is nothing here for either tool to read in
+that case, and no `not-run`-style loud skip either, because nothing about that shape
+looks like a failure to either scanner: both tools simply see fewer packages than the
+tree actually contains.
+
+### Two databases, deliberately not de-duplicated
+
+**`trivy fs --scanners vuln`** and **OSV-Scanner** both read the same checkout, and
+neither's result is merged into the other's:
+
+| Tool | Database | Invocation |
+| --- | --- | --- |
+| **Trivy** (`fs` mode) | aquasecurity's own feed | `uses: aquasecurity/trivy-action@v0.36.0`, `scan-type: fs` — called directly in the `deps-scan` job, the same place every other Trivy job in this repository calls it. There is no `validate.sh` wrapper guard for Trivy the way there is for Gitleaks, Semgrep and ZAP. |
+| **OSV-Scanner** | osv.dev, which aggregates GitHub Security Advisories and the npm advisory feed among others | invoked inside [`deps-scan/scan.sh`](../.github/actions/deps-scan/scan.sh) via a pinned digest, the same shape Semgrep's `scan.sh` uses for its own `docker run` |
+
+They are a genuine cross-check, not a duplicate: two independent vulnerability
+databases can (and in practice do) know about different advisories for the same
+package, or fix-version data that disagrees by a patch release. The report and the job
+summary list both tools' findings **separately**, never merged into one row, so a
+disagreement between them stays visible instead of being silently averaged away.
+
+**OSV-Scanner is pinned by tag and digest**, the same policy as every other scanner
+image in this repository:
+
+```
+ghcr.io/google/osv-scanner:v2.5.1@sha256:8108ae94eadea5a02c9bec6e646909d5b790b44bd62d7f5b7f0b1d6d0ffc7734
+```
+
+Obtained the same way the Semgrep pin's own comment documents:
+
+```bash
+docker buildx imagetools inspect ghcr.io/google/osv-scanner:v2.5.1
+# take the manifest-list digest, not a per-architecture one
+```
+
+To upgrade: bump the tag, re-run that command, and re-verify the JSON shape `scan.sh`
+reads (`.results[].source.path`, `.results[].packages[].package.*`,
+`.results[].packages[].vulnerabilities[].*`) against a fixture that actually produces
+findings — the same three-part discipline the Semgrep pin's comment describes, since the
+harness stubs `docker` and proves nothing about the real image.
+
+### A scanner that could not run must never look like a clean scan — and here, `.report` JSON alone is not enough
+
+Both tools were checked live, not assumed, for the exact trap this page is built around:
+does a broken scanner produce the same output as a genuinely clean one?
+
+**Trivy** fails the way you would hope: a DB-fetch failure with no cache exits non-zero
+and writes no JSON file at all — reproduced with `--skip-db-update` against an empty
+cache directory (`FATAL … --skip-db-update cannot be specified on the first run`, exit 1,
+empty stdout). So "no output file, or a file that is not valid JSON" is real, reachable
+signal for Trivy, not a corner nobody hits. `deps-scan/scan.sh` treats Trivy's own
+`.Results` key being entirely absent as its version of Semgrep's zero-files guard: it is
+the actual shape Trivy's JSON takes when it found no lockfile at all, and a `.Results[]`
+entry whose `.Packages` is empty is treated the same way defensively, in case that shape
+is ever produced live.
+
+**OSV-Scanner does not fail the way you would hope.** A real network failure reaching
+`api.osv.dev` — reproduced with `docker run --network none` — still exits with a
+perfectly well-formed JSON document: the lockfile was found, the package list is
+populated, and the vulnerability query simply came back empty because it never left the
+container. **The JSON body alone is indistinguishable from a genuinely clean scan.**
+Only the exit code carries the signal, and it has to be checked against the exact set
+OSV-Scanner's own source documents
+(`cmd/osv-scanner/internal/cmd/run.go`, `v2.5.1`):
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | clean — ran to completion, nothing found |
+| 1 | `ErrVulnerabilitiesFound` — findings present |
+| 128 | `ErrNoPackagesFound` — no manifest found; stdout is empty, not `{}` |
+| anything else (127 generic, 129 `ErrAPIFailed`, 130 `SIGINT`, …) | scanner error, **even when stdout parses as valid JSON** |
+
+This is the same shape as the ZAP `0|1|2` exit ladder elsewhere in this repository, and
+for the same reason: the exit code is load-bearing and the response body is not enough
+on its own. `scripts/test-deps-scan.sh` has a scenario for exactly this — a canned exit
+127 and exit 129 alongside a JSON body that looks completely clean, both asserted as
+`error`, never `clean`. No synthetic canary file is needed here the way Semgrep needs
+one: a repository's own real lockfile and its own real package list, once the exit-code
+and `.Results`/`.Packages` guards above rule out the "ran but silently learned nothing"
+shapes, are themselves the proof of parsing.
+
+### The fourth outcome: `no-manifests`
+
+A repository with no lockfile at all is a legitimate state, not a failure — but it must
+never be reported as `clean`, which would claim a check that never actually happened.
+`deps-scan` gets its own fourth outcome for exactly this, parallel to DAST's `not-run`:
+
+| Outcome | What it means | Build |
+| --- | --- | --- |
+| `clean` | both tools found at least one lockfile, and neither found a vulnerability | 🟢 green |
+| `findings` | at least one tool found a vulnerability | 🟢 green — advisory, findings never fail the job |
+| `no-manifests` | **neither** tool found a manifest to read | 🟢 green, and **said loudly** — not a clean result |
+| `error` | either tool could not prove it ran (see above) | 🔴 **red** |
+
+`no-manifests` requires **both** tools to agree there is nothing to scan. If one tool's
+lockfile-format support does not cover this repository's ecosystem but the other tool
+still found and parsed a real manifest, that is not evidence of a missing dependency
+signal — it is reported as `clean` or `findings` from whichever tool actually parsed
+something, with the other tool's `no-manifest` state logged for visibility only.
+
+Advisory, matching every other scanner on this page: `warn-only` governs findings, never
+the difference between a real scan and a broken or absent one. `scan.sh` exits non-zero
+(`2`) only on `error`; `clean`, `findings` and `no-manifests` all leave the job green. No
+notifier line — a vulnerable transitive dependency is not the pager-worthy event a leaked
+credential is, and this job's own checks-tab entry is where it will be read.
+
+### Report and job summary
+
+Same discipline as `sast-scan`: the `.report` artifact is always complete, and the job
+summary lists the findings themselves — package, installed version, fixed version,
+severity, advisory ID — not only a count, capped at 25 combined across both tools with
+an explicit `Showing 25 of N` note naming the artifact when there are more. The two
+tools' findings are listed in **separate sections**, `[trivy]` and `[osv]`, never merged
+into one row — see [Two databases](#two-databases-deliberately-not-de-duplicated) above
+for why.
+
+### Which repositories
+
+The same eleven-repository list `secret-scan` and `sast-scan` already cover — dependency
+scanning asks a different question of the same set of live repositories, and there is
+nothing per-repository about reading a lockfile the way there is about booting an image
+for DAST.
+
+### Where the logic lives
+
+[`deps-scan/action.yml`](../.github/actions/deps-scan/action.yml) +
+[`scan.sh`](../.github/actions/deps-scan/scan.sh) hold the OSV-Scanner invocation and the
+decision logic for both tools; Trivy itself is called directly in the `deps-scan` job in
+`ci-build-trigger-switcher.yaml`, with its JSON output path and step outcome handed to
+the action as inputs. `continue-on-error: true` on that Trivy step matters structurally:
+without it, a failed Trivy step would stop the job before `deps-scan/scan.sh` ever ran,
+leaving a bare GitHub Actions step failure with no report behind it — the same reason
+Semgrep's `scan.sh` wraps its own `docker run` in `set +e` rather than letting a failure
+abort the script outright.
+
+`validate.sh`'s scanner-invocation guard now also covers OSV-Scanner: no workflow may
+run `osv-scanner scan` or `docker run … google/osv-scanner` itself, only through
+`.github/actions/deps-scan`. Trivy has no equivalent guard, on purpose — it never had a
+"wrap it in an action" rule anywhere in this repository, `deps-scan` included.
 
 ## A scanner that could not run is not a clean scan
 
