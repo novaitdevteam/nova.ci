@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ZAP context for novatalks.ui, referenced by dast/scan.sh's full) arm as
+  -n novatalks-ui.context -U nova-ci-dast (see .github/actions/dast/scan.sh).
+
+  NOT WIRED UP: .github/actions/dast/targets.sh's novatalks.ui/browser arm leaves
+  DT_ZAP_CONTEXT empty on purpose — read that arm's comment before changing this file
+  or flipping DT_ZAP_CONTEXT on. Summary of why:
+
+  1. The login request below (URL, field names, JSON body) IS verified — both against
+     this repository's own source and against the published image:
+       - src/router/login/Login.vue's login() method builds
+         { username, password, sso_auth_token, station } (NOT the "userLogin" v-model
+         name the input field uses internally) and dispatches it to
+       - src/api/auth.js's AuthAPI.login(), which POSTs that object as JSON to
+         /auth/sign_in via axios (axios serialises a plain object body as JSON by
+         default; there is no manual Content-Type override anywhere in the client).
+
+  2. The <loggedinregex>/<loggedoutregex> verification below is INTENTIONALLY EMPTY.
+     No reliable indicator exists, for a reason specific to this repository's
+     deployment shape, not a research gap:
+       - novatalks.ui ships no backend and no API base URL of any kind — grepped
+         src/configurationParams.js, src/plugins/axios.client.js and
+         docker/entrypoint.sh's injected VITE_APP_* var list: none names an API host.
+         In production the SPA and its backend (novatalks.core) share an origin
+         through an ingress this container knows nothing about; the DAST ephemeral
+         scan boots novatalks.ui alone (targets.sh sets no DT_NEEDS_DB for this arm),
+         so there is no server on the other end of /auth/sign_in at all.
+       - Confirmed live, not just by reading code: booted
+         ghcr.io/novaitdevteam/novatalks.ui:latest standalone and curled it
+         (2026-09-04). POST /auth/sign_in returned "405 Not Allowed" from nginx
+         itself. GET / , GET /auth/validate_token and GET /some/random/spa/route all
+         returned byte-identical bodies (same ETag) — nginx's
+         `try_files $uri $uri/ /index.html` serves the one static index.html shell for
+         every path, logged in or not, because Vue Router renders client-side and
+         nginx never looks at the response. There is no raw HTTP response ANYWHERE on
+         this container — not the login response, not a poll URL, not any other
+         route — that ever differs by auth state, because no server-side auth check
+         exists to produce one.
+       - Per the plan brief: "if you cannot find a reliable indicator for either, say
+         so ... and stop rather than guessing one: a wrong indicator is worse than no
+         context." A regex here would either match every response (useless) or never
+         match (indistinguishable from a correct "still anonymous" reading, but for
+         the wrong reason, and silently wrong the day a backend proxy is finally added
+         in front of this container).
+
+  3. Credentials: dast-api/scan.sh's `login` auth-mode generates a password with
+     `openssl rand` and seeds it into the container it is about to scan via
+     DEFAULT_USER_PASSWORD, because that image (novatalks.core) self-seeds an admin
+     user from that env var at boot. novatalks.ui has no server-side counterpart to
+     seed — it is a static nginx image with no user store — so that mechanism has
+     nothing to attach to here. No credential, generated or otherwise, would ever
+     authenticate against this ephemeral target; <users> is deliberately left with a
+     non-functional value rather than a placeholder that could be mistaken for a real
+     account.
+
+  Revisit this file once a task actually boots novatalks.ui next to a real backend
+  (e.g. novatalks.core) for the DAST scan, or proxies it through something that does.
+  At that point both the verification regexes and the credential need a real answer,
+  not the placeholders below.
+
+  4. UNVERIFIED AGAINST REAL ZAP: everything above is about the login-request fields
+     (URL, JSON field names) inside <authentication><config>, which genuinely are
+     verified against novatalks.ui's source and its live image. The surrounding XML
+     *structure* is not — there is no ZAP instance in this environment to export a real
+     context from or load this one into, so the <configuration>/<context> shape below
+     is written from documented ZAP conventions, not confirmed against ZAP itself.
+     Specific doubts, so the next person checks these first rather than starting from
+     scratch: a real ZAP context export is expected to also carry <tech>, <urlparser>,
+     <postparser>, <forceduser>, <session> and <authorization> elements, none of which
+     appear below; and the <users><user> line here is just "name;", where ZAP's own
+     format is documented as "id;enabled;name;credentials-json". Validate this file
+     against a real ZAP-exported context before setting DT_ZAP_CONTEXT for ANY
+     repository, novatalks.ui or otherwise — not just before trusting the parts
+     specific to novatalks.ui.
+-->
+<configuration>
+  <context>
+    <name>novatalks-ui</name>
+    <desc>Login shape for novatalks.ui's /auth/sign_in. Verification and credentials are unresolved — see the header comment. Not referenced by targets.sh.</desc>
+    <inscope>true</inscope>
+    <incregexes>.*</incregexes>
+    <excregexes></excregexes>
+    <authentication>
+      <!-- JSON-based Authentication Method: the request body is JSON, not the
+           form-urlencoded body ZAP's classic form-based method sends. -->
+      <type>4</type>
+      <config>{"loginRequestUrl":"http://127.0.0.1:8000/auth/sign_in","loginRequestBody":"{\"username\":\"{%username%}\",\"password\":\"{%password%}\",\"station\":\"no_phone\"}"}</config>
+      <verification>
+        <method>RESPONSE</method>
+        <!-- Deliberately empty — see the header comment, point 2. Do not fill these
+             in with a guess; get a real backend behind this container first. -->
+        <loggedinregex></loggedinregex>
+        <loggedoutregex></loggedoutregex>
+      </verification>
+    </authentication>
+    <users>
+      <!-- name=nova-ci-dast, matching the -U flag scan.sh always passes when a
+           context is loaded. No password: see the header comment, point 3 — nothing
+           on the other end of this container could ever check one. -->
+      <user>nova-ci-dast;</user>
+    </users>
+  </context>
+</configuration>

@@ -22,9 +22,13 @@ inputs:
     required: false
     default: "/api-docs-json"
   auth-mode:
-    description: "How the scan acquires its token: login (POST username/password, read the token from the response) or db-token (read a token straight out of the seeded database with a caller-supplied SELECT)"
+    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), db-insert (write a generated token into the seeded database with a caller-supplied INSERT, rather than depending on whatever key the image's own seeder happened to write), or env-token (generate a token before the container starts and hand it in as an environment variable, for an app that accepts any token present in a var it reads at boot — no database involved)"
     required: false
     default: "login"
+  scan-mode:
+    description: "passive (default) observes only, via zap-api-scan.py's -S safe mode. active drops -S and sends real POST/PUT/DELETE and injection payloads — only ever against the ephemeral stack this action starts and kills."
+    required: false
+    default: "passive"
   login-path:
     description: "POST route used to log in when auth-mode is login"
     required: false
@@ -41,6 +45,14 @@ inputs:
     description: "SELECT run against the seeded database when auth-mode is db-token; required in that mode"
     required: false
     default: ""
+  token-insert-sql:
+    description: "INSERT run against the seeded database when auth-mode is db-insert; %TOKEN% is replaced with a token generated for this run. Required in that mode."
+    required: false
+    default: ""
+  token-env-var:
+    description: "Environment variable the application reads its accepted API tokens from, when auth-mode is env-token. Required in that mode. novatalks.dialer uses API_ACCESS_TOKENS."
+    required: false
+    default: ""
   setup-command:
     description: "Command run inside the app container to migrate and seed the database. Leave empty — the default — when the image's own ENTRYPOINT already does it, which is the case for every image wired up so far. novatalks.core's runtime stage does not even ship npm."
     required: false
@@ -49,6 +61,10 @@ inputs:
     description: "Set SWAGGER_ENABLE=true on the app container; the engine needs it to serve its spec, a connector may have no such var at all"
     required: false
     default: "true"
+  target-repository:
+    description: "Bare name of the repository whose image is being scanned, e.g. novatalks.core. Defaults to empty, which falls back to the repository this job runs in (GITHUB_REPOSITORY) — correct for the reusable build workflow, which runs in the product repository's own context. ci-dast-pentest.yaml runs in nova.ci and must name the target explicitly, or the postgres major version is chosen for the wrong repository."
+    required: false
+    default: ""
   extra-env:
     description: "Newline-separated KEY=VALUE lines applied to the application container via -e, for per-repository env the engine's own vars don't cover"
     required: false
@@ -92,12 +108,16 @@ runs:
         DAST_HEALTH_PATH: ${{ inputs.health-path }}
         DAST_SPEC_PATH: ${{ inputs.spec-path }}
         DAST_AUTH_MODE: ${{ inputs.auth-mode }}
+        DAST_API_SCAN_MODE: ${{ inputs.scan-mode }}
         DAST_LOGIN_PATH: ${{ inputs.login-path }}
         DAST_AUTH_HEADER: ${{ inputs.auth-header }}
         DAST_AUTH_PREFIX: ${{ inputs.auth-scheme-prefix }}
         DAST_TOKEN_SQL: ${{ inputs.token-sql }}
+        DAST_TOKEN_INSERT_SQL: ${{ inputs.token-insert-sql }}
+        DAST_TOKEN_ENV_VAR: ${{ inputs.token-env-var }}
         DAST_SETUP_CMD: ${{ inputs.setup-command }}
         DAST_SWAGGER_ENABLE: ${{ inputs.swagger-enable }}
+        DAST_TARGET_REPO: ${{ inputs.target-repository }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}

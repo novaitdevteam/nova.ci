@@ -174,6 +174,20 @@ else
   echo "skip: jq not installed"
 fi
 
+section "DAST target table self-check"
+# targets.sh is the one per-repository table sourced by dast-scan, api-scan and (later)
+# the live-baseline dispatch. A wrong value is not a crash: it is a scan of the wrong
+# port that finds nothing and reports it clean, so every arm's shape is asserted here
+# and the default arm is asserted to fail rather than guess.
+if out="$(./scripts/test-dast-targets.sh 2>&1)"; then
+  printf '%s\n' "$out" | tail -1
+  echo "OK: all DAST target table scenarios passed"
+else
+  printf '%s\n' "$out"
+  echo "ERROR: DAST target table self-check failed"
+  fail=1
+fi
+
 section "DAST scan self-check"
 # The four DAST outcomes must stay distinct: a build that could not boot its own image
 # is not a clean scan. The harness stubs docker and curl, so no image is pulled. Unlike
@@ -251,22 +265,80 @@ fi
 # three scripts above. Say so rather than claim coverage this pattern does not have - a
 # guard described as stronger than it is, is worse than an honestly narrow one.
 #
-# One deliberate exemption: ci-dast-live-baseline.yaml, the same shape of carve-out as
-# ci-self-validate.yaml gets elsewhere in this file. It is a meta/ops workflow, not a
-# product build — a workflow_dispatch one-off that points the pinned ZAP image at a
-# single allowlisted live URL, not at a product image, so neither .github/actions/dast
-# (boots an image) nor .github/actions/dast-api (boots + logs in) applies. It still
-# pins the same digest and calls the shared zap_tally_parse from dast/dast-common.sh,
-# so the drift-dangerous parsing logic is not copied. Do not widen this exemption to
-# any other file.
+# Two deliberate exemptions from the blanket check below, same shape of carve-out as
+# ci-self-validate.yaml gets elsewhere in this file. Both are meta/ops workflows, not a
+# product build, and both still pin the same digest and call the shared zap_tally_parse
+# from dast/dast-common.sh, so the drift-dangerous parsing logic is not copied:
+#
+#   - ci-dast-live-baseline.yaml: a workflow_dispatch one-off that points the pinned ZAP
+#     image at a single allowlisted live URL, not at a product image, so neither
+#     .github/actions/dast (boots an image) nor .github/actions/dast-api (boots + logs
+#     in) applies. It has only the one path, so a plain file exclusion is the whole
+#     story — nothing else in it could ever call ZAP directly.
+#   - ci-dast-pentest.yaml has two paths, and only one of them — `target: live` — may
+#     call ZAP directly; `target: ephemeral` must keep routing through dast/dast-api.
+#     A file-path exclusion cannot express "this file except these lines", so instead
+#     of exempting it from the blanket check, it is exempted and separately
+#     count-checked below: exactly one direct-invocation line is allowed, the live
+#     path's zap-full-scan.py call. A second line is a direct call that landed
+#     somewhere it should not have — most likely the ephemeral path regressing — and
+#     fails the build.
+#
+# Do not widen either exemption to a third file.
 zap_offenders="$(grep -nE 'zap-baseline\.py|zap-full-scan\.py|zap-api-scan\.py|uses:.*zaproxy' .github/workflows/*.yaml \
-  | grep -v '^\.github/workflows/ci-dast-live-baseline\.yaml:' \
+  | grep -vE '^\.github/workflows/ci-dast-live-baseline\.yaml:|^\.github/workflows/ci-dast-pentest\.yaml:' \
   | grep -v ':[0-9]*: *#' || true)"
 if [ -z "$zap_offenders" ]; then
   echo "OK: no workflow runs ZAP directly"
 else
   printf '%s\n' "$zap_offenders" | sed 's/^/       /'
   echo "ERROR: these lines invoke ZAP directly; use .github/actions/dast or .github/actions/dast-api"
+  fail=1
+fi
+
+# The count assertion ci-dast-pentest.yaml's exemption above depends on: exactly one
+# direct ZAP invocation line, the target: live path's zap-full-scan.py call. This is
+# what keeps the ephemeral path honestly covered despite the file-level exemption two
+# blocks up — it does not (and cannot, from a line count alone) confirm that the one
+# line is in the live path specifically, only that a second one has not appeared
+# somewhere it should not have.
+#
+# Deliberately narrower than the blanket pattern above: anchored on the script name as
+# the line's first token (`^[[:space:]]*zap-*\.py\b`), not a bare substring match. A
+# substring match also catches this same file's own `scanner_error "zap-full-scan.py
+# exited ${zap_rc}"` — text naming the script in an error message, not a second
+# invocation — and would make the count permanently 2, which is not the constraint
+# being asserted. The real invocation is a continuation line of the `docker run ... \`
+# command above it and so starts with the script name; the error-message mention never
+# does. `[[:space:]]`, not `\s`, for the same GNU-vs-BSD reason the tally-line anchor in
+# dast-common.sh is ANSI-C quoted — GNU grep's `\s` is a non-portable extension, and
+# this file is meant to run identically on a contributor's Mac and on the Linux runner.
+# -H forces the file:line: prefix grep otherwise omits on a single-file match — without
+# it the comment-exclusion pattern below (built for the "path:line:content" shape the
+# multi-file glob above produces) silently matches nothing, and every mention of
+# zap-full-scan.py in a comment counts as an offending line too.
+pentest_zap_lines="$(grep -HnE '^[[:space:]]*zap-(baseline|full-scan|api-scan)\.py\b|uses:.*zaproxy' .github/workflows/ci-dast-pentest.yaml \
+  | grep -v ':[0-9]*: *#' || true)"
+pentest_zap_count=0
+[ -n "$pentest_zap_lines" ] && pentest_zap_count="$(printf '%s\n' "$pentest_zap_lines" | wc -l | tr -d ' ')"
+if [ "$pentest_zap_count" -eq 1 ]; then
+  echo "OK: ci-dast-pentest.yaml invokes ZAP directly exactly once (the target: live path)"
+else
+  printf '%s\n' "$pentest_zap_lines" | sed 's/^/       /'
+  echo "ERROR: ci-dast-pentest.yaml has ${pentest_zap_count} direct ZAP invocation line(s), expected exactly 1 (the target: live path's zap-full-scan.py call) — a direct call reached somewhere it should not have, most likely the target: ephemeral path"
+  fail=1
+fi
+
+# The live path is a browser full scan and nothing else: no image to boot means no spec
+# to drive zap-api-scan.py from and no token to inject. Without this rejection,
+# `surface: api` ran the same anonymous zap-full-scan.py against the host root while the
+# report banner, the job summary and the notification all said `api` — a mislabelled
+# artifact, which is worse than a missing one. Asserted here rather than left to review
+# because the label and the scan live in different steps of the file.
+if grep -q 'target=live supports surface=browser only' .github/workflows/ci-dast-pentest.yaml; then
+  echo "OK: ci-dast-pentest.yaml's live path rejects surface: api"
+else
+  echo "ERROR: ci-dast-pentest.yaml no longer rejects surface: api on the live path — a browser crawl would be reported as an API scan"
   fail=1
 fi
 

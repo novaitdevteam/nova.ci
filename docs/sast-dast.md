@@ -197,6 +197,30 @@ ZAP itself failing — a non-zero exit that is not "warnings present", or no rep
 at all — is the opposite case. Nothing about the application explains it, so it is
 broken tooling and the job goes red, exactly like a Semgrep failure.
 
+### Which repository is being scanned
+
+Both DAST actions take a `target-repository` input: the bare name of the repository
+whose image is under the scanner, e.g. `novatalks.core`. It defaults to empty, which
+falls back to the repository the job is running in (`GITHUB_REPOSITORY`).
+
+That fallback is exactly right for the reusable build workflow — it runs in the product
+repository's own context, so the two names are the same — and it is exactly wrong for
+[`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml), which runs in
+`nova.ci` and scans somebody else's published image. Two things key off the name:
+
+- **the Postgres major version.** `novatalks.core` gets `postgres:17.9-trixie`, every
+  other repository `postgres:16`. Resolved from the *runner's* name, a pentest of
+  `novatalks.core` would silently have taken `postgres:16`. The chosen image, the
+  repository it was chosen for, and where that name came from are now all printed:
+  `DAST postgres: postgres:17.9-trixie — chosen for 'novatalks.core' (from the
+  target-repository input)`.
+- **whether `GITHUB_WORKSPACE`'s `.env.example` is this application's configuration.**
+  See below. When the workspace is a checkout of a different repository, nothing is
+  seeded from it and the log says so.
+
+Both `dast-scan` and `api-scan` in the build workflow pass the input explicitly even
+though it equals their fallback, so the value never depends on who is calling.
+
 ### Seeding the app container from `.env.example`
 
 > [!NOTE]
@@ -206,9 +230,10 @@ broken tooling and the job goes red, exactly like a Semgrep failure.
 > `nova.chatsconnector.telegram-client-api`, `novatalks.dialer`) are headless repositories
 > that were **removed from the baseline on 2026-09-01** (see [Which repositories](#which-repositories)),
 > so no `Resolve DAST target` arm exercises them today. They are kept here because the
-> machinery is exactly what api-scan reuses — `nova.chatsconnector.telegram-client-api` already does, via its
-> `extra-env` in the `Resolve api-scan target` arm, and `whatsapp`, `signal` and `dialer`
-> are the tracked Phase 2. The examples are how the mechanic was established, not a claim
+> machinery is exactly what api-scan reuses — `nova.chatsconnector.telegram-client-api`,
+> `whatsapp`, `signal` and `dialer` all now have their own `extra-env` in the `Resolve
+> api-scan target` arm too (see [Four ways to acquire the token](#four-ways-to-acquire-the-token)).
+> The examples are how the mechanic was established, not a claim
 > that those repos are scanned by the baseline now. `novatalks.core`, which is kept, still exercises the `.env.example` seeding
 > and the `DATABASE_URL` build.
 
@@ -217,6 +242,20 @@ storage, among others). Rather than hardcode product-specific env vars in `scan.
 worse, a credential — the action reads the product repository's own `.env.example`, the
 same file `ci-build-ntk-on-push-tags-run-test.yaml` already trusts for integration
 tests, strips it down, and hands the survivors to `docker run --env-file`.
+
+**"The product repository's own" is a precondition, not a description.** The file is
+read out of `GITHUB_WORKSPACE`, and under the pentest workflow that workspace holds
+`nova.ci`, which has an `.env.example` of its own. Seeding it would hand the scanned
+container four unrelated variables, log a perfectly plausible `seeded 4 variable(s)`,
+and then blame the image for the boot failure it caused. So when
+[`target-repository`](#which-repository-is-being-scanned) names a repository other than
+the one checked out, `scan.sh` seeds nothing from that file and emits a `::warning::`
+saying which checkout it found. It is a warning rather than a loud skip on purpose: a
+static-nginx target like `novatalks.ui` needs no seeding at all and must still be
+scannable. If the application then does not come up, the loud skip carries the reason
+with it — *"the image did not come up within 300s — and no .env.example was seeded,
+because GITHUB_WORKSPACE holds a checkout of 'nova.ci', not of 'novatalks.core'"* — so
+the failure names our own missing input instead of the image.
 
 `.env.example` is a human-facing file, not a strict `KEY=value` format: on
 `novatalks.core` it carries `NODE_ENV=production // production, development, test`.
@@ -457,15 +496,101 @@ The console log lives under `RUNNER_TEMP`, is deleted by the same `EXIT` trap th
 removes the temporary env file, and is never uploaded — it is raw output about a
 container booted with the product repository's own environment.
 
+### `scan-mode`: baseline or full
+
+`dast/action.yml`'s `scan-mode` input (`baseline`, the default, or `full`) reaches
+`scan.sh` as `DAST_SCAN_MODE` and selects the whole ZAP invocation, not a single flag:
+
+| `scan-mode` | Script | Spider | Triage register |
+| --- | --- | --- | --- |
+| `baseline` (default) | `zap-baseline.py` | traditional | [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf) |
+| `full` | `zap-full-scan.py` | modern (`-j`) | [`zap-full-scan.conf`](../.github/actions/dast/zap-full-scan.conf) |
+
+`zap-baseline.py` carries no active scanner at all — it only observes. `zap-full-scan.py`
+adds the whole active rule set on top of the passive one: injection, path traversal,
+command execution, the classes `baseline` never reaches. `-j` matters independently of
+that: it swaps ZAP's traditional spider for the modern, browser-driven one, which is the
+only way a single-page application is more than one page to ZAP. nginx serves
+`index.html` for every route and the traditional spider has no JavaScript engine to
+follow it with, so a SPA scanned without `-j` is one page regardless of which script ran.
+
+The exit ladder and the tally line are identical between the two scripts — verified
+against `zap-full-scan.py:480` (the tally) and `:511-522` (the exit codes) rather than
+assumed — which is why
+[`dast-common.sh`](../.github/actions/dast/dast-common.sh) and the `0|1|2` exit `case`
+are shared unchanged between both modes; see
+[Where the ZAP counts come from](#where-the-zap-counts-come-from) above. An unrecognised
+`scan-mode` is a scanner error, never a silent fallback to `baseline`.
+
+> [!IMPORTANT]
+> **`full` is not a penetration test either.** It sends real attack payloads — but only
+> ever against the ephemeral container this action starts and kills for the job, never a
+> deployed environment — and it is still unauthenticated: it attacks the same anonymous
+> surface the baseline observes, so it still cannot see a broken authorization check or
+> any logic flaw behind a login. It finds more than the baseline on the same surface, not
+> a different surface.
+
+### `zap-context`: teaching the crawl to log in
+
+> [!NOTE]
+> The table's `DT_ZAP_CONTEXT` is bridged to this input by
+> [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml)'s `Resolve target`
+> step (`zap_context` output → `zap-context:` on the browser scan step). It was not, for
+> a while: the table could set a value, the harness could assert it, and the scan would
+> still have crawled anonymously with no signal anywhere. `scripts/test-dast-targets.sh`
+> now asserts both directions — every `DT_*` the table sets is emitted by that step, and
+> every key that step emits is passed on to a scan step. The build workflow's
+> `dast-scan` runs in `baseline` mode, where `zap-context` is not consulted at all, so it
+> has nothing to bridge.
+
+`dast/action.yml`'s `zap-context` input (empty by default) names a file under
+[`.github/actions/dast/contexts/`](../.github/actions/dast/contexts/). When `scan-mode` is
+`full` and this is set, `scan.sh` copies that file into `RUNNER_TEMP` and appends
+`-n <file> -U nova-ci-dast` to the `zap-full-scan.py` invocation — `nova-ci-dast` is the
+one user name every context in this repository defines, never a per-repository value. A
+context tells ZAP a login URL, the field names to POST, and a regex pair — one that
+matches only while logged in, one that matches only while logged out — so the crawl can
+tell the two states apart.
+
+> [!WARNING]
+> **A context needs both regexes or it is worse than no context.** With only one, ZAP can
+> silently crawl as an anonymous user while the run still looks configured for
+> authentication — the same "authenticated-looking, completely blind" shape as an
+> unquoted `-z` replacer in `dast-api` (further down this page, the `-z` replacer values
+> are single-quoted in `scan.sh` for exactly this reason). `-n` and `-U` travel together
+> in `scan.sh` for the same reason: a context loaded with no user selected scans as
+> nobody while looking configured.
+
+[`contexts/novatalks-ui.context`](../.github/actions/dast/contexts/novatalks-ui.context)
+exists and documents the one login request this repository has verified — both against
+`novatalks.ui`'s own source and against its published image — but it is **not** wired
+into [`targets.sh`](../.github/actions/dast/targets.sh): that arm leaves `DT_ZAP_CONTEXT`
+empty, and the context file's own header comment explains why in full. In short,
+`novatalks.ui` is a static SPA with no backend of its own; the ephemeral DAST scan boots
+it alone (no database, no proxy), so `/auth/sign_in` has nothing behind it — confirmed
+live (`POST /auth/sign_in` → `405 Not Allowed`) as well as in source (no API base URL is
+configured anywhere in the client). Every route nginx serves is a byte-identical static
+shell, logged in or not, because the SPA renders the difference client-side where no HTTP
+response ZAP can regex-match ever reflects it. There is consequently no reliable
+`loggedInIndicatorRegex`/`loggedOutIndicatorRegex` pair for this deployment shape, and per
+the warning above, guessing one would be worse than leaving the context unwired. Revisit
+once `novatalks.ui` is scanned alongside a real backend (or through something proxying to
+one). Separately from the login-request fields above, the context file's surrounding XML
+*structure* is written from documented ZAP conventions with no ZAP instance available to
+verify it against — the file's own header names the specific elements to check first.
+
 ### Recording a decision about a finding
 
 A scanner that can only ever add to its count is one people stop reading. Both scanners
 have a way to write down "this is accepted" or "this must be fixed", and both keep that
 decision in version control next to a reason.
 
-**ZAP — [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf).** Every rule
-defaults to `WARN`; an entry overrides that for one rule ID. The grammar is
-TAB-separated with at least three fields:
+**ZAP — [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf) for `baseline`
+mode, [`zap-full-scan.conf`](../.github/actions/dast/zap-full-scan.conf) for `full`
+mode.** The two are never interchangeable: the active scanner loads a rule set the
+passive one never reaches, so an `IGNORE` written for one is not a decision made for the
+other. Every rule defaults to `WARN`; an entry overrides that for one rule ID. The
+grammar is TAB-separated with at least three fields, identical in both files:
 
 ```
 <rule_id>	<LEVEL>	<why this decision was made, and who accepted it>
@@ -480,19 +605,23 @@ TAB-separated with at least three fields:
 | `IGNORE` | accepted risk — write the reason; see below |
 | `PASS` | treated as passing |
 
-The file ships with no entries, so it changes nothing until someone adds a line. Adding
-one is a risk-acceptance decision, not a CI change.
+Both files ship with no entries, so neither changes anything until someone adds a line.
+Adding one is a risk-acceptance decision, not a CI change.
 
 The reason is a **review-time obligation, not a parsed one.** `10038<TAB>IGNORE<TAB>` with an
 empty third field is accepted by `scan.sh`, because ZAP itself accepts it and this
 validator must never reject a register ZAP would load. Nothing mechanical will stop an
 unexplained `IGNORE`; the pull request is what stops it.
 
-Rule IDs are not written from memory. Generate the list the pinned image actually loads:
+Rule IDs are not written from memory. Generate the list the pinned image actually loads,
+against the script for the mode the register belongs to:
 
 ```bash
 docker run --rm -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
     zap-baseline.py -t http://example.com -g zap-rules.conf
+# or, for zap-full-scan.conf:
+docker run --rm -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+    zap-full-scan.py -t http://example.com -g zap-rules.conf
 ```
 
 `scan.sh` validates the shape of every line before anything is booted — at least two
@@ -618,18 +747,24 @@ first. Those are per-repository inputs on
 established against the real runtime image — a wrong path scans an error page and
 reports it clean, which is the failure this whole design is built to avoid.
 
-These per-repository values are resolved by a **`Resolve DAST target`** step in
-`dast-scan`, following the same house pattern as `Resolve scan policy` in `trivy-scan`
-and `Resolve test plan` in the test workflow: a `case "$REPO_NAME"` in bash, one arm per
-repository, every value set explicitly (no arm inherits from another), writing `port`,
-`health_path`, `needs_db`, `needs_nats` and `extra_env` to `$GITHUB_OUTPUT`. This
-replaced a chain of inline ternaries that did not scale past two repositories. The
-default arm is not a fallback: a repository that reaches `dast-scan` with no configured
-arm is a wiring mistake, and guessing a port would scan nothing and report it clean — so
-the default arm emits `::error::` and exits non-zero instead. `pg-image` stays a
-two-branch ternary (`postgres:17.9-trixie` for `novatalks.core`, the action's
-`postgres:16` default for everyone else) rather than a resolver arm, since it only ever
-has two truthy branches.
+These per-repository values are resolved by
+[`dast/targets.sh`](../.github/actions/dast/targets.sh)'s `dast_resolve_target <repo>
+<api|browser>`: a `case "${repo}/${surface}"` in bash, one arm per repository/surface
+pair, every value set explicitly (no arm inherits from another), setting `DT_PORT`,
+`DT_HEALTH_PATH`, `DT_NEEDS_DB`, `DT_NEEDS_NATS` and `DT_EXTRA_ENV` (among others) in the
+caller's scope. The **`Resolve DAST target`** step in `dast-scan` sources it and writes
+those to `$GITHUB_OUTPUT`, following the same house pattern as `Resolve scan policy` in
+`trivy-scan` and `Resolve test plan` in the test workflow. The table is a single sourced
+file rather than a `case` inline in each step because it now has three consumers —
+`dast-scan`'s browser surface, `api-scan`'s api surface, and the live-baseline dispatch —
+and a copy in each step is a copy that drifts: a port fixed in one and not the others
+silently reverts to guessing. This replaced a chain of inline ternaries that did not
+scale past two repositories. The default arm is not a fallback: a repository/surface
+pair that reaches a scan with no configured arm is a wiring mistake, and guessing a port
+would scan nothing and report it clean — so the default arm emits `::error::` and returns
+non-zero instead. `pg-image` stays a two-branch ternary (`postgres:17.9-trixie` for
+`novatalks.core`, the action's `postgres:16` default for everyone else) rather than a
+resolver arm, since it only ever has two truthy branches.
 
 Adding a fourth repository to the baseline needs an explicit request, a real browser
 surface worth spidering, **and a boot probe first** — port and health path verified
@@ -647,12 +782,18 @@ green line was measuring almost nothing while reading as coverage.
 
 Their real coverage is the authenticated **[api-scan](#api-scanning-authenticated-zap)**,
 which walks an OpenAPI spec rather than spidering pages. It ships today for
-`novatalks.core` (`login`) and `nova.chatsconnector.telegram-client-api` (`db-token`);
-extending it to the remaining connectors that publish a spec (`whatsapp`, `signal`,
-`dialer`) is the tracked **Phase 2**, each a per-repository integration — seed data, its
-own token model, the spec endpoint — verified against that repository's own code, never
-assumed from telegram's. `novatalks.uspacy.connector` and `novatalks.geoip-api` publish no
-OpenAPI spec, so they have no api-scan path either.
+`novatalks.core` (`login`), `nova.chatsconnector.telegram-client-api` (`db-token`),
+`nova.chatsconnector.whatsapp-client-api` and `…signal-client-api` (`db-insert`), and
+`novatalks.dialer` (`env-token`) — each wired into `targets.sh` as its own per-repository
+integration: seed data, its own token model, the spec endpoint, all verified against that
+repository's own code, never assumed from telegram's or from each other's (`whatsapp` and
+`signal` share a token schema, but `signal` diverges on health path and boot env — see
+[Four ways to acquire the token](#four-ways-to-acquire-the-token)). `novatalks.uspacy.connector`
+and `novatalks.geoip-api` publish no OpenAPI spec — no `@fastify/swagger`-equivalent
+dependency anywhere in `novatalks.geoip-api`'s single-file `index.js`/`package.json`, verified
+directly — so `zap-api-scan.py -f openapi`, which has no spider fallback, has nothing to
+discover routes from. Neither has an api-scan path; adding one without a spec would only
+ever produce a guaranteed, permanent loud skip.
 
 Their boot inputs are kept here rather than deleted: each was established against the
 deployment chart or the Dockerfile, and the api-scan expansion will reuse them.
@@ -762,24 +903,27 @@ parse as the baseline, driven a different way. It is
 [`dast-api/action.yml`](../.github/actions/dast-api/action.yml) +
 [`scan.sh`](../.github/actions/dast-api/scan.sh), run by the `api-scan` job.
 
-**Opt-in, two repositories today.** It runs when the triggering tag ref starts with
-`apiscan` and the repository is `novatalks.core` **or**
-`nova.chatsconnector.telegram-client-api` — never on any other repository and never
-automatically on a trunk build. The authenticated run against a seeded stack is a
+**Opt-in, five repositories today.** It runs when the triggering tag ref starts with
+`apiscan` and the repository is `novatalks.core`, `nova.chatsconnector.telegram-client-api`,
+`…whatsapp-client-api`, `…signal-client-api` or `novatalks.dialer` — never on any other
+repository and never automatically on a trunk build. The authenticated run against a seeded stack is a
 hundreds-of-operations scan, not something every build should pay for. Every per-repository
 value (port, health path, spec path, auth mode, header, scheme prefix, token query, setup
-command, swagger toggle) is resolved in the `Resolve api-scan target` step's `case` in
-[`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml),
-one arm per repository; the default arm fails loudly rather than guessing.
+command, swagger toggle) is resolved by the same
+[`dast/targets.sh`](../.github/actions/dast/targets.sh) table the baseline above uses —
+`dast_resolve_target <repo> api` — one arm per repository, read by the `Resolve api-scan
+target` step in
+[`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml);
+the default arm fails loudly rather than guessing.
 
 ```bash
 git tag apiscan-NC2-1234
 git push origin apiscan-NC2-1234   # builds the image, then the authenticated API scan
 ```
 
-### Two ways to acquire the token
+### Four ways to acquire the token
 
-The token that authenticates the scan is obtained by one of two `auth-mode`s, and the
+The token that authenticates the scan is obtained by one of four `auth-mode`s, and the
 header it is injected under is a per-repository input — a connector's is not the engine's:
 
 - **`login` (`novatalks.core`).** `scan.sh` POSTs the generated admin's username/password
@@ -790,6 +934,41 @@ header it is injected under is a per-repository input — a connector's is not t
   straight out of it with a caller-supplied `SELECT` (`tokens.api_token` joined to the
   `SUPER_ADMIN` role). It is injected **raw — no scheme prefix** — under the connector's
   own `api_access_token` header.
+- **`db-insert` (`nova.chatsconnector.whatsapp-client-api` and `…signal-client-api`).**
+  Both connectors share the same `tokens`/`token_roles` schema (`token.model.ts`,
+  `token-role.model.ts`, `tableName: 'tokens'`/`'token_roles'`, `schema: 'public'`) and the
+  same `api_access_token` header (`roles.guard.ts`), verified independently in each
+  repository rather than assumed from the other. Both Dockerfiles run
+  `npm prune --omit=dev` in the runtime stage, which removes `ts-node`, but their
+  entrypoints still migrate and seed themselves — `node dist/scripts/run-seed.js up`, a
+  compiled seeder, not one driven by `ts-node` — so a `super_admin`-role token does exist
+  in the database by the time the health probe passes. `db-insert` is used anyway: `scan.sh`
+  generates its own token (`nova-ci-apiscan-$(openssl rand -hex 24)`) and writes it in with
+  a caller-supplied `INSERT` (the `token-insert-sql` input, `%TOKEN%` substituted in before
+  it runs, `role_id` filled from a `SELECT id FROM token_roles WHERE role = 'super_admin'`
+  subquery — lowercase, per `token-role.enum.ts`, unlike the telegram connector's
+  uppercase `SUPER_ADMIN`), rather than depending on the seeder's own `findOrCreate` key
+  staying exactly as it is today. A failed `INSERT` is a loud skip, not a scanner error —
+  it means the migration never created the table, a broken setup rather than a finding.
+  The value is generated for this run only and lives in a database that dies with the
+  container: nothing is stored, nothing to rotate.
+- **`env-token` (`novatalks.dialer`).** No seed at all, but not "no database" either:
+  `novatalks.dialer`'s `src/auth/auth.middleware.ts` always queries
+  `prismaService.accessTokens.findFirst` first, for every request carrying the header —
+  that query just finds nothing, because nothing was ever seeded into it. The request is
+  still authenticated because the header value is also checked against
+  `app.apiAccessTokens`, which `src/config/app.config.ts` builds by splitting the
+  `API_ACCESS_TOKENS` environment variable; either the DB row or the env-list match is
+  enough, and only the *outbound call to the engine* (`fetchTokenInfo`) is skipped when
+  one of them hits — the DB lookup itself is never skipped. That is why this arm still
+  needs `needs-db: true` despite seeding no token anywhere. Every other mode acquires its
+  token *after* the application container boots;
+  this is the one mode that cannot, because the application only ever reads the variable
+  once, at its own startup. So `scan.sh` generates the token and masks it before the
+  container exists at all — right beside `ADMIN_PASS` — and the container-start step
+  appends it with `-e <token-env-var>=<token>`. The same value is then injected into ZAP
+  exactly as every other mode's token is. A missing `token-env-var` is a scanner error, not
+  a scan without auth: there is no variable name to generate a value for.
 
 > [!CAUTION]
 > **The Postgres image must be one whose entrypoint actually starts Postgres.** It was
@@ -847,34 +1026,56 @@ header it is injected under is a per-repository input — a connector's is not t
 > harness reproduces ZAP's own `shlex.split`; grepping the raw string passes either way,
 > which is how it survived review.
 
-The injected header, the scheme prefix and the token `SELECT` are all per-repository
-**inputs**, not constants. Both modes end with a bare token that `scan.sh` masks with
-`::add-mask::` before first use, and both treat an **empty token** — a login that returned
-none, or a `SELECT` that matched no row — as a loud skip (`not-run`), never a scan without
-auth.
+The injected header, the scheme prefix and the token `SELECT`/`INSERT` are all
+per-repository **inputs**, not constants. All four modes end with a bare token that
+`scan.sh` masks with `::add-mask::` before first use, and `login`/`db-token` both treat an
+**empty token** — a login that returned none, or a `SELECT` that matched no row — as a
+loud skip (`not-run`), never a scan without auth. `db-insert` and `env-token` cannot
+produce an empty token (both are generated locally, never read back), so their own failure
+modes are a missing prerequisite instead: `db-insert`'s is a failed `INSERT` (`not-run` —
+the migration never created the table to insert into, or the `role_id` subquery matched no
+row; **psql's own output is captured and printed** rather than discarded, because a loud
+skip that guesses at one cause out of several is a dead end, and the generated token is
+`::add-mask::`ed **before** it is interpolated into the statement, since that failure path
+prints text psql quotes the statement back into), `env-token`'s is a missing
+`token-env-var` name (a **scanner error**, since there is nothing to generate a token
+for — a broken configuration, not a scan that ran without one).
 
 > [!IMPORTANT]
 > **Each connector's auth model is read from its own code before its arm is written (D7).**
 > Telegram's shape — a `db-token` read from a `tokens` table and injected under
-> `api_access_token` — is **not** assumed for the Sequelize connectors (`whatsapp`,
-> `signal`) or `novatalks.dialer`, which are the tracked **Phase 2**. Each of those has its
-> token storage, header name and seed path verified against its own code before an arm is
-> added. Copying telegram's shape onto them is exactly the mistake this rule exists to
-> prevent.
+> `api_access_token` — was **not** assumed for the Sequelize connectors (`whatsapp`,
+> `signal`) or `novatalks.dialer`. Each had its token storage, header name and seed path
+> verified against its own code before its arm was added — including `signal`, which was
+> expected to match `whatsapp` and was checked anyway: same `roles.guard.ts`, same
+> `token.model.ts`/`token-role.model.ts` shape, but no health controller at all (`/` is
+> its health path, not `/health`) and a `Joi` env-validation schema `whatsapp` has no
+> equivalent of. Copying telegram's shape, or one connector's shape onto the other, is
+> exactly the mistake this rule exists to prevent.
 
 - **Authenticated, with no stored credential.** In `login` mode the admin password is
   `openssl rand`-generated in `scan.sh` for this run only and used once; in `db-token` mode
-  the seeded token never leaves the ephemeral database until the `SELECT` reads it. Either
-  way the token reaches ZAP only as a request-header replacer rule on the `docker run`
-  command line — and ZAP echoes that rule, token included, back on its own stdout. Since
+  the seeded token never leaves the ephemeral database until the `SELECT` reads it; in
+  `db-insert` mode the token is generated the same way the admin password is and written
+  into a database that dies with the container; in `env-token` mode the token is generated
+  the same way and handed to the application container as an environment variable, never
+  written anywhere else — in every mode, nothing is ever stored, nothing to rotate.
+  Either way the token reaches ZAP only as a request-header replacer rule on the
+  `docker run` command line — and ZAP echoes that rule, token included, back on its own
+  stdout. Since
   this repository is public, that stdout is a GitHub-persisted, world-readable step log the
   instant it is written, which is why `scan.sh` masks the token with `::add-mask::` the
   moment it is acquired and deletes the local console file on exit — belt and suspenders,
   not the only guard.
-- **Safe mode only (`-S`).** `zap-api-scan.py` runs passive — it observes requests and
-  responses, it does not write. Without `-S` the same tool active-scans, sending real
-  `POST`/`PUT`/`DELETE` against the seeded API using the very session this script just
-  created. `-S` is mandatory and the harness asserts it is passed.
+- **Safe mode by default (`-S`), active as a deliberate exception.** `zap-api-scan.py`
+  runs passive by default — it observes requests and responses, it does not write. The
+  `scan-mode` input (`passive`, the default, or `active`) reaches `scan.sh` as
+  `DAST_API_SCAN_MODE`; `active` drops `-S`, and the same tool then sends real
+  `POST`/`PUT`/`DELETE` and injection payloads against the seeded API using the very
+  session this script just created. That is safe only because the stack is ephemeral —
+  this action starts and kills it — so `active` is never the default and an unrecognised
+  mode is a scanner error, not a silent fallback to either one. The harness asserts both
+  directions: `-S` present when unset, absent under `active`.
 - **Spec-driven (`-f openapi`).** The scan walks the real routes the application publishes
   at its spec path (`/api-docs-json`), not a spider — a backend API has no pages to spider.
   Serving that spec can be conditional: the engine needs `SWAGGER_ENABLE=true` (its
@@ -940,6 +1141,122 @@ The drift-dangerous part — the tally-line parse — is sourced from
 so this out-of-band workflow cannot silently disagree with the two in-pipeline scanners
 about what a completed scan looks like.
 
+## Pentest (active scan)
+
+Every scan on this page so far — the baseline, the authenticated `api-scan`, the live
+baseline — is passive: it observes and comments on responses, never sends a payload
+meant to break something. **The pentest workflow** is the one exception, and it exists
+as its own file for that reason: [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml)
+drives the same two composite actions (`dast`, `dast-api`) with `scan-mode: full` /
+`scan-mode: active`, which drops the safe-mode guard and sends real injection,
+traversal, command-execution and `POST`/`PUT`/`DELETE` payloads against whatever it is
+pointed at.
+
+```text
+Actions → DAST Pentest (active scan) → Run workflow → repository, surface, image_tag
+```
+
+- **Manual only.** `workflow_dispatch`, no `schedule:`. An attacking scan is a decision
+  somebody makes, with an actor and a timestamp against the run — never something a
+  branch push or a cron tick triggers on its own.
+- **No free-text URL input, anywhere.** `repository` is a `type: choice` dropdown and
+  the port, health path, spec path and auth wiring are all derived from it through the
+  same [`dast_resolve_target`](../.github/actions/dast/targets.sh) table the trunk
+  build uses — an attacking scanner that cannot be pointed anywhere cannot be pointed
+  somewhere it must not go, which is a stronger guarantee than any regex on a string
+  input would be. `target: live` does add a real host to the picture, but it is picked
+  from a one-host allowlist inside the workflow file, never typed — see
+  [Live target](#live-target-real-writes-against-a-real-host) below. `image_tag` is
+  **required for `target: ephemeral`** and names the exact published tag to scan, never
+  a host — there is no "leave blank for the most recent" lookup, and it is unused (and
+  may be left blank) for `target: live`, which has no image at all. That was tried and
+  reverted: this
+  repository's own `GITHUB_TOKEN` cannot read a package published by a *different*
+  repository, and the registry's own tag list is not date-ordered, so a "most recent"
+  heuristic built on it could silently pick an arbitrary old image and report the scan
+  as current — the exact "a scan that could not run looks exactly like a clean one"
+  failure this page's [scanner-that-could-not-run](#a-scanner-that-could-not-run-is-not-a-clean-scan)
+  rule exists to refuse. Naming the tag by hand is the fix.
+- **Ephemeral by default, live behind a typed confirmation.** The `target` input
+  defaults to `ephemeral`: a GHCR image this workflow boots on the runner and tears
+  down — the same isolated stack the trunk `dast-scan` / `api-scan` jobs use, just with
+  the safe-mode guard removed. Setting `target: live` instead points the same active
+  scan at a real, running host. See [Live target](#live-target-real-writes-against-a-real-host)
+  below — it is not a smaller version of the same decision, it is a different one.
+- **What "active" means.** For `target: ephemeral`, `surface: browser` runs
+  `zap-full-scan.py` with the modern spider and the active rule set (`dast/action.yml`'s
+  `scan-mode: full`), and `surface: api` runs `zap-api-scan.py` with `-S` dropped
+  (`dast-api/action.yml`'s `scan-mode: active`). Both run only against the ephemeral
+  container this workflow itself starts and kills — see
+  [`scan-mode`: baseline or full](#scan-mode-baseline-or-full) and
+  [Four ways to acquire the token](#four-ways-to-acquire-the-token) for what each mode
+  changes. **`target: live` is browser-surface only** and rejects `surface: api`
+  outright; see [Live target](#live-target-real-writes-against-a-real-host).
+- **What it still cannot find.** An active ZAP scan has no model of what an endpoint is
+  *for*. It finds routes that mishandle a malformed or hostile input — the same class of
+  bug the passive scan's header/cookie checks miss — but it does not find **IDOR**, does
+  not find **privilege escalation**, and does not find any other **business-logic
+  flaw**, because none of those are visible from the outside without knowing what the
+  correct behaviour was supposed to be. This is not a penetration test; it is a passive
+  scanner's active sibling, still bounded by the same "no model of intent" limit called
+  out for `api-scan` above.
+- **The report and notification follow the live-baseline pattern**, not the trunk
+  build's: there is no release to attach to (no build ran), so the `.report` is a run
+  artifact only (`if-no-files-found: warn`), and the notification is composed after the
+  upload so it can carry the artifact's own download link, not just the run's.
+
+### Live target: real writes against a real host
+
+Setting `target: live` points the same active scan at a real, running host instead of
+an ephemeral container. **Say this plainly: an active scan performs real writes and
+deletions** — entities get created, settings get changed, data can be broken. It is
+not a hypothetical side effect; it is what an active ZAP scan does by design. The whole
+reason this mode is acceptable at all is that the allowlisted host is a dedicated
+security-testing instance, never production. Adding a second host to that allowlist is
+a separate decision made by editing the `case` in `ci-dast-pentest.yaml`, never a
+runtime choice.
+
+- **The allowlist is the whole safety mechanism.** One host —
+  `novatalks-security.cloud.novatalks.com.ua` — named in a `case` inside
+  `ci-dast-pentest.yaml` and nowhere else, keyed off `repository` (`novatalks.core` and
+  `novatalks.ui` today). The same shape as `ci-dast-live-baseline.yaml`'s allowlist, and
+  the same reason: a scanner that can be pointed anywhere eventually is.
+- **Typing the host name back is the confirmation.** The `confirm` input must equal the
+  allowlisted host exactly, checked before anything is scanned. This cannot be done by
+  accident, and it cannot be done without reading which host is about to be attacked —
+  a checkbox or a `type: boolean` would fail both tests.
+- **`surface: api` is rejected, not relabelled.** The live path runs `zap-full-scan.py`
+  straight at the host: there is no image to boot, so no seeded database to read a token
+  out of and no `spec-path` to drive `zap-api-scan.py` from. Before this was refused,
+  `surface: api` ran the same anonymous browser crawl against the host root while the
+  report banner, the job summary (`- Surface: \`api\``) and the notification all said
+  `api` — the operator asked for the authenticated OpenAPI attack, got a crawl, and a
+  clean crawl reported `🟢 clean`. A mislabelled artifact is worse than a missing one, so
+  the `Validate live target` step fails the dispatch with a message naming the reason.
+  Use `target: ephemeral` for the authenticated API attack. `scripts/validate.sh` asserts
+  the rejection is still there.
+- **`image_tag` is unused.** There is no image to boot for a live scan; the host is
+  already running. Leaving `image_tag` blank is correct for `target: live` — it stays
+  optional at the input level, and the `Resolve target` step (which only runs for
+  `target: ephemeral`) is what enforces it there instead.
+- **The scan runs `zap-full-scan.py` directly**, the one place in this workflow — or in
+  any workflow in this repository other than `ci-dast-live-baseline.yaml` — that
+  invokes ZAP without going through `.github/actions/dast` or `.github/actions/dast-api`.
+  Neither composite action applies: there is no image to boot, no database to bring up,
+  no token to seed. `scripts/validate.sh`'s guard against invoking ZAP directly carries
+  a second named exemption for exactly this file's live path, next to the existing one
+  for `ci-dast-live-baseline.yaml`. The tally-line parse still comes from
+  [`dast-common.sh`](../.github/actions/dast/dast-common.sh)'s `zap_tally_parse`, never
+  re-implemented, and the exit ladder is the same `0|1|2` accepted / anything else an
+  error.
+- **Unmistakable three months later.** The report's first line, the job summary
+  banner, and the notification all open with
+  `⚠️ LIVE TARGET <host> — this scan performed real writes. Dispatched by <actor>.` A
+  report that could be mistaken for an ephemeral run is the exact failure this
+  requirement exists to prevent — nothing about a clean-looking ZAP report otherwise
+  says whether it came from a throwaway container or a scan that just mutated real
+  data.
+
 ## Where the reports are
 
 All three scanners publish onto the **one release the build already creates**, because
@@ -957,7 +1274,7 @@ https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><s
 | Trivy | `trivy-<repo>-<ref><suffix>-<sha>.report` |
 | Semgrep | `semgrep-<repo>-<ref><suffix>-<sha>.report` |
 | ZAP baseline | `zap-<repo>-<ref><suffix>-<sha>.report` |
-| ZAP API scan (`apiscan*`, `novatalks.core` + telegram connector) | `zap-api-<repo>-<ref>-<sha>.report` |
+| ZAP API scan (`apiscan*`, `novatalks.core`, telegram, whatsapp, signal or dialer) | `zap-api-<repo>-<ref>-<sha>.report` |
 
 > [!NOTE]
 > **The `TRIVY.SCAN_` release-tag prefix is historical.** It now carries three
@@ -992,7 +1309,7 @@ build already sends — see [Notifications](notifications.md).
 | `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |
 | `🕷 DAST (ZAP API): 🟢 clean · <n> operations · <n> info · <n> accepted` | authenticated API scan ran, no must-fix or warning findings |
 | `🕷 DAST (ZAP API): 🟡 <n> warnings` / `🔴 <n> must-fix · <n> warnings` / `⚠️ not run — <reason>` / `❌ scanner failed — <reason>` | the same four states as the baseline, worded by `dast-api/scan.sh` |
-| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on a covered repo (`novatalks.core`, telegram connector) |
+| `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on a covered repo (`novatalks.core`, telegram, whatsapp, signal, dialer) |
 
 The text is composed inside each `scan.sh`, not in the workflow, so the harnesses cover
 it — the same reason the [secret-scan alert](secret-detection.md#the-secret-scan-notify-job)

@@ -56,6 +56,14 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
         case "$*" in
             *db:setup*) printf '%s\n' "${SHIM_DBSETUP_OUT:-}"; exit "${SHIM_DBSETUP_RC:-0}" ;;
             *pg_isready*) exit "${SHIM_PG_READY_RC:-0}" ;;
+            *"INSERT INTO"*)
+                # psql quotes the offending statement back on error (ERROR: ... / LINE 1:
+                # <the statement>), token and all. That is the whole reason the mask has to
+                # precede the INSERT rather than follow it, so the shim reproduces it.
+                if [ "${SHIM_INSERT_RC:-0}" != "0" ]; then
+                    printf 'ERROR:  relation "tokens" does not exist\nLINE 1: %s\n' "$*"
+                fi
+                exit "${SHIM_INSERT_RC:-0}" ;;
             *"psql -tAq"*)
                 printf '%s\n' "${SHIM_TOKEN_SQL_RESULT-}"
                 exit 0 ;;
@@ -306,6 +314,109 @@ SHIM_TOKEN_SQL_RESULT="" \
 # db-token mode with no token-sql is a broken configuration, not a scan: fail loud.
 DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="" expect "db-token without token-sql is a scanner error" error 2
 
+# --- db-insert: write our own row rather than depend on the image's seeder -------------
+# whatsapp and signal prune ts-node out of the runtime image, but their entrypoints still
+# migrate and seed themselves through the compiled JS in dist/ — a token row very likely
+# exists. It is just not one we chose: db-token would have to guess its role value and
+# column shape out of a seeder we do not own, and a guess that misses SELECTs nothing.
+DAST_AUTH_MODE=db-insert DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
+DAST_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id) VALUES ('%TOKEN%', 1);" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "db-insert mode: write a token, then scan" clean 0
+
+# The token is generated here, never taken from the repository or the image, so there is
+# no value to leak and nothing to rotate.
+if grep -qE "^exec .*INSERT INTO tokens" "$WORK/dockerlog"; then
+    echo "ok   db-insert runs the caller's INSERT"; pass=$((pass + 1))
+else
+    echo "FAIL db-insert never inserted anything"; fail=$((fail + 1))
+fi
+if grep -qE "^exec .*%TOKEN%" "$WORK/dockerlog"; then
+    echo "FAIL the %TOKEN% placeholder reached the database unsubstituted"; fail=$((fail + 1))
+else
+    echo "ok   %TOKEN% is substituted before the INSERT runs"; pass=$((pass + 1))
+fi
+
+# Same rule as every other mode: the generated value is masked before anything can echo it.
+# Matched by the "nova-ci-apiscan-" prefix scan.sh generates it with (Step 3), not by
+# position: scan.sh always masks ADMIN_PASS first (unconditionally, every mode, before
+# any container exists) and TOKEN second. Grabbing "the first" or "the last" ::add-mask::
+# line both pass by accident here — ADMIN_PASS also appears in dockerlog on the nova-app
+# `docker run` line, so either position check is satisfied whether or not TOKEN itself
+# was ever masked at all. Matching the token's own shape is the only way this assertion
+# fails when it should.
+mask_line=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
+if [ -n "$mask_line" ] && grep -qF "$mask_line" "$WORK/dockerlog"; then
+    echo "ok   the generated token is masked and is the one injected"; pass=$((pass + 1))
+else
+    echo "FAIL the generated token was not masked, or not the one used"; fail=$((fail + 1))
+fi
+
+# The mask has to precede the INSERT, not follow it. The token is interpolated into the
+# statement and handed to `docker exec`, and the failure path prints psql's own output —
+# which quotes the statement back, token included. nova.ci is public, so a mask emitted
+# after that point protects nothing that has already been written.
+DAST_AUTH_MODE=db-insert DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
+DAST_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id) VALUES ('%TOKEN%', 1);" \
+SHIM_INSERT_RC=1 \
+    expect "db-insert: a failed INSERT is a loud skip" not-run 0
+insert_token=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
+# `|| true` on both: with pipefail set, a grep that matches nothing aborts the whole
+# harness instead of failing this one assertion — and "matches nothing" is exactly what
+# the mutation of this guard produces, so without it the guard could never be watched
+# to fail cleanly.
+mask_ln=$(grep -nF "::add-mask::${insert_token:-__none__}" "$WORK/log" | head -1 | cut -d: -f1 || true)
+echo_ln=$(grep -nF "${insert_token:-__none__}" "$WORK/log" | grep -v '::add-mask::' | head -1 | cut -d: -f1 || true)
+if [ -n "$insert_token" ] && [ -n "$mask_ln" ] && [ -n "$echo_ln" ] && [ "$mask_ln" -lt "$echo_ln" ]; then
+    echo "ok   the db-insert token is masked before anything can echo it"; pass=$((pass + 1))
+else
+    echo "FAIL the token reached the log before its ::add-mask:: (mask line ${mask_ln:-none}, first echo line ${echo_ln:-none})"
+    fail=$((fail + 1))
+fi
+# A loud skip nobody can act on is a dead end, and "the migration may not have created
+# the table" was a guess: the role_id subquery matching no row fails identically.
+if grep -q 'relation "tokens" does not exist' "$WORK/log"; then
+    echo "ok   psql's own output is printed, not discarded"; pass=$((pass + 1))
+else
+    echo "FAIL the INSERT failure printed no evidence"; fail=$((fail + 1))
+fi
+if grep -q 'role subquery matched no row' "$WORK/report"; then
+    echo "ok   the skip names both plausible causes, not one guess"; pass=$((pass + 1))
+else
+    echo "FAIL the skip still names a single guessed cause"; fail=$((fail + 1))
+fi
+
+# A mode with no INSERT is a broken configuration, not a scan without auth.
+DAST_AUTH_MODE=db-insert DAST_TOKEN_INSERT_SQL="" \
+    expect "db-insert without token-insert-sql is a scanner error" error 2
+
+# --- env-token: the app is handed the token, no database involved ---------------------
+# novatalks.dialer's auth middleware accepts any token listed in API_ACCESS_TOKENS and
+# short-circuits before it would call the engine. So there is nothing to seed and nothing
+# to SELECT — generate a token, hand it to the app, inject the same one into ZAP.
+DAST_AUTH_MODE=env-token DAST_TOKEN_ENV_VAR=API_ACCESS_TOKENS \
+DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "env-token mode: generate, export, inject" clean 0
+
+# The same value must reach both sides, or the scan runs unauthenticated and says nothing.
+env_token=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
+if [ -n "$env_token" ] && grep -qF "API_ACCESS_TOKENS=$env_token" "$WORK/dockerlog"; then
+    echo "ok   the app container is given the generated token"; pass=$((pass + 1))
+else
+    echo "FAIL the app never received the token — every request would be rejected"
+    fail=$((fail + 1))
+fi
+if [ -n "$env_token" ] && grep -E 'zap-api-scan\.py' "$WORK/dockerlog" | grep -qF "$env_token"; then
+    echo "ok   ZAP injects the same token the app was given"; pass=$((pass + 1))
+else
+    echo "FAIL ZAP and the app hold different tokens"; fail=$((fail + 1))
+fi
+
+# No variable name is a broken configuration, not a scan without auth.
+DAST_AUTH_MODE=env-token DAST_TOKEN_ENV_VAR="" \
+    expect "env-token without a variable name is a scanner error" error 2
+
 # login mode still works unchanged (core), with the default Authorization/Bearer header
 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
 WARN-NEW: Some Warning Alert [10038] x 5
@@ -434,6 +545,83 @@ if grep -E "^run .*--name nova-pg" "$WORK/dockerlog" | grep -qE " postgres:[0-9]
 else
     echo "FAIL nova-pg is not a postgres:N image"; fail=$((fail + 1))
 fi
+
+# --- active mode: -S comes off, and that is the whole difference --------------------
+# -S is safe mode. With it, zap-api-scan.py only observes; without it, it sends real
+# POST/PUT/DELETE and injection payloads. That is the entire point of an active scan and
+# also the single most dangerous flag in this repository, so both directions are pinned.
+DAST_API_SCAN_MODE=active SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "active mode still reports a clean scan" clean 0
+if grep -E 'zap-api-scan\.py' "$WORK/dockerlog" | grep -qE '(^| )-S( |$)'; then
+    echo "FAIL active mode kept -S — it would still be a passive scan reported as active"
+    fail=$((fail + 1))
+else
+    echo "ok   active mode drops -S"; pass=$((pass + 1))
+fi
+
+# Passive stays the default: nobody gets an attacking scan by omitting an input.
+unset DAST_API_SCAN_MODE
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "the default is still passive" clean 0
+assert_zap_flag "an unset scan-mode keeps -S" '-S'
+
+# An unrecognised mode is a broken configuration, not a silent fallback to either one.
+DAST_API_SCAN_MODE=aggressive expect "an unknown scan-mode is a scanner error" error 2
+unset DAST_API_SCAN_MODE
+
+# --- which repository is being scanned is an input, not an accident of who is running --
+# Every caller until ci-dast-pentest.yaml was the reusable build workflow, running in the
+# product repository's own context, so GITHUB_REPOSITORY happened to name the scanned
+# repository. The pentest workflow runs in nova.ci, where ${GITHUB_REPOSITORY##*/} is
+# `nova.ci` and novatalks.core would silently have taken postgres:16.
+assert_pg_image() { # assert_pg_image <name> <expected image>
+    local got
+    got="$(grep -E '^run .*--name nova-pg' "$WORK/dockerlog" | grep -oE 'postgres:[^ ]+' | head -1 || true)"
+    if [ "$got" = "$2" ]; then
+        echo "ok   $1"; pass=$((pass + 1))
+    else
+        echo "FAIL $1 — expected $2, got '${got:-none}'"; fail=$((fail + 1))
+    fi
+}
+
+DAST_TARGET_REPO=novatalks.core GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "target-repository set: the scan still runs" clean 0
+assert_pg_image "target-repository picks novatalks.core's postgres, not the runner's" postgres:17.9-trixie
+# Right is half of it; visible is the other half. The choice was silent before, which is
+# why getting it wrong would never have been noticed.
+if grep -q "DAST API postgres: postgres:17.9-trixie — chosen for 'novatalks.core' (from the target-repository input)" "$WORK/log"; then
+    echo "ok   the postgres choice and its source are logged"; pass=$((pass + 1))
+else
+    echo "FAIL the postgres choice is still silent"; fail=$((fail + 1))
+fi
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+
+# Unset: byte-identical to what every existing caller does today.
+GITHUB_REPOSITORY=novaitdevteam/novatalks.core \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "target-repository unset: the scan still runs" clean 0
+assert_pg_image "an unset input falls back to GITHUB_REPOSITORY" postgres:17.9-trixie
+if grep -q "(from GITHUB_REPOSITORY)" "$WORK/log"; then
+    echo "ok   the fallback names itself as the fallback"; pass=$((pass + 1))
+else
+    echo "FAIL the log does not say where the repository name came from"; fail=$((fail + 1))
+fi
+unset GITHUB_REPOSITORY
+
+GITHUB_REPOSITORY=novaitdevteam/nova.chatsconnector.telegram-client-api \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "every other repository still resolves through the fallback" clean 0
+assert_pg_image "a connector takes postgres:16" postgres:16
+unset GITHUB_REPOSITORY
+
+# scan.sh runs under `set -u`; GitHub Actions always sets GITHUB_REPOSITORY, but a
+# developer running this harness directly (bash 5, not the bash 3.2 on macOS this went
+# unnoticed on) does not have it, and the nested ${DAST_TARGET_REPO:-${GITHUB_REPOSITORY##*/}}
+# form still evaluates the inner expansion eagerly. Both unset must not abort the script.
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "both target-repository and GITHUB_REPOSITORY unset: no unbound-variable abort" clean 0
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

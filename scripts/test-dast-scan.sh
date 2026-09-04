@@ -945,5 +945,192 @@ else
     fail=$((fail + 1))
 fi
 
+
+# --- full mode: a different script, a different spider, a different register ---------
+# zap-baseline.py has no active scanner at all. zap-full-scan.py does, and -j swaps the
+# traditional spider for the modern one, which is the only way a single-page app is more
+# than one page to ZAP.
+DAST_SCAN_MODE=full SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "full mode reports a clean scan" clean 0
+if grep -q "zap-full-scan.py" "$WORK/dockerlog"; then
+    echo "ok   full mode runs zap-full-scan.py"; pass=$((pass + 1))
+else
+    echo "FAIL full mode still ran the baseline script"; fail=$((fail + 1))
+fi
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -qE '(^| )-j( |$)'; then
+    echo "ok   full mode uses the modern spider"; pass=$((pass + 1))
+else
+    echo "FAIL full mode has no -j — a SPA would still be one page"; fail=$((fail + 1))
+fi
+if grep -q "zap-full-scan.conf" "$WORK/dockerlog"; then
+    echo "ok   full mode loads its own triage register"; pass=$((pass + 1))
+else
+    echo "FAIL full mode reused the baseline register"; fail=$((fail + 1))
+fi
+
+# A context file teaches ZAP the login form. -n and -U must travel together: a context
+# loaded with no user selected scans as nobody while looking configured, the same
+# failure shape as the unquoted -z replacer in dast-api.
+DAST_SCAN_MODE=full DAST_ZAP_CONTEXT=novatalks-ui.context \
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "full mode with a context reports a clean scan" clean 0
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -q -- "-n novatalks-ui.context"; then
+    echo "ok   the context file is passed"; pass=$((pass + 1))
+else
+    echo "FAIL no -n — the scan would run anonymously and look successful"; fail=$((fail + 1))
+fi
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -q -- "-U nova-ci-dast"; then
+    echo "ok   the context user is selected"; pass=$((pass + 1))
+else
+    echo "FAIL -n without -U — ZAP loads the context and scans as nobody"; fail=$((fail + 1))
+fi
+
+unset DAST_ZAP_CONTEXT
+DAST_SCAN_MODE=full SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "full mode without a context still scans" clean 0
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -q -- "-U"; then
+    echo "FAIL -U passed with no context to define the user"; fail=$((fail + 1))
+else
+    echo "ok   no context means no -n and no -U"; pass=$((pass + 1))
+fi
+
+# Baseline stays the default, and stays free of -j: the traditional spider is what the
+# baseline's finding counts have always been measured with.
+unset DAST_SCAN_MODE
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "the default is still the baseline" clean 0
+if grep -q "zap-baseline.py" "$WORK/dockerlog"; then
+    echo "ok   an unset scan-mode runs zap-baseline.py"; pass=$((pass + 1))
+else
+    echo "FAIL the default changed"; fail=$((fail + 1))
+fi
+
+DAST_SCAN_MODE=deep expect "an unknown scan-mode is a scanner error" error 2
+unset DAST_SCAN_MODE
+
+# A context filename that names no file used to reach `cp` under set -e: exit 1 with a
+# bare "cp: cannot stat", no outcome, no message, no summary, and an empty notifier line
+# — the one input-validation path in this file that did not report itself. It is invalid
+# input, exactly like an unknown scan-mode or a missing triage register, and reports the
+# same way.
+DAST_SCAN_MODE=full DAST_ZAP_CONTEXT=no-such-file.context \
+    expect "a missing ZAP context file is a scanner error" error 2
+if grep -q 'context file is missing or unreadable' "$WORK/output"; then
+    echo "ok   the missing context is named, not left to cp"; pass=$((pass + 1))
+else
+    echo "FAIL the missing context did not report itself"
+    sed 's/^/     /' "$WORK/output"
+    fail=$((fail + 1))
+fi
+unset DAST_SCAN_MODE DAST_ZAP_CONTEXT
+
+# --- which repository is being scanned is an input, not an accident of who is running --
+# Every caller until ci-dast-pentest.yaml was the reusable build workflow, which runs in
+# the product repository's own context, so GITHUB_REPOSITORY happened to name the scanned
+# repository. The pentest workflow runs in nova.ci. Two things keyed off that name and
+# both were silently wrong there: the postgres major version, and whether the .env.example
+# in GITHUB_WORKSPACE is this application's configuration at all.
+
+assert_pg_image() { # assert_pg_image <name> <expected image>
+    local got
+    got="$(grep -E '^run .*--name nova-pg' "$WORK/dockerlog" | grep -oE 'postgres:[^ ]+' | head -1 || true)"
+    if [ "$got" = "$2" ]; then
+        echo "ok   $1"; pass=$((pass + 1))
+    else
+        echo "FAIL $1 — expected $2, got '${got:-none}'"; fail=$((fail + 1))
+    fi
+}
+
+# The input set: the scanned repository is novatalks.core even though the job is running
+# somewhere else entirely. This is the pentest case, and the one that was broken.
+DAST_TARGET_REPO=novatalks.core GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "target-repository set: the scan still runs" clean 0
+assert_pg_image "target-repository picks novatalks.core's postgres, not the runner's" postgres:17.9-trixie
+# The choice being right is half of it; the other half is that it is visible. It was made
+# silently before, which is why getting it wrong went unnoticed.
+if grep -q "DAST postgres: postgres:17.9-trixie — chosen for 'novatalks.core' (from the target-repository input)" "$WORK/log"; then
+    echo "ok   the postgres choice and its source are logged"; pass=$((pass + 1))
+else
+    echo "FAIL the postgres choice is still silent"; fail=$((fail + 1))
+fi
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+
+# The input unset: byte-identical to the behaviour every existing caller has today.
+GITHUB_REPOSITORY=novaitdevteam/novatalks.core \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "target-repository unset: the scan still runs" clean 0
+assert_pg_image "an unset input falls back to GITHUB_REPOSITORY" postgres:17.9-trixie
+if grep -q "(from GITHUB_REPOSITORY)" "$WORK/log"; then
+    echo "ok   the fallback names itself as the fallback"; pass=$((pass + 1))
+else
+    echo "FAIL the log does not say where the repository name came from"; fail=$((fail + 1))
+fi
+unset GITHUB_REPOSITORY
+
+GITHUB_REPOSITORY=novaitdevteam/nova.botflow \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "every other repository still resolves through the fallback" clean 0
+assert_pg_image "a non-core repository takes postgres:16" postgres:16
+unset GITHUB_REPOSITORY
+
+# scan.sh runs under `set -u`; GitHub Actions always sets GITHUB_REPOSITORY, but a
+# developer running this harness directly (bash 5, not the bash 3.2 on macOS this went
+# unnoticed on) does not have it. Both unset must not abort the script.
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "both target-repository and GITHUB_REPOSITORY unset: no unbound-variable abort" clean 0
+
+# The workspace is nova.ci's checkout, the scanned image is novatalks.core's. nova.ci has
+# an .env.example of its own (outline/jira MCP keys). Seeding it would hand the engine
+# four unrelated variables, log a plausible "seeded 4 variable(s)", and then blame the
+# image for the boot it caused.
+GITHUB_WORKSPACE="$WS_WITH_ENV" GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+DAST_TARGET_REPO=novatalks.core \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "a foreign workspace does not stop a scan that can still run" clean 0
+if grep -qE '^run .*--env-file' "$WORK/dockerlog"; then
+    echo "FAIL another repository's .env.example was seeded into the container"; fail=$((fail + 1))
+else
+    echo "ok   another repository's .env.example is not seeded"; pass=$((pass + 1))
+fi
+if grep -q '::warning::DAST env file: not seeded' "$WORK/log"; then
+    echo "ok   and the skip says so rather than passing in silence"; pass=$((pass + 1))
+else
+    echo "FAIL the env file was skipped silently — indistinguishable from a repo with no .env.example"
+    fail=$((fail + 1))
+fi
+unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO
+
+# ...and when the application then does not boot, the loud skip names our own missing
+# input instead of blaming the image, which is the whole reason the warning above is a
+# warning rather than a hard stop.
+GITHUB_WORKSPACE="$WS_WITH_ENV" GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+DAST_TARGET_REPO=novatalks.core \
+DAST_NEEDS_DB=true SHIM_CURL_RC=1 \
+    expect "a boot failure after a skipped env file is a loud skip" not-run 0
+if grep -q "no .env.example was seeded" "$WORK/report"; then
+    echo "ok   the loud skip names the missing seed, not just the image"; pass=$((pass + 1))
+else
+    echo "FAIL the skip blames the image for configuration we withheld"
+    sed 's/^/     /' "$WORK/report"
+    fail=$((fail + 1))
+fi
+unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO
+
+# The build workflow's own shape: the input is set and it agrees with GITHUB_REPOSITORY,
+# so the workspace really is the scanned repository's checkout and seeding proceeds
+# exactly as it always has.
+GITHUB_WORKSPACE="$WS_WITH_ENV" GITHUB_REPOSITORY=novaitdevteam/novatalks.core \
+DAST_TARGET_REPO=novatalks.core \
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "the workspace's own .env.example is still seeded" clean 0
+if grep -qE '^run .*--env-file' "$WORK/dockerlog"; then
+    echo "ok   a matching workspace seeds as before"; pass=$((pass + 1))
+else
+    echo "FAIL the new gate broke seeding for the caller it must not change"; fail=$((fail + 1))
+fi
+unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

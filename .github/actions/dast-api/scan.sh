@@ -7,10 +7,16 @@
 # failure produces the same empty result a clean scan would, and reporting that as clean
 # is the failure this job exists to avoid.
 #
-# Two auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
+# Four auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
 # reads the token from the response (novatalks.core's engine); `db-token` reads a token
 # straight out of the seeded database with a caller-supplied SELECT (a connector with a
-# DB-backed token in a header of its own name). Both end with a bare token in $TOKEN,
+# DB-backed token in a header of its own name); `db-insert` writes its own token into the
+# seeded database with a caller-supplied INSERT rather than depending on whatever key the
+# image's own seeder happened to write (whatsapp, signal — their entrypoints DO self-seed,
+# via compiled JS, but the token they produce is theirs, not ours); `env-token` generates a token before
+# the container ever starts and hands it in as an environment variable, for an app that
+# accepts any token present in a var it reads at boot (novatalks.dialer) — no database,
+# no seed, no call to the engine at all. All four end with a bare token in $TOKEN,
 # re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
 #
 # Zero secrets stored: the database is ours and dies with this job, so the admin
@@ -22,10 +28,11 @@
 # it is acquired (see below), and the console file that carries it is still deleted
 # in the trap — belt and suspenders, not full containment on the file alone.
 #
-# Safe mode (-S) is mandatory: without it, zap-api-scan.py actively scans, i.e. sends
+# Safe mode (-S) is the default: without it, zap-api-scan.py actively scans, i.e. sends
 # real POST/PUT/DELETE against the seeded API using the very session this script just
-# created. -f openapi drives the scan from the spec's real routes rather than a spider —
-# a NestJS SPA-less API has no pages to spider in the first place.
+# created. scan-mode: active drops -S deliberately — see the DAST_API_SCAN_MODE case
+# above the docker run below. -f openapi drives the scan from the spec's real routes
+# rather than a spider — a NestJS SPA-less API has no pages to spider in the first place.
 #
 set -euo pipefail
 
@@ -34,15 +41,11 @@ set -euo pipefail
 # shellcheck source=.github/actions/dast/dast-common.sh
 . "${DAST_ACTION_ROOT}/../dast/dast-common.sh"
 
-# generated per run, never stored, never echoed
-ADMIN_USER="nova-ci-apiscan@local"
-ADMIN_PASS="$(openssl rand -hex 24)"
-# Masked before the application container exists, not just before ZAP runs. This script
-# dumps container output when boot or setup fails — that is the only way to diagnose a
-# loud skip — and a NestJS bootstrap that prints its resolved config would otherwise put
-# this value straight into a world-readable step log. nova.ci is public.
-echo "::add-mask::${ADMIN_PASS}"
-
+# Path/URL variables and every helper down to scanner_error live above the generated
+# secrets below, on purpose: env-token mode has to be able to call scanner_error before
+# the application container exists (see below), and scanner_error's own call chain
+# (summary -> spec_url, cleanup's EXIT trap -> zap_console/spec_file) needs all of these
+# already bound under `set -u`, not filled in later by code that runs after it.
 DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
 # Port and routes are inputs (see action.yml), each defaulted to the value
 # novatalks.core's engine has always used, so an unconfigured caller is byte-identical
@@ -50,6 +53,25 @@ DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
 # ci-build-ntk-on-push-tags-build.yaml, which names the same port and health path for
 # the baseline scan of the same image.
 DAST_PORT="${DAST_PORT:-3000}"
+# The repository whose image is being scanned — not necessarily the repository this job
+# runs in. Every caller until now was the reusable build workflow, which runs in the
+# product repository's own context, so GITHUB_REPOSITORY named the scanned repository by
+# accident of who called. ci-dast-pentest.yaml runs in nova.ci and scans somebody else's
+# image, and the postgres major version below keys off this name. The input wins when
+# set; the fallback reproduces every pre-existing caller byte for byte.
+DAST_TARGET_REPO="${DAST_TARGET_REPO:-}"
+# GITHUB_REPOSITORY is always set on a real Actions run; the :- default here only
+# keeps `set -u` from aborting when a developer runs this script (or the harness)
+# locally without it — the stripped value is identical either way. The nested
+# ${GITHUB_REPOSITORY##*/} inside a ${DAST_TARGET_REPO:-...} default still evaluates
+# the inner expansion eagerly, so it needs the same guard.
+github_repository="${GITHUB_REPOSITORY:-}"
+scanned_repo="${DAST_TARGET_REPO:-${github_repository##*/}}"
+if [ -n "$DAST_TARGET_REPO" ]; then
+    repo_source="the target-repository input"
+else
+    repo_source="GITHUB_REPOSITORY"
+fi
 target="http://127.0.0.1:${DAST_PORT}"
 health_url="${target}${DAST_HEALTH_PATH:-/livez}"
 spec_url="${target}${DAST_SPEC_PATH:-/api-docs-json}"
@@ -126,6 +148,35 @@ scanner_error() { # scanner_error <reason>
     exit 2
 }
 
+# generated per run, never stored, never echoed
+#
+# The address has to be syntactically valid AND unable to ever resolve to a real
+# mailbox — both halves matter and neither alone is enough. `@local` looked fine but
+# is not a valid email: the engine's own entrypoint seeder validates it with Sequelize's
+# `isEmail` (`require_tld: true`), `@local` has no top-level domain, the validator
+# throws, the container dies mid-boot, and the job then loud-skips with "the image did
+# not come up within 300s" — blaming the image for a bad input. Confirmed live on run
+# 33761248644 against novatalks.core. `example.invalid` is RFC 2606 reserved: it passes
+# `isEmail` and is guaranteed to never be a real, registrable domain.
+ADMIN_USER="nova-ci-apiscan@example.invalid"
+ADMIN_PASS="$(openssl rand -hex 24)"
+# Masked before the application container exists, not just before ZAP runs. This script
+# dumps container output when boot or setup fails — that is the only way to diagnose a
+# loud skip — and a NestJS bootstrap that prints its resolved config would otherwise put
+# this value straight into a world-readable step log. nova.ci is public.
+echo "::add-mask::${ADMIN_PASS}"
+
+# env-token acquires its token before the container exists, unlike every other mode,
+# because the application reads it from its own environment. Generated and masked here so
+# the order stays obvious: no mode may inject a value the runner has not been told to
+# redact first.
+ENV_TOKEN=""
+if [ "${DAST_AUTH_MODE:-login}" = "env-token" ]; then
+    [ -n "${DAST_TOKEN_ENV_VAR:-}" ] || scanner_error "env-token mode needs a token-env-var name"
+    ENV_TOKEN="nova-ci-apiscan-$(openssl rand -hex 24)"
+    echo "::add-mask::${ENV_TOKEN}"
+fi
+
 # Validated before anything is booted, same reasoning as the baseline: a broken register
 # means ZAP silently applies a policy nobody wrote, and finding that out after a
 # five-minute boot-and-seed helps nobody.
@@ -157,10 +208,15 @@ docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
 # novatalks.core mirrors the production PG major version; everything else takes 16 —
 # the same split ci-build-ntk-on-push-tags-run-test.yaml makes, so the DAST stack and
 # the integration stack cannot disagree about what database the app is talking to.
-case "${GITHUB_REPOSITORY##*/}" in
+case "$scanned_repo" in
     novatalks.core) PG_IMAGE="${PG_IMAGE:-postgres:17.9-trixie}" ;;
     *)              PG_IMAGE="${PG_IMAGE:-postgres:16}" ;;
 esac
+# The choice used to be silent, which is how a pentest dispatch for novatalks.core could
+# get postgres:16: the name it keys off came from the runner's repository, not the
+# scanned one, and nothing said so. Name the image, the repository it was chosen for,
+# and where that name came from.
+echo "DAST API postgres: ${PG_IMAGE} — chosen for '${scanned_repo}' (from ${repo_source})."
 docker run -d --name nova-pg -p 5432:5432 \
     -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
     -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
@@ -202,6 +258,15 @@ docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
 # credential at all.
 app_env_args=()
 [ "${DAST_SWAGGER_ENABLE:-true}" = "true" ] && app_env_args+=(-e SWAGGER_ENABLE=true)
+# env-token: the token was generated before this container existed (see ENV_TOKEN
+# above) — the application reads its accepted tokens from its own environment at boot,
+# so this is the one auth-mode that hands the app anything before `docker run`. Written
+# as an `if`, not `[ ... ] && app_env_args+=(...)`: the latter is the last command of
+# this statement list under `set -e`, so a false test (every mode but env-token) would
+# abort the whole script instead of just skipping the append.
+if [ -n "$ENV_TOKEN" ]; then
+    app_env_args+=(-e "${DAST_TOKEN_ENV_VAR}=${ENV_TOKEN}")
+fi
 
 # extra-env: a per-repository escape hatch, same shape as the baseline dast/scan.sh —
 # one -e per non-empty line, never word-split, so a value containing spaces or `=`
@@ -304,6 +369,12 @@ fi
 # db-token: the seeder already ran (above), so the token it wrote is read straight out
 # of the database with the caller's own SELECT — robust against a seeder that never
 # prints the token anywhere, and generalises past parsing console output.
+#
+# db-insert: whatsapp and signal run `npm prune --omit=dev`, which removes ts-node — but
+# their entrypoints still migrate and seed themselves through the compiled JS in dist/,
+# so a row probably does exist. It is not ours, though, and db-token would have to guess
+# its shape and its role value out of a seeder we do not control. Writing our own row is
+# the mode that does not depend on that: the INSERT either lands or loud-skips.
 case "${DAST_AUTH_MODE:-login}" in
     login)
         login_headers="$(curl -s -D - -o /dev/null -X POST "${target}${DAST_LOGIN_PATH:-/auth/sign_in}" \
@@ -331,6 +402,46 @@ case "${DAST_AUTH_MODE:-login}" in
             psql -tAq -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
             -c "$DAST_TOKEN_SQL" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
         ;;
+    db-insert)
+        # Produce our own token rather than depend on the image's. whatsapp and signal
+        # DO self-seed — `npm prune --omit=dev` removes ts-node, but their entrypoints
+        # run the compiled seeders in dist/ through plain `node` — so a token row very
+        # likely exists; it is just not one we chose, and db-token would have to guess
+        # its role value and column shape out of a seeder we do not own.
+        #
+        # The value is generated here and lives only in this job's database, which is
+        # deleted with the container: nothing to store, nothing to rotate, nothing that
+        # could be a real credential by accident.
+        [ -n "${DAST_TOKEN_INSERT_SQL:-}" ] || scanner_error "db-insert mode needs a token-insert-sql statement"
+        TOKEN="nova-ci-apiscan-$(openssl rand -hex 24)"
+        # Masked here, before the value reaches a command line — not at the shared
+        # ::add-mask:: below. The INSERT carries the token, and the failure path prints
+        # psql's own output, which quotes the offending statement back. nova.ci is
+        # public, so the mask has to exist before anything that could echo it does.
+        echo "::add-mask::${TOKEN}"
+        insert_sql="${DAST_TOKEN_INSERT_SQL//%TOKEN%/$TOKEN}"
+        # Captured, not discarded. `>/dev/null 2>&1` left the loud skip guessing at one
+        # cause out of several — the table may not exist, or the role_id subquery may
+        # have matched no row, or the column names may have moved. psql says which.
+        # ON_ERROR_STOP=1 so a SQL error is unambiguously a non-zero exit rather than
+        # depending on psql's default per-mode behaviour: an INSERT that failed while
+        # psql exited 0 is a token nothing accepts, scanned as if it were authenticated.
+        insert_log="${RUNNER_TEMP:-/tmp}/dast-api-insert.log"
+        if ! docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
+            psql -tAq -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
+            -c "$insert_sql" > "$insert_log" 2>&1; then
+            echo "--- psql output (token INSERT failed) ---"
+            sed 's/^/    /' "$insert_log" 2>/dev/null || true
+            echo "--- end ---"
+            rm -f "$insert_log" >/dev/null 2>&1 || true
+            not_run "the token INSERT failed — the migration may not have created the table, or the role subquery matched no row; psql's own output is above"
+        fi
+        rm -f "$insert_log" >/dev/null 2>&1 || true
+        ;;
+    env-token)
+        # Already generated above — it had to exist before the container did.
+        TOKEN="$ENV_TOKEN"
+        ;;
     *) scanner_error "unknown auth-mode: ${DAST_AUTH_MODE}" ;;
 esac
 
@@ -352,8 +463,19 @@ jq -e '.paths | length > 0' "$spec_file" >/dev/null 2>&1 \
 op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo 0)"
 
 # --- scan --------------------------------------------------------------------------
-# -S is mandatory: without it zap-api-scan.py active-scans, i.e. real writes against the
-# seeded API. -f openapi drives from the spec's real routes, not a spider. The token is
+# -S is safe mode: passive observation only. Dropping it turns this into an active scan
+# that sends real POST/PUT/DELETE and injection payloads against the seeded API using the
+# session this script just created. That is safe here and nowhere else — the database is
+# ours, it was created seconds ago and it dies with this job — but it is the most
+# dangerous flag in this repository, so it is an explicit mode, never a default.
+zap_mode_args=()
+case "${DAST_API_SCAN_MODE:-passive}" in
+    passive) zap_mode_args+=(-S) ;;
+    active)  : ;;
+    *) scanner_error "unknown scan-mode: ${DAST_API_SCAN_MODE}" ;;
+esac
+
+# -f openapi drives from the spec's real routes, not a spider. The token is
 # injected on every request via a replacer rule so ZAP need not model the login itself,
 # under the caller's own header and prefix (Authorization/Bearer  for core, unchanged);
 # -c/-w and the report/summary shape follow the baseline scan exactly.
@@ -374,7 +496,8 @@ op_count="$(jq '[.paths[] | length] | add // 0' "$spec_file" 2>/dev/null || echo
 set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" "$ZAP_IMAGE" \
-    zap-api-scan.py -t "$spec_url" -f openapi -S -I \
+    zap-api-scan.py -t "$spec_url" -f openapi \
+    ${zap_mode_args[@]+"${zap_mode_args[@]}"} -I \
     -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" \
     -z "-config replacer.full_list(0).description=auth \
         -config replacer.full_list(0).enabled=true \

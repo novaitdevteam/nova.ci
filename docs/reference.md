@@ -24,6 +24,8 @@
 
 Plus one non-reusable meta workflow: [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml), which validates this repository's own workflows, actions and agent docs, and runs `secret-scan` over nova.ci itself.
 
+Plus two `workflow_dispatch`-only DAST workflows — no `workflow_call`, dispatched by hand from this repository's own Actions tab, never `uses:`-referenced by a caller: [`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml), a passive ZAP baseline against the real deployed host through Cloudflare, and [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml), a manual **active** ZAP scan (`scan-mode: active`/`full`) for a `choice`-selected repository — no free-text URL input, ever. Its `target` input defaults to `ephemeral` (a GHCR image the workflow boots and tears down); `target: live` instead attacks the same one-host allowlist as the baseline, behind a typed confirmation — real writes and deletions. See [SAST and DAST](sast-dast.md#pentest-active-scan) and [Live target](sast-dast.md#live-target-real-writes-against-a-real-host).
+
 The `secret-scan` job lives inline in the switcher rather than in its own file, so the required-status-check name stays two segments — see [Secret detection](secret-detection.md). The pull-request `sast-scan` job is inline for a different reason: `novatalks.core`'s PR route is a two-entry `build_target` matrix, and source only needs scanning once — see [SAST and DAST](sast-dast.md#semgrep-on-the-pull-request).
 
 </details>
@@ -36,6 +38,7 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 - [`gitleaks/action.yml`](../.github/actions/gitleaks/action.yml) — installs a version- and checksum-pinned Gitleaks and runs [`scan.sh`](../.github/actions/gitleaks/scan.sh) over the commits a pull request or push adds, with the central config from [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml). The only place any workflow may invoke Gitleaks; `validate.sh` fails on a direct call.
 - [`semgrep/action.yml`](../.github/actions/semgrep/action.yml) — runs SAST over the checkout with a tag- and digest-pinned Semgrep OSS image and the registry rule packs, via [`scan.sh`](../.github/actions/semgrep/scan.sh). Emits `clean` / `findings` / `error`, never treating an empty result as clean unless the [`canary.yaml`](../.github/actions/semgrep/canary.yaml) rule fired and Semgrep reported no config errors. The only place any workflow may invoke Semgrep. See [SAST and DAST](sast-dast.md).
 - [`dast/action.yml`](../.github/actions/dast/action.yml) — boots the built image with its dependencies, runs an OWASP ZAP baseline against it and tears everything down, via [`scan.sh`](../.github/actions/dast/scan.sh). Emits `clean` / `findings` / `not-run` / `error`: an application that failed to boot is a loud skip, not a clean scan. Port, health path, boot timeout and database needs are per-repository inputs. Reads [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf), the triage register that decides what a finding *means* — `FAIL` must-fix, `IGNORE` accepted, one line per rule ID with a reason — and treats a missing or malformed register as a broken gate. The only place any workflow may invoke ZAP.
+- [`dast/targets.sh`](../.github/actions/dast/targets.sh) — the one per-repository DAST table (port, health path, auth), sourced by `dast_resolve_target <repo> <api|browser>` from the `Resolve DAST target` and `Resolve api-scan target` steps in `ci-build-ntk-on-push-tags-build.yaml`. An unknown repository/surface pair prints `::error::` and fails rather than guessing.
 - [`notify/action.yml`](../.github/actions/notify/action.yml) — sends a composed notification to Telegram and Google Chat. Optional per channel; secrets and message text cross into the script through step `env:`, never through expression interpolation.
 
 </details>
@@ -48,6 +51,7 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 - [`test-secret-scan.sh`](../scripts/test-secret-scan.sh) — offline scenario self-check for the secret scan, against real git fixtures and the pinned Gitleaks binary
 - [`test-sast-scan.sh`](../scripts/test-sast-scan.sh) — offline scenario self-check for the Semgrep scan (`docker` stubbed), covering the canary guard and every fail-closed case
 - [`test-dast-scan.sh`](../scripts/test-dast-scan.sh) — offline scenario self-check for the ZAP baseline scan (`docker` and `curl` stubbed), covering all four outcomes and teardown
+- [`test-dast-targets.sh`](../scripts/test-dast-targets.sh) — self-check for the shared per-repository DAST table (`dast/targets.sh`), asserting the shape of every arm and that an unknown repository/surface pair fails rather than guessing
 - [`gitleaks-baseline.sh`](../scripts/gitleaks-baseline.sh) — one-time full-history secret audit across the product repositories; deliberately not a CI job
 
 </details>

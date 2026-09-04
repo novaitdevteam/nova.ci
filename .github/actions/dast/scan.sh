@@ -34,6 +34,25 @@ DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 # constant with itself.
 DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
+# The repository whose image is being scanned — not necessarily the repository this job
+# runs in. Every caller until now was the reusable build workflow, which runs in the
+# product repository's own context, so GITHUB_REPOSITORY named the scanned repository by
+# accident of who called. ci-dast-pentest.yaml runs in nova.ci and scans somebody else's
+# image, and two things below key off this name: the postgres major version, and whether
+# the checkout sitting in GITHUB_WORKSPACE is the scanned repository's own. The input
+# wins when set; the fallback reproduces every pre-existing caller byte for byte.
+DAST_TARGET_REPO="${DAST_TARGET_REPO:-}"
+# GITHUB_REPOSITORY is always set on a real Actions run; the :- default here only
+# keeps `set -u` from aborting when a developer runs this script (or the harness)
+# locally without it — the stripped value is identical either way.
+github_repository="${GITHUB_REPOSITORY:-}"
+workspace_repo="${github_repository##*/}"
+scanned_repo="${DAST_TARGET_REPO:-$workspace_repo}"
+if [ -n "$DAST_TARGET_REPO" ]; then
+    repo_source="the target-repository input"
+else
+    repo_source="GITHUB_REPOSITORY"
+fi
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
 # not interchangeable — on novatalks.ui the health path 404s — so the summary and the
 # report header name the URL that was actually scanned, not the one that was polled.
@@ -44,10 +63,11 @@ zap_out="${RUNNER_TEMP:-/tmp}/zap.md"
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
 # The triage register: which findings must be fixed, which are accepted, and why. Copied
-# into RUNNER_TEMP because zap-baseline.py resolves -c against /zap/wrk/ and nowhere
-# else, and /zap/wrk is the bind mount of that directory.
-zap_conf_src="${DAST_ACTION_ROOT}/zap-baseline.conf"
-zap_conf="${RUNNER_TEMP:-/tmp}/zap-baseline.conf"
+# into RUNNER_TEMP because zap-baseline.py (and zap-full-scan.py, same resolution logic)
+# resolves -c against /zap/wrk/ and nowhere else, and /zap/wrk is the bind mount of that
+# directory. zap_conf_src/zap_conf/zap_script/zap_mode_args are set below, once
+# scanner_error exists — the mode is invalid input, same as a missing register, and
+# reported the same way.
 # Printed on failure, never suppressed: a stream that cannot be created must say why.
 nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 app_env_args=()
@@ -111,6 +131,42 @@ scanner_error() { # scanner_error <reason>
     exit 2
 }
 
+# baseline observes; full attacks. Two scripts, two spiders, two registers — and the
+# exit ladder and tally line are identical between them, verified against
+# zap-full-scan.py:480 and :511-522, which is why dast-common.sh is untouched.
+case "${DAST_SCAN_MODE:-baseline}" in
+    baseline)
+        zap_script=zap-baseline.py
+        zap_conf_name=zap-baseline.conf
+        zap_mode_args=()
+        ;;
+    full)
+        zap_script=zap-full-scan.py
+        zap_conf_name=zap-full-scan.conf
+        # -j swaps the traditional spider for the modern one. Without it a single-page
+        # app is exactly one page to ZAP: nginx serves index.html for every route and the
+        # traditional spider has no JavaScript to follow.
+        zap_mode_args=(-j)
+        # A context file teaches ZAP the login form. Without one the "authenticated"
+        # scan is an anonymous crawl that looks exactly like a successful one — the same
+        # failure shape as the unquoted -z replacer in dast-api. -U names the user
+        # defined inside the context; both flags travel together or neither does.
+        if [ -n "${DAST_ZAP_CONTEXT:-}" ]; then
+            # Validated, not just copied. A typo in the filename used to make `cp` fail
+            # under set -e: exit 1 with a bare "cp: cannot stat", no outcome, no message,
+            # no summary and an empty notifier line — the one input-validation path in
+            # this file that did not report itself. Same treatment as the triage register.
+            zap_context_src="${DAST_ACTION_ROOT}/contexts/${DAST_ZAP_CONTEXT}"
+            [ -r "$zap_context_src" ] || scanner_error "the ZAP context file is missing or unreadable: ${zap_context_src}"
+            cp "$zap_context_src" "${RUNNER_TEMP:-/tmp}/"
+            zap_mode_args+=(-n "$DAST_ZAP_CONTEXT" -U nova-ci-dast)
+        fi
+        ;;
+    *) scanner_error "unknown scan-mode: ${DAST_SCAN_MODE}" ;;
+esac
+zap_conf_src="${DAST_ACTION_ROOT}/${zap_conf_name}"
+zap_conf="${RUNNER_TEMP:-/tmp}/${zap_conf_name}"
+
 # Validated before anything is booted: a broken register means ZAP silently applies a
 # policy nobody wrote, and finding that out after a five-minute stack boot helps nobody.
 # ZAP's own handling is loud enough (sys.exit(3) on a malformed line, an uncaught
@@ -149,10 +205,15 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
     # novatalks.core mirrors the production PG major version; everything else takes 16 —
     # the same split ci-build-ntk-on-push-tags-run-test.yaml makes, so the DAST stack and
     # the integration stack cannot disagree about what database the app is talking to.
-    case "${GITHUB_REPOSITORY##*/}" in
+    case "$scanned_repo" in
         novatalks.core) PG_IMAGE="${PG_IMAGE:-postgres:17.9-trixie}" ;;
         *)              PG_IMAGE="${PG_IMAGE:-postgres:16}" ;;
     esac
+    # The choice used to be silent, which is how a pentest dispatch for novatalks.core
+    # could get postgres:16: the name it keys off came from the runner's repository, not
+    # the scanned one, and nothing said so. Name the image, the repository it was chosen
+    # for, and where that name came from.
+    echo "DAST postgres: ${PG_IMAGE} — chosen for '${scanned_repo}' (from ${repo_source})."
     docker run -d --name nova-pg -p 5432:5432 \
         -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
         -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
@@ -239,7 +300,23 @@ fi
 # checkout, since it belongs to the product repo whose image is being scanned.
 env_file_path="${GITHUB_WORKSPACE:-.}/.env.example"
 
-if [ -f "$env_file_path" ]; then
+# ...which only holds if the workspace really is that repository's checkout. Under
+# ci-dast-pentest.yaml it is not: that workflow runs in nova.ci, and nova.ci has an
+# .env.example of its own. Seeding it would hand the scanned container four unrelated
+# variables, log a perfectly plausible "seeded 4 variable(s)", and then blame the image
+# for the boot it caused — the same shape as the @local admin address.
+#
+# A warning rather than a loud skip, deliberately: the repositories whose browser scan
+# needs no seeding at all (novatalks.ui is a static nginx image) would be killed outright
+# by a not_run here, and a scan that CAN run must not be stopped by a file it never
+# wanted. What the loud skip is for instead is the case where the application then fails
+# to boot: env_skip_note travels into that message so the failure names our own missing
+# input rather than the image.
+env_skip_note=""
+if [ "$scanned_repo" != "$workspace_repo" ]; then
+    echo "::warning::DAST env file: not seeded. GITHUB_WORKSPACE holds a checkout of '${workspace_repo:-unknown}', not of the scanned repository '${scanned_repo}', so its .env.example is another repository's configuration, not this application's."
+    env_skip_note=" — and no .env.example was seeded, because GITHUB_WORKSPACE holds a checkout of '${workspace_repo:-unknown}', not of '${scanned_repo}'"
+elif [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
     stage="${app_tmp_env}.stage"
 
@@ -398,7 +475,7 @@ done
 
 if [ "$booted" != "yes" ]; then
     docker logs --tail 40 nova-app 2>&1 | sed 's/^/    /' || true
-    not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
+    not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s${env_skip_note}"
 fi
 
 # --user: the zaproxy image runs as uid 1000, and /zap/wrk is a bind mount of
@@ -416,7 +493,8 @@ fi
 set +e
 docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
-    "$ZAP_IMAGE" zap-baseline.py -t "$target" \
+    "$ZAP_IMAGE" "$zap_script" -t "$target" \
+    ${zap_mode_args[@]+"${zap_mode_args[@]}"} \
     -I -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
 # PIPESTATUS[0], not $?: it is ZAP's own exit status, unambiguously. $? happens to
 # agree only because pipefail is set above; it would silently become tee's status the
