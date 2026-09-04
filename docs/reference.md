@@ -1,7 +1,7 @@
 # Reference
 
 <p align="center">
-  <img src="../assets/readme/reference.svg" width="100%" alt="one dispatcher workflow, the build and test workflows, the web and mobile workflows, the branch and meta workflows, six internal actions and the runner script" />
+  <img src="../assets/readme/reference.svg" width="100%" alt="one dispatcher workflow, the build and test workflows, the web and mobile workflows, the branch, meta and DAST workflows, eight internal actions and the runner script" />
 </p>
 
 <details>

@@ -1,7 +1,7 @@
 # SAST and DAST (Semgrep and OWASP ZAP)
 
 <p align="center">
-  <img src="../assets/readme/sast-dast.svg" width="100%" alt="Semgrep reads our own source and an OWASP ZAP baseline probes the running application, alongside Trivy on the container image; each reports clean, findings or error, with a fourth not-run outcome for DAST alone, and a scanner that could not run is never reported clean; all three reports land on the one release the build already creates and each adds a line to the notification" />
+  <img src="../assets/readme/sast-dast.svg" width="100%" alt="Semgrep reads our own source, Trivy scans the image, Trivy fs and OSV-Scanner read the checkout's lockfiles, and an OWASP ZAP baseline plus an authenticated ZAP api-scan probe the running application; each reports clean, findings or error, with a fourth not-run outcome for DAST alone, and a scanner that could not run is never reported clean; all four reports land on the one release the build already creates and each adds a line to the notification" />
 </p>
 
 Two scanners join `trivy-scan` after a build: **Semgrep** reads our own source (SAST)

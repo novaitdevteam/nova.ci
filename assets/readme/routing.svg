@@ -35,7 +35,7 @@
       <text x="376" y="210" font-size="18" fill="#8B96A2">event name + action</text>
       <text x="376" y="240" font-size="18" fill="#8B96A2">ref type · ref name</text>
       <text x="376" y="270" font-size="18" fill="#8B96A2">commit message</text>
-      <text x="376" y="316" font-size="18" fill="#1F93FF">14 routes, one dispatcher</text>
+      <text x="376" y="316" font-size="18" fill="#1F93FF">17 routes, one dispatcher</text>
     </g>
 
     <g id="rt-targets">

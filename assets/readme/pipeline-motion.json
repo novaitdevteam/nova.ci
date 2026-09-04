@@ -8,7 +8,9 @@
   "max_size_mb": 2.0,
   "reveals": [
     { "id": "conn-lint-unit", "axis": "y", "start": 0.95, "end": 1.30, "exit": {"start": 4.95, "end": 5.55} },
-    { "id": "conn-flow", "axis": "x", "start": 1.70, "end": 3.40, "exit": {"start": 4.95, "end": 5.55} }
+    { "id": "conn-flow", "axis": "x", "start": 1.70, "end": 2.60, "exit": {"start": 4.95, "end": 5.55} },
+    { "id": "conn-fanout", "axis": "x", "start": 2.40, "end": 3.60, "exit": {"start": 4.95, "end": 5.55} },
+    { "id": "conn-fanin", "axis": "x", "start": 3.30, "end": 4.20, "exit": {"start": 4.95, "end": 5.55} }
   ],
   "layers": [
     { "id": "job-linter", "enter": {"start": 0.25, "end": 1.05, "from": [0, -18]},
@@ -17,9 +19,15 @@
       "exit": {"start": 4.95, "end": 5.55, "to": [0, -10]} },
     { "id": "job-build",  "enter": {"start": 1.85, "end": 2.65, "from": [-30, 0]},
       "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
-    { "id": "job-trivy",  "enter": {"start": 2.30, "end": 3.10, "from": [-30, 0]},
+    { "id": "job-trivy",  "enter": {"start": 2.55, "end": 3.25, "from": [-20, 0]},
       "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
-    { "id": "job-notify", "enter": {"start": 2.75, "end": 3.55, "from": [-30, 0]},
+    { "id": "job-sast",   "enter": {"start": 2.70, "end": 3.40, "from": [-20, 0]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
+    { "id": "job-dast",   "enter": {"start": 2.85, "end": 3.55, "from": [-20, 0]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
+    { "id": "job-api",    "enter": {"start": 3.00, "end": 3.70, "from": [-20, 0]},
+      "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} },
+    { "id": "job-notify", "enter": {"start": 3.20, "end": 3.90, "from": [-30, 0]},
       "exit": {"start": 4.95, "end": 5.55, "to": [18, 0]} }
   ]
 }

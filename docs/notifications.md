@@ -1,7 +1,7 @@
 # Notifications
 
 <p align="center">
-  <img src="../assets/readme/notifications.svg" width="100%" alt="a build notification carrying build status, lint status, unit test status, a Trivy line colour-coded by worst severity, a SAST line and a DAST line, plus a link to the reports on the build release; a DAST scan that never ran says so rather than reporting clean" />
+  <img src="../assets/readme/notifications.svg" width="100%" alt="a build notification carrying build status, lint status, unit test status, a Trivy line colour-coded by worst severity, a SAST line, a DAST line and an API scan line, plus a link to the reports on the build release; a DAST scan that never ran says so rather than reporting clean" />
 </p>
 
 Notifier jobs use [`action-cond/action.yml`](../.github/actions/action-cond/action.yml) to select success or failure message text, then hand that text to [`notify/action.yml`](../.github/actions/notify/action.yml), which sends it to Telegram and Google Chat with `actions/github-script@v8` and Node.js `fetch`. Each channel is skipped when its credentials are empty, so a workflow that notifies one channel simply omits the other's inputs, and the Google Chat send is gated on `!cancelled()` rather than on the Telegram step's result — the two channels are independent, and a repository with only `TG_*` configured must still get its Telegram message. Both sends check the response and fail the job when the API rejects the message. No Docker-based actions, and no Docker.
