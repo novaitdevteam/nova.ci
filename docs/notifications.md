@@ -13,8 +13,9 @@ The build message carries:
 - a **Trivy line** color-coded by worst severity — `🔴 CRITICAL found!`, `🟠 HIGH found`, `🟢 clean`, plus `❌ FAILED` under a fail mode or `⏭️ skipped` when no scan ran — with CRITICAL/HIGH counts and the report download link
 - a **SAST line** — `🔍 SAST (Semgrep): 🟢 clean`, `🟡 <n> error · <n> warning` (both levels, always both counts), `❌ scan failed — <reason>`, or `⏭️ skipped (no build to scan)` — with the report download link
 - a **DAST line** — `🕷 DAST (ZAP): 🟢 clean · <n> info · <n> accepted`, `🟡 <n> warnings`, `🔴 <n> must-fix · <n> warnings`, `❌ scanner failed — <reason>`, `⏭️ skipped (not a DAST trigger or repository)`, or **`⚠️ not run — <reason>`** — with the report download link
+- an **API scan line**, the authenticated ZAP scan for the five opted-in repositories (`novatalks.core`, telegram, whatsapp, signal, `novatalks.dialer`) — the same clean/findings/not-run/error wording as the DAST line above but prefixed `🕷 DAST (ZAP API):` when `scan.sh` composed it, or `🕷 API Scan (ZAP):` for the workflow's own two fallback states (`⏭️ skipped (not an apiscan trigger or repository)`, `❌ scan job failed before reporting`) — the prefix differs because those two lines are composed in the workflow itself, not inside `scan.sh`
 
-The exact wording of both lines is tabulated on [SAST and DAST](sast-dast.md#in-the-notification); the two pages must agree. A clean DAST run still names its `info` and `accepted` counts, because a suppression nobody can see is a suppression nobody audits, and a `🔴 must-fix` line is a **finding**, not a broken scanner — the build stays green under `warn-only`.
+The exact wording of all three scanner lines is tabulated on [SAST and DAST](sast-dast.md#in-the-notification); the two pages must agree. A clean DAST run still names its `info` and `accepted` counts, because a suppression nobody can see is a suppression nobody audits, and a `🔴 must-fix` line is a **finding**, not a broken scanner — the build stays green under `warn-only`.
 
 > [!IMPORTANT]
 > **`⚠️ not run` is not a colour variant of clean.** It means the application never came

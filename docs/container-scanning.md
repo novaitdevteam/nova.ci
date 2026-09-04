@@ -4,6 +4,13 @@
   <img src="../assets/readme/scanning.gif" width="100%" alt="the scan runs on main, master, development or a scan tag: pull the built image, three Trivy passes, one report file, published as a release asset, artifact and job summary" />
 </p>
 
+> [!NOTE]
+> **This page is about the image scan only.** There is a second, unrelated Trivy
+> invocation — `trivy fs` over the checkout's own lockfiles, in the `deps-scan` job —
+> that finds a vulnerable dependency declared in a manifest, not one baked into a
+> layer. Different job, different gate (`pull_request`, not `build-image`), different
+> tool call, same binary. See [Dependency scanning](sast-dast.md#dependency-scanning-source-manifests).
+
 After a successful `build-image`, the `trivy-scan` job scans the exact image that was just pushed to GHCR:
 
 ```text
