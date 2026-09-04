@@ -223,6 +223,13 @@ S3_BUCKET=dast-dummy'
         # skip. It has no authentication either (grepped the whole file — no guard, no
         # middleware, no header check), which would be DT_AUTH_MODE=none if a spec ever
         # gets added.
+        #
+        # This is a decision, not an oversight: novatalks.geoip-api gets no DAST
+        # coverage at all — no baseline, no api-scan, no pentest — permanently, for the
+        # two reasons above. It keeps Trivy, Semgrep and secret detection. See CLAUDE.md
+        # and docs/sast-dast.md for the recorded exclusion; it is also why it is not
+        # offered in ci-dast-pentest.yaml's repository dropdown — a choice that always
+        # fails loudly here is worse than not offering it.
         *)
             echo "::error::No DAST configuration for '${repo}' on the '${surface}' surface. Add an arm with its port, health path and auth read from that repository's own code — a guessed value scans nothing and reports it clean."
             return 1
