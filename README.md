@@ -7,7 +7,7 @@
   <a href="./docs/README.md"><img src="https://img.shields.io/badge/docs-nova.ci-1F93FF" alt="documentation" /></a>
 </p>
 
-`nova.ci` holds the GitHub Actions workflows that every NovaTalks product repository shares. A product repo keeps one thin caller workflow; everything else — lint, unit tests, secret detection, image build, vulnerability scan, test suites, notifications and self-hosted runner provisioning — lives here and is called from `main`.
+`nova.ci` holds the GitHub Actions workflows that every NovaTalks product repository shares. A product repo keeps one thin caller workflow; everything else — lint, unit tests, secret detection, dependency scanning, image build, vulnerability scan, test suites, notifications and self-hosted runner provisioning — lives here and is called from `main`.
 
 **📚 [Read the documentation →](./docs/README.md)**
 

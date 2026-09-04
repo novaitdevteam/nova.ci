@@ -22,7 +22,7 @@ Start at [Quick start](quick-start.md) if you are wiring a new repository into C
 | Page | What it answers |
 | --- | --- |
 | [Container scanning (Trivy)](container-scanning.md) | When the scan runs, what it produces, and how to fail on findings. |
-| [SAST and DAST](sast-dast.md) | What Semgrep, the ZAP baseline, and the Trivy fs / OSV-Scanner dependency scan each cover, the outcomes each reports, and why a failed boot — or a lockfile nobody could prove was read — is not a clean scan. |
+| [SAST and DAST](sast-dast.md) | What Semgrep, the ZAP baseline, the authenticated ZAP API scan, the Trivy fs / OSV-Scanner dependency scan, and the manual, `workflow_dispatch`-only active pentest each cover, the outcomes each reports, and why a failed boot — or a lockfile nobody could prove was read — is not a clean scan. |
 | [Runners](runners.md) | How a run gets a Hetzner runner: reuse, caps, create lock, sizing. |
 | [Notifications](notifications.md) | What the Telegram and Google Chat messages carry. |
 

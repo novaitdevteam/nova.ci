@@ -1527,11 +1527,18 @@ runtime choice.
 
 ## Live proof (2026-09-04)
 
-The exit criterion for this workflow was never "the code exists" — it was every wired
-repository producing a real verdict with a non-zero count, dispatched through
+The exit criterion for this workflow was never "the code exists" — it was every
+candidate repository producing a real verdict with a non-zero count, dispatched through
 `ci-dast-pentest.yaml` itself with `target: ephemeral`
-(`docs/superpowers/plans/2026-09-03-dast-completion.md`, Task 10). All six repository/
-surface pairs that have a `targets.sh` arm now have one:
+(`docs/superpowers/plans/2026-09-03-dast-completion.md`, Task 10): eight candidate
+repositories, minus `novatalks.ui` and `novatalks.geoip-api`, excluded by decision (see
+above), leaves six. Each of those six has a live verdict below, one row per repository —
+except `novatalks.core`, whose `api` surface is proven here but whose `browser` surface
+(also a wired `targets.sh` arm, reachable from the same dropdown) has no row of its own:
+that surface's mechanism is exercised by `nova.botflow`'s row instead, and `novatalks.core`'s
+browser surface otherwise gets only the passive baseline (`dast-scan` in the main build
+workflow), not an active pentest verdict. Treat that as an open item, not a proof of
+coverage it does not have.
 
 | Repository | Surface | Auth mode | Verdict | Run |
 | --- | --- | --- | --- | --- |
