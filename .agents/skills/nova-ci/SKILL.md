@@ -506,6 +506,17 @@ Preserve these behaviors:
   `microService.listen()`, a real NATS connection, before `app.listen()`), so until that
   gap in `dast-api/scan.sh` is closed, its `apiscan*` runs are expected to loud-skip on
   the NATS connection rather than silently scan the wrong thing.
+- **Neither DAST `scan.sh` infers the scanned repository from the runner's repository.**
+  Both take a `target-repository` input reaching the script as `DAST_TARGET_REPO`,
+  defaulting to empty and falling back to `${GITHUB_REPOSITORY##*/}` — identical for the
+  reusable build workflow, which runs in the product repository's own context, and wrong
+  for `ci-dast-pentest.yaml`, which runs in `nova.ci`. It decides the Postgres major
+  version (now logged with the repository it was chosen for and the source of that name,
+  because a silently wrong `postgres:16` for `novatalks.core` was invisible) and whether
+  `GITHUB_WORKSPACE`'s `.env.example` belongs to the application being scanned. When it
+  does not, nothing is seeded from it, a `::warning::` names the checkout that was found,
+  and any subsequent boot-failure loud skip carries that reason — a warning rather than a
+  hard stop, because `novatalks.ui` needs no seeding and must still be scannable.
 - **`.env.example` is documentation and must not decide anything the scan depends on.**
   Four boot failures traced back to trusting it literally: a trailing `//` comment glued
   onto `NODE_ENV`, dotenv-style surrounding quotes that `docker --env-file` does not
@@ -584,7 +595,7 @@ Preserve these behaviors:
   `active` drops `-S`, turning the tool into a real-writes active scan against the seeded
   API. Safe only because the stack is the ephemeral one this action starts and kills, so
   `active` is never the default and an unrecognised mode is a scanner error, not a silent
-  fallback. `scripts/test-dast-api-scan.sh` (60 checks) asserts `-S` on the default, its
+  fallback. `scripts/test-dast-api-scan.sh` (68 checks) asserts `-S` on the default, its
   absence under `active`, and the mask — including a mutation check that a
   mismatched `env-token` value (ZAP holding a different token than the one handed to the
   app) fails the harness, since that scan would look authenticated while checking nothing.

@@ -524,6 +524,53 @@ assert_zap_flag "an unset scan-mode keeps -S" '-S'
 
 # An unrecognised mode is a broken configuration, not a silent fallback to either one.
 DAST_API_SCAN_MODE=aggressive expect "an unknown scan-mode is a scanner error" error 2
+unset DAST_API_SCAN_MODE
+
+# --- which repository is being scanned is an input, not an accident of who is running --
+# Every caller until ci-dast-pentest.yaml was the reusable build workflow, running in the
+# product repository's own context, so GITHUB_REPOSITORY happened to name the scanned
+# repository. The pentest workflow runs in nova.ci, where ${GITHUB_REPOSITORY##*/} is
+# `nova.ci` and novatalks.core would silently have taken postgres:16.
+assert_pg_image() { # assert_pg_image <name> <expected image>
+    local got
+    got="$(grep -E '^run .*--name nova-pg' "$WORK/dockerlog" | grep -oE 'postgres:[^ ]+' | head -1 || true)"
+    if [ "$got" = "$2" ]; then
+        echo "ok   $1"; pass=$((pass + 1))
+    else
+        echo "FAIL $1 — expected $2, got '${got:-none}'"; fail=$((fail + 1))
+    fi
+}
+
+DAST_TARGET_REPO=novatalks.core GITHUB_REPOSITORY=novaitdevteam/nova.ci \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "target-repository set: the scan still runs" clean 0
+assert_pg_image "target-repository picks novatalks.core's postgres, not the runner's" postgres:17.9-trixie
+# Right is half of it; visible is the other half. The choice was silent before, which is
+# why getting it wrong would never have been noticed.
+if grep -q "DAST API postgres: postgres:17.9-trixie — chosen for 'novatalks.core' (from the target-repository input)" "$WORK/log"; then
+    echo "ok   the postgres choice and its source are logged"; pass=$((pass + 1))
+else
+    echo "FAIL the postgres choice is still silent"; fail=$((fail + 1))
+fi
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+
+# Unset: byte-identical to what every existing caller does today.
+GITHUB_REPOSITORY=novaitdevteam/novatalks.core \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "target-repository unset: the scan still runs" clean 0
+assert_pg_image "an unset input falls back to GITHUB_REPOSITORY" postgres:17.9-trixie
+if grep -q "(from GITHUB_REPOSITORY)" "$WORK/log"; then
+    echo "ok   the fallback names itself as the fallback"; pass=$((pass + 1))
+else
+    echo "FAIL the log does not say where the repository name came from"; fail=$((fail + 1))
+fi
+unset GITHUB_REPOSITORY
+
+GITHUB_REPOSITORY=novaitdevteam/nova.chatsconnector.telegram-client-api \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "every other repository still resolves through the fallback" clean 0
+assert_pg_image "a connector takes postgres:16" postgres:16
+unset GITHUB_REPOSITORY
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

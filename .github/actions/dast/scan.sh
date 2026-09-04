@@ -34,6 +34,21 @@ DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 # constant with itself.
 DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
+# The repository whose image is being scanned — not necessarily the repository this job
+# runs in. Every caller until now was the reusable build workflow, which runs in the
+# product repository's own context, so GITHUB_REPOSITORY named the scanned repository by
+# accident of who called. ci-dast-pentest.yaml runs in nova.ci and scans somebody else's
+# image, and two things below key off this name: the postgres major version, and whether
+# the checkout sitting in GITHUB_WORKSPACE is the scanned repository's own. The input
+# wins when set; the fallback reproduces every pre-existing caller byte for byte.
+DAST_TARGET_REPO="${DAST_TARGET_REPO:-}"
+workspace_repo="${GITHUB_REPOSITORY##*/}"
+scanned_repo="${DAST_TARGET_REPO:-$workspace_repo}"
+if [ -n "$DAST_TARGET_REPO" ]; then
+    repo_source="the target-repository input"
+else
+    repo_source="GITHUB_REPOSITORY"
+fi
 # Two distinct URLs: the boot probe polls the health path, ZAP scans the root. They are
 # not interchangeable — on novatalks.ui the health path 404s — so the summary and the
 # report header name the URL that was actually scanned, not the one that was polled.
@@ -180,10 +195,15 @@ if [ "$DAST_NEEDS_DB" = "true" ]; then
     # novatalks.core mirrors the production PG major version; everything else takes 16 —
     # the same split ci-build-ntk-on-push-tags-run-test.yaml makes, so the DAST stack and
     # the integration stack cannot disagree about what database the app is talking to.
-    case "${GITHUB_REPOSITORY##*/}" in
+    case "$scanned_repo" in
         novatalks.core) PG_IMAGE="${PG_IMAGE:-postgres:17.9-trixie}" ;;
         *)              PG_IMAGE="${PG_IMAGE:-postgres:16}" ;;
     esac
+    # The choice used to be silent, which is how a pentest dispatch for novatalks.core
+    # could get postgres:16: the name it keys off came from the runner's repository, not
+    # the scanned one, and nothing said so. Name the image, the repository it was chosen
+    # for, and where that name came from.
+    echo "DAST postgres: ${PG_IMAGE} — chosen for '${scanned_repo}' (from ${repo_source})."
     docker run -d --name nova-pg -p 5432:5432 \
         -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
         -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
@@ -270,7 +290,23 @@ fi
 # checkout, since it belongs to the product repo whose image is being scanned.
 env_file_path="${GITHUB_WORKSPACE:-.}/.env.example"
 
-if [ -f "$env_file_path" ]; then
+# ...which only holds if the workspace really is that repository's checkout. Under
+# ci-dast-pentest.yaml it is not: that workflow runs in nova.ci, and nova.ci has an
+# .env.example of its own. Seeding it would hand the scanned container four unrelated
+# variables, log a perfectly plausible "seeded 4 variable(s)", and then blame the image
+# for the boot it caused — the same shape as the @local admin address.
+#
+# A warning rather than a loud skip, deliberately: the repositories whose browser scan
+# needs no seeding at all (novatalks.ui is a static nginx image) would be killed outright
+# by a not_run here, and a scan that CAN run must not be stopped by a file it never
+# wanted. What the loud skip is for instead is the case where the application then fails
+# to boot: env_skip_note travels into that message so the failure names our own missing
+# input rather than the image.
+env_skip_note=""
+if [ "$scanned_repo" != "$workspace_repo" ]; then
+    echo "::warning::DAST env file: not seeded. GITHUB_WORKSPACE holds a checkout of '${workspace_repo:-unknown}', not of the scanned repository '${scanned_repo}', so its .env.example is another repository's configuration, not this application's."
+    env_skip_note=" — and no .env.example was seeded, because GITHUB_WORKSPACE holds a checkout of '${workspace_repo:-unknown}', not of '${scanned_repo}'"
+elif [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
     stage="${app_tmp_env}.stage"
 
@@ -429,7 +465,7 @@ done
 
 if [ "$booted" != "yes" ]; then
     docker logs --tail 40 nova-app 2>&1 | sed 's/^/    /' || true
-    not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
+    not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s${env_skip_note}"
 fi
 
 # --user: the zaproxy image runs as uid 1000, and /zap/wrk is a bind mount of

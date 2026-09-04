@@ -969,6 +969,12 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/dast@main
         with:
           image: ${{ env.DAST_TARGET_IMAGE }}
+          # Equal to GITHUB_REPOSITORY's tail here — this workflow runs in the product
+          # repository's own context — so it changes nothing. Passed anyway because
+          # ci-dast-pentest.yaml does not have that property, and a scan that infers the
+          # repository it is scanning from whoever happens to be running it is a trap
+          # that only shows up once somebody else calls the action.
+          target-repository: ${{ github.event.repository.name }}
           port: ${{ steps.dast_target.outputs.port }}
           health-path: ${{ steps.dast_target.outputs.health_path }}
           # Derived from the engine chart's startupProbe: initialDelaySeconds 5 +
@@ -1092,6 +1098,9 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/dast-api@main
         with:
           image: ${{ env.DAST_TARGET_IMAGE }}
+          # See the same input on the ZAP baseline step above: identical to the fallback
+          # here, explicit so the value never depends on who is calling.
+          target-repository: ${{ github.event.repository.name }}
           port: ${{ steps.apiscan_target.outputs.port }}
           health-path: ${{ steps.apiscan_target.outputs.health_path }}
           spec-path: ${{ steps.apiscan_target.outputs.spec_path }}

@@ -197,6 +197,30 @@ ZAP itself failing — a non-zero exit that is not "warnings present", or no rep
 at all — is the opposite case. Nothing about the application explains it, so it is
 broken tooling and the job goes red, exactly like a Semgrep failure.
 
+### Which repository is being scanned
+
+Both DAST actions take a `target-repository` input: the bare name of the repository
+whose image is under the scanner, e.g. `novatalks.core`. It defaults to empty, which
+falls back to the repository the job is running in (`GITHUB_REPOSITORY`).
+
+That fallback is exactly right for the reusable build workflow — it runs in the product
+repository's own context, so the two names are the same — and it is exactly wrong for
+[`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml), which runs in
+`nova.ci` and scans somebody else's published image. Two things key off the name:
+
+- **the Postgres major version.** `novatalks.core` gets `postgres:17.9-trixie`, every
+  other repository `postgres:16`. Resolved from the *runner's* name, a pentest of
+  `novatalks.core` would silently have taken `postgres:16`. The chosen image, the
+  repository it was chosen for, and where that name came from are now all printed:
+  `DAST postgres: postgres:17.9-trixie — chosen for 'novatalks.core' (from the
+  target-repository input)`.
+- **whether `GITHUB_WORKSPACE`'s `.env.example` is this application's configuration.**
+  See below. When the workspace is a checkout of a different repository, nothing is
+  seeded from it and the log says so.
+
+Both `dast-scan` and `api-scan` in the build workflow pass the input explicitly even
+though it equals their fallback, so the value never depends on who is calling.
+
 ### Seeding the app container from `.env.example`
 
 > [!NOTE]
@@ -218,6 +242,20 @@ storage, among others). Rather than hardcode product-specific env vars in `scan.
 worse, a credential — the action reads the product repository's own `.env.example`, the
 same file `ci-build-ntk-on-push-tags-run-test.yaml` already trusts for integration
 tests, strips it down, and hands the survivors to `docker run --env-file`.
+
+**"The product repository's own" is a precondition, not a description.** The file is
+read out of `GITHUB_WORKSPACE`, and under the pentest workflow that workspace holds
+`nova.ci`, which has an `.env.example` of its own. Seeding it would hand the scanned
+container four unrelated variables, log a perfectly plausible `seeded 4 variable(s)`,
+and then blame the image for the boot failure it caused. So when
+[`target-repository`](#which-repository-is-being-scanned) names a repository other than
+the one checked out, `scan.sh` seeds nothing from that file and emits a `::warning::`
+saying which checkout it found. It is a warning rather than a loud skip on purpose: a
+static-nginx target like `novatalks.ui` needs no seeding at all and must still be
+scannable. If the application then does not come up, the loud skip carries the reason
+with it — *"the image did not come up within 300s — and no .env.example was seeded,
+because GITHUB_WORKSPACE holds a checkout of 'nova.ci', not of 'novatalks.core'"* — so
+the failure names our own missing input instead of the image.
 
 `.env.example` is a human-facing file, not a strict `KEY=value` format: on
 `novatalks.core` it carries `NODE_ENV=production // production, development, test`.

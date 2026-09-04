@@ -52,6 +52,19 @@ DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
 # ci-build-ntk-on-push-tags-build.yaml, which names the same port and health path for
 # the baseline scan of the same image.
 DAST_PORT="${DAST_PORT:-3000}"
+# The repository whose image is being scanned — not necessarily the repository this job
+# runs in. Every caller until now was the reusable build workflow, which runs in the
+# product repository's own context, so GITHUB_REPOSITORY named the scanned repository by
+# accident of who called. ci-dast-pentest.yaml runs in nova.ci and scans somebody else's
+# image, and the postgres major version below keys off this name. The input wins when
+# set; the fallback reproduces every pre-existing caller byte for byte.
+DAST_TARGET_REPO="${DAST_TARGET_REPO:-}"
+scanned_repo="${DAST_TARGET_REPO:-${GITHUB_REPOSITORY##*/}}"
+if [ -n "$DAST_TARGET_REPO" ]; then
+    repo_source="the target-repository input"
+else
+    repo_source="GITHUB_REPOSITORY"
+fi
 target="http://127.0.0.1:${DAST_PORT}"
 health_url="${target}${DAST_HEALTH_PATH:-/livez}"
 spec_url="${target}${DAST_SPEC_PATH:-/api-docs-json}"
@@ -188,10 +201,15 @@ docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
 # novatalks.core mirrors the production PG major version; everything else takes 16 —
 # the same split ci-build-ntk-on-push-tags-run-test.yaml makes, so the DAST stack and
 # the integration stack cannot disagree about what database the app is talking to.
-case "${GITHUB_REPOSITORY##*/}" in
+case "$scanned_repo" in
     novatalks.core) PG_IMAGE="${PG_IMAGE:-postgres:17.9-trixie}" ;;
     *)              PG_IMAGE="${PG_IMAGE:-postgres:16}" ;;
 esac
+# The choice used to be silent, which is how a pentest dispatch for novatalks.core could
+# get postgres:16: the name it keys off came from the runner's repository, not the
+# scanned one, and nothing said so. Name the image, the repository it was chosen for,
+# and where that name came from.
+echo "DAST API postgres: ${PG_IMAGE} — chosen for '${scanned_repo}' (from ${repo_source})."
 docker run -d --name nova-pg -p 5432:5432 \
     -e POSTGRES_PASSWORD="${DATABASE_PASSWORD:-password}" \
     -e POSTGRES_USER="${DATABASE_USERNAME:-postgres}" \
