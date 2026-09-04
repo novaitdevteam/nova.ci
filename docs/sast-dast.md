@@ -1525,6 +1525,77 @@ runtime choice.
   says whether it came from a throwaway container or a scan that just mutated real
   data.
 
+## Live proof (2026-09-04)
+
+The exit criterion for this workflow was never "the code exists" — it was every wired
+repository producing a real verdict with a non-zero count, dispatched through
+`ci-dast-pentest.yaml` itself with `target: ephemeral`
+(`docs/superpowers/plans/2026-09-03-dast-completion.md`, Task 10). All six repository/
+surface pairs that have a `targets.sh` arm now have one:
+
+| Repository | Surface | Auth mode | Verdict | Run |
+| --- | --- | --- | --- | --- |
+| `novatalks.core` | api | `login` | `operations: 359, must-fix: 0, warnings: 6, info: 0, accepted: 0, passed: 113` | [33869023913](https://github.com/novaitdevteam/nova.ci/actions/runs/33869023913) |
+| `nova.chatsconnector.telegram-client-api` | api | `db-token` | `operations: 35, must-fix: 0, warnings: 5, info: 0, accepted: 0, passed: 113` | [33873549140](https://github.com/novaitdevteam/nova.ci/actions/runs/33873549140) |
+| `nova.chatsconnector.whatsapp-client-api` | api | `db-insert` | `operations: 44, must-fix: 0, warnings: 7, info: 0, accepted: 0, passed: 112` | [33873563894](https://github.com/novaitdevteam/nova.ci/actions/runs/33873563894) |
+| `nova.chatsconnector.signal-client-api` | api | `db-insert` | `operations: 26, must-fix: 0, warnings: 5, info: 0, accepted: 0, passed: 114` | [33875964532](https://github.com/novaitdevteam/nova.ci/actions/runs/33875964532) |
+| `novatalks.dialer` | api | `env-token` | `operations: 19, must-fix: 0, warnings: 5, info: 0, accepted: 0, passed: 114` | [33876797012](https://github.com/novaitdevteam/nova.ci/actions/runs/33876797012) |
+| `nova.botflow` | browser | none | `must-fix: 0, warnings: 12, info: 0, accepted: 0, passed: 129` | [33876812531](https://github.com/novaitdevteam/nova.ci/actions/runs/33876812531) |
+
+All six runs are dated 2026-09-04. This table is what the quarterly evidence report is
+assembled from, and it is also what makes a future regression visible: a repository
+that once reported 359 operations reporting `⚠️ not run` next quarter is a break, not a
+fluctuation, and this table is what shows it.
+
+> [!IMPORTANT]
+> **`must-fix: 0` does not mean nothing was found.** Every repository above carries
+> warnings — 5 to 12 of them. It means no finding is marked as blocking, because
+> [both triage registers](#recording-a-decision-about-a-finding) — `zap-baseline.conf`,
+> `zap-api-scan.conf` and `zap-full-scan.conf` — are still empty of entries, so every
+> rule sits at its own default `WARN`. Nobody has yet decided which of these findings
+> must be fixed. A reader three months from now must not read a row of zeros as a clean
+> bill of health; read it as "found, and not yet triaged."
+
+**What this coverage still does not include:**
+
+- **This is not a penetration test.** An active scanner sends injection, traversal and
+  command-execution payloads and observes the responses. It has no model of intent, so
+  none of the six runs above find an IDOR, a privilege escalation, a business-logic
+  flaw or a chained exploit — the same limit stated for every scan on this page,
+  restated once more here because a table of real numbers is exactly the place someone
+  is tempted to read more into it than it says.
+- **`novatalks.ui` has no pentest coverage.** Its ephemeral image is a static SPA with
+  no backend of its own: `POST /auth/sign_in` returns `405` and every route returns a
+  byte-identical shell, so there is nothing an active scan can reach that a scan of one
+  page would not — see [above](#pentest-active-scan). Its passive baseline still runs
+  in the build workflow and still finds real header and cookie issues.
+- **`novatalks.geoip-api` has no DAST at all**, by decision — see
+  [above](#novatalksgeoip-api-gets-no-dast-at-all). It keeps Trivy, Semgrep and secret
+  detection.
+- **The operation counts are what the OpenAPI spec declares.** A route absent from the
+  spec was not scanned. That cuts both ways: a spec that over-declares would have the
+  scanner probe a route that does not exist, and one that under-declares hides a real
+  one from every count in this table.
+
+**Reproducing a row:** `Actions → DAST Pentest (active scan) → Run workflow`, with
+`repository` and `surface` set and `target` left at its `ephemeral` default. Find a
+current `image_tag` on the repository's own GHCR package page
+(`ghcr.io/novaitdevteam/<repository>`) or from a recent build notification — there is no
+"most recent" lookup built into the workflow, [by design](#pentest-active-scan).
+
+Getting to six clean dispatches took three loud skips first, and each one named its own
+cause rather than reporting a plausible result over zero operations — the exact failure
+[this page is built to refuse](#a-scanner-that-could-not-run-is-not-a-clean-scan):
+`novatalks.core`'s api arm was missing five `AWS_S3_*` boot dummies (fixed, and told in
+full, [above](#per-repository-extra-env-overrides)); ZAP itself then failed outright
+with `Failed to start ZAP :(` under a uid that had no write access to `/home/zap`
+(run 33867417238, fixed in `dast/scan.sh`); and `novatalks.dialer`'s NATS consumer
+needed a `deliver_subject` that only surfaced once the JetStream stream lookup had
+already succeeded (fixed, and told in full, under [`needs-nats`](#needs-nats-for-novatalksdialers-api-scan)
+above). A scanner that had reported any of those three as clean would have produced six
+green rows with zero operations behind them — which is the failure this whole page
+exists to refuse, not an aspiration.
+
 ## Where the reports are
 
 All three scanners publish onto the **one release the build already creates**, because
