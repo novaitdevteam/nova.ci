@@ -10,7 +10,9 @@
 #   - ci-build-create-runner.sh scenario self-check (offline, curl stubbed)
 #   - secret-scan scan.sh scenario self-check (git fixtures, pinned gitleaks)
 #   - SAST scan.sh scenario self-check (docker stubbed)
-#   - scanner invocation guard (no workflow may run Gitleaks or Semgrep itself)
+#   - dependency scan.sh scenario self-check (docker stubbed for OSV-Scanner; Trivy JSON
+#     read from a fixture file)
+#   - scanner invocation guard (no workflow may run Gitleaks, Semgrep or OSV-Scanner itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
 #   - actionlint (when installed)
 #
@@ -168,6 +170,24 @@ if command -v jq >/dev/null 2>&1; then
   else
     printf '%s\n' "$out"
     echo "ERROR: semgrep scan.sh self-check failed"
+    fail=1
+  fi
+else
+  echo "skip: jq not installed"
+fi
+
+section "Dependency scan self-check"
+# deps-scan's scan.sh decides whether a build reports declared-dependency findings, a
+# clean scan, "no manifests found", or a broken scanner — and the four have to stay
+# distinct the same way Semgrep's do. The harness stubs docker (OSV-Scanner only; Trivy
+# is read from a plain JSON file, never invoked here) so it needs no image and no network.
+if command -v jq >/dev/null 2>&1; then
+  if out="$(./scripts/test-deps-scan.sh 2>&1)"; then
+    printf '%s\n' "$out" | tail -1
+    echo "OK: all deps-scan scan.sh scenarios passed"
+  else
+    printf '%s\n' "$out"
+    echo "ERROR: deps-scan scan.sh self-check failed"
     fail=1
   fi
 else
@@ -339,6 +359,23 @@ if grep -q 'target=live supports surface=browser only' .github/workflows/ci-dast
   echo "OK: ci-dast-pentest.yaml's live path rejects surface: api"
 else
   echo "ERROR: ci-dast-pentest.yaml no longer rejects surface: api on the live path — a browser crawl would be reported as an API scan"
+  fail=1
+fi
+
+# Same argument again for OSV-Scanner: the pinned digest and the exit-code guard (the
+# silent-zero trap documented at the top of deps-scan/scan.sh) live in
+# .github/actions/deps-scan only, and a workflow that runs `osv-scanner scan` or
+# `docker run ghcr.io/google/osv-scanner` itself bypasses both. Trivy has no equivalent
+# guard here on purpose — it is called directly in every Trivy job in this repository,
+# deps-scan included, and there never was a "wrap it in an action" rule for it.
+osv_offenders="$(grep -nE 'osv-scanner +scan\b|docker +run.*google/osv-scanner' .github/workflows/*.yaml \
+  | grep -vE 'uses:.*/\.github/actions/deps-scan(@|$)' \
+  | grep -v ':[0-9]*: *#' || true)"
+if [ -z "$osv_offenders" ]; then
+  echo "OK: every workflow scans through .github/actions/deps-scan"
+else
+  printf '%s\n' "$osv_offenders" | sed 's/^/       /'
+  echo "ERROR: these lines invoke OSV-Scanner directly; use .github/actions/deps-scan"
   fail=1
 fi
 

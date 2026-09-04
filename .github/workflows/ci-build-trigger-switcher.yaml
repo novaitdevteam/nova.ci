@@ -138,6 +138,81 @@ jobs:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
 
+  # Reads declared dependencies in the checkout's own lockfiles, on the same pull-request
+  # gate as sast-scan above and for the same reason: trivy-scan already reads whatever
+  # ships INSIDE a built image, but that structurally misses a frontend bundle with no
+  # manifest at all (novatalks.ui ships `dist/`, no node_modules), a devDependency an
+  # image prunes away (`npm prune --omit=dev`), and any repository that builds no image
+  # (novatalks.chatwidget, novatalks.ui-lite, nova.docs) or builds one only after merge —
+  # there is no dependency signal on an ordinary pull request without this job.
+  #
+  # Two independent vulnerability databases, cross-checking each other: Trivy fs (its own
+  # feed) and OSV-Scanner (osv.dev, which aggregates GHSA and the npm advisory feed among
+  # others). Neither result is de-duplicated against the other on purpose.
+  #
+  # Advisory by construction, same as sast-scan: scan.sh exits non-zero only when a
+  # scanner could not prove it ran; findings leave the job green. No notifier — a
+  # vulnerable transitive dependency is not the pager event a leaked credential is.
+  #
+  # See docs/sast-dast.md#dependency-scanning-source-manifests for the full design,
+  # including why OSV-Scanner's own JSON output is not enough on its own and the exit
+  # code has to be checked too.
+  deps-scan:
+    name: deps-scan
+    # The same repository list as secret-scan and sast-scan above.
+    if:
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api" ]'), github.event.repository.name)
+      && github.event_name == 'pull_request'
+      && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    permissions:
+      contents: read
+    env:
+      REPORT_FILE: deps-scan-${{ github.event.repository.name }}-pr${{ github.event.number }}-${{ github.sha }}.report
+      TRIVY_JSON_FILE: trivy-deps-${{ github.event.repository.name }}-pr${{ github.event.number }}.json
+    steps:
+      # Shallow, like sast-scan: both scanners read the working tree, not a commit range.
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      # Called directly, not from behind a composite action: there is no validate.sh
+      # guard requiring a wrapper for Trivy the way there is for Gitleaks, Semgrep and
+      # ZAP, and every other Trivy job in this repository already calls it inline.
+      # continue-on-error: a failed Trivy step must still reach deps-scan's own decision
+      # logic so it can report a real error, rather than leaving the job with a bare
+      # GitHub Actions step failure and no report behind it.
+      - name: Trivy fs scan (JSON)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_PKG_TYPES: library
+        with:
+          scan-type: fs
+          format: json
+          output: ${{ env.TRIVY_JSON_FILE }}
+          scanners: vuln
+          hide-progress: "true"
+
+      - name: Dependency scan
+        id: deps
+        uses: novaitdevteam/nova.ci/.github/actions/deps-scan@main
+        with:
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ""
+          trivy-json: ${{ env.TRIVY_JSON_FILE }}
+          trivy-outcome: ${{ steps.trivy.outcome }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
   # Compensating control for the free plan, where a red check cannot actually block a
   # merge (docs/secret-detection.md#what-we-lose-without-enforcement). If nothing stops
   # the credential from landing, the least we can do is make sure a human hears about it
