@@ -23,6 +23,7 @@ dast_resolve_target() {
     DT_AUTH_MODE=""; DT_LOGIN_PATH=""; DT_AUTH_HEADER=""; DT_AUTH_SCHEME_PREFIX=""
     DT_TOKEN_SQL=""; DT_TOKEN_INSERT_SQL=""; DT_TOKEN_ENV_VAR=""
     DT_SETUP_COMMAND=""; DT_SWAGGER_ENABLE=false; DT_EXTRA_ENV=""; DT_ZAP_CONTEXT=""
+    DT_UNSEEDED_ENV=""
 
     case "${repo}/${surface}" in
         novatalks.ui/browser)
@@ -51,6 +52,45 @@ dast_resolve_target() {
         novatalks.core/browser)
             # NestJS engine. Same chart source as above.
             DT_PORT=3000; DT_HEALTH_PATH=/livez; DT_NEEDS_DB=true
+            # DT_UNSEEDED_ENV: a fallback for the one caller that cannot seed this
+            # repository's own .env.example at all — ci-dast-pentest.yaml runs in
+            # nova.ci, not in a novatalks.core checkout. dast/scan.sh's own
+            # scanned_repo/workspace_repo check detects exactly that mismatch and
+            # applies this ONLY then; on the build workflow's own path (a real
+            # novatalks.core checkout) it is never applied, so the real .env.example —
+            # including its real S3 config — keeps deciding, unchanged. Overriding that
+            # unconditionally would contradict CLAUDE.md's novatalks.core-scoped R2/S3
+            # exception, and would have changed the trunk baseline scan that already
+            # works (run reports WARN-NEW: 2, PASS: 65). Confirmed live on pentest run
+            # 33882314584: the browser scan loud-skipped with "the image did not come up
+            # within 180s", because GITHUB_WORKSPACE held nova.ci, not novatalks.core, so
+            # nothing was seeded.
+            #
+            # The api arm below boots the identical image and needed exactly two things
+            # to get past boot, for reasons that are not endpoint-specific: the
+            # entrypoint's own seeder (create-database / migrate / seed-database) runs
+            # before either surface serves anything, so a browser scan hits the same
+            # seeder the api scan does and needs its own DEFAULT_ADMIN_USER/
+            # DEFAULT_USER_PASSWORD (dast-api/scan.sh generates and masks these
+            # unconditionally every run; dast/scan.sh has no equivalent, since its usual
+            # path — a real .env.example — already supplies both); and
+            # MulterConfigService.createMulterOptions() getOrThrow()s the five
+            # AWS_S3_* keys at module registration, which happens regardless of which
+            # surface is ever scanned afterward. DEFAULT_ADMIN_USER is a distinct
+            # address from the api arm's own nova-ci-apiscan@example.invalid (same RFC
+            # 2606 example.invalid domain, same reasoning) so the two arms' seeded rows
+            # never collide if a future scan run ever pointed both at the same database.
+            # Nothing here is read back — the browser scan never authenticates — so the
+            # password only has to satisfy whatever strength check the seeder itself
+            # applies; it is fixed rather than generated because targets.sh is a static
+            # table, not a script that can call openssl per run.
+            DT_UNSEEDED_ENV='DEFAULT_ADMIN_USER=nova-ci-dast@example.invalid
+DEFAULT_USER_PASSWORD=Dast-Fallback-Passw0rd!
+AWS_S3_ACCESS_KEY_ID=dast-dummy-not-a-real-key
+AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
+AWS_S3_BUCKET=dast-dummy-bucket
+AWS_S3_REGION=dast-dummy-region
+AWS_S3_ENDPOINT=http://s3.example.invalid'
             ;;
         nova.botflow/browser)
             # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is

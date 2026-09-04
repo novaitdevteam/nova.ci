@@ -34,6 +34,15 @@ DAST_NEEDS_DB="${DAST_NEEDS_DB:-false}"
 # constant with itself.
 DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
+# Applied only when .env.example could NOT be seeded — see the scanned_repo/workspace_repo
+# check below, which is the one place this gets merged into DAST_EXTRA_ENV. Never applied
+# when the file was seeded: on the build workflow's own path the scanned application's
+# real .env.example already carries these values (its own S3 config among them, for
+# novatalks.core), and this fallback must not override a value that is already correct
+# there — see targets.sh's novatalks.core/browser arm and CLAUDE.md's R2/S3 exception for
+# why. DAST_EXTRA_ENV stays the one mechanism the app container ever sees; this variable
+# only decides whether a second string gets folded into it before that mechanism runs.
+DAST_UNSEEDED_ENV="${DAST_UNSEEDED_ENV:-}"
 # The repository whose image is being scanned — not necessarily the repository this job
 # runs in. Every caller until now was the reusable build workflow, which runs in the
 # product repository's own context, so GITHUB_REPOSITORY named the scanned repository by
@@ -294,6 +303,15 @@ env_skip_note=""
 if [ "$scanned_repo" != "$workspace_repo" ]; then
     echo "::warning::DAST env file: not seeded. GITHUB_WORKSPACE holds a checkout of '${workspace_repo:-unknown}', not of the scanned repository '${scanned_repo}', so its .env.example is another repository's configuration, not this application's."
     env_skip_note=" — and no .env.example was seeded, because GITHUB_WORKSPACE holds a checkout of '${workspace_repo:-unknown}', not of '${scanned_repo}'"
+    # The one branch DAST_UNSEEDED_ENV is allowed to reach: nothing real was seeded, so
+    # there is no correct value here for a fallback to clobber. Folded into
+    # DAST_EXTRA_ENV ahead of the single parsing loop below rather than a second copy of
+    # it — same -e-after-env-file semantics, same log line, one parser for both strings.
+    if [ -n "$DAST_UNSEEDED_ENV" ]; then
+        echo "DAST unseeded-env: applying ${scanned_repo}'s boot fallback (no .env.example was available to seed it)."
+        DAST_EXTRA_ENV="${DAST_UNSEEDED_ENV}
+${DAST_EXTRA_ENV}"
+    fi
 elif [ -f "$env_file_path" ]; then
     app_tmp_env="${RUNNER_TEMP:-/tmp}/dast.env"
     stage="${app_tmp_env}.stage"

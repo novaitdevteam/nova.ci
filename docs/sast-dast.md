@@ -431,6 +431,29 @@ with it — *"the image did not come up within 300s — and no .env.example was 
 because GITHUB_WORKSPACE holds a checkout of 'nova.ci', not of 'novatalks.core'"* — so
 the failure names our own missing input instead of the image.
 
+That is exactly what live pentest run 33882314584 reported for `novatalks.core`/browser/
+ephemeral, and the message was doing its job — but the gap it named was closable. The
+`api` arm boots the identical image successfully with no `.env.example` at all, using
+five `AWS_S3_*` boot dummies (see [Per-repository `extra-env`
+overrides](#per-repository-extra-env-overrides) below) plus
+`DEFAULT_ADMIN_USER`/`DEFAULT_USER_PASSWORD` — so the same values close the gap for
+`browser` too, for reasons that are not endpoint-specific: the
+entrypoint's own seeder (create-database/migrate/seed-database) runs before either
+surface serves anything, and `MulterConfigService.createMulterOptions()` `getOrThrow()`s
+the five S3 keys at module registration regardless of which surface is ever scanned.
+They cannot simply join `DT_EXTRA_ENV`, though: `dast/scan.sh` applies `extra-env` with
+`-e` *after* `--env-file`, so on the build workflow's own path — where the real
+`.env.example` (including the real S3 config the [`novatalks.core`-scoped R2/S3
+exception](../CLAUDE.md) documents) *is* seeded — it would override a value that is
+already correct there, and change a scan that already works
+(`WARN-NEW: 2, PASS: 65`). A second field, `unseeded-env` (`DT_UNSEEDED_ENV` in
+`targets.sh`, `DAST_UNSEEDED_ENV` in `scan.sh`), is folded into `DAST_EXTRA_ENV` only
+inside the branch above where `scan.sh` has already determined nothing was seeded — a
+no-op on every existing caller, live only for `ci-dast-pentest.yaml`. Both `Resolve DAST
+target` steps and `ci-dast-pentest.yaml`'s `Resolve target` step bridge it from
+`targets.sh` regardless, per the "every `DT_*` is bridged" rule the target table itself
+follows.
+
 `.env.example` is a human-facing file, not a strict `KEY=value` format: on
 `novatalks.core` it carries `NODE_ENV=production // production, development, test`.
 Docker's `--env-file` strips whole-line comments only, never a trailing one, so the
@@ -575,6 +598,22 @@ convention above, and the other four are self-describing strings like
 `dast-dummy-not-a-real-key` — obviously fake, not a plausible-looking credential, since
 this repository is public and a plausible fake reads as a leak to anyone (or any secret
 scanner) reading it later.
+
+`novatalks.core`'s **browser** arm needs the identical five `AWS_S3_*` dummies plus
+`DEFAULT_ADMIN_USER`/`DEFAULT_USER_PASSWORD` for the same module-registration and seeder
+reasons, but only from `ci-dast-pentest.yaml` — the build workflow's own browser scan
+already gets real values from the product repository's real `.env.example`. They cannot
+live in this arm's `extra-env`: `dast/scan.sh` applies `extra-env` with `-e` *after*
+`--env-file`, so on the build workflow's path it would override a value the real
+`.env.example` already got right, including the real S3 config the `novatalks.core`-
+scoped R2/S3 exception in `CLAUDE.md` documents. They live instead in a second field,
+`unseeded-env` (`DT_UNSEEDED_ENV` in `targets.sh`), that `dast/scan.sh` folds into
+`DAST_EXTRA_ENV` only inside the branch where it has already determined nothing was
+seeded (`target-repository` disagrees with `GITHUB_WORKSPACE` — see [Which repository is
+being scanned](#which-repository-is-being-scanned) above) — a no-op on every existing
+caller, live only for the pentest workflow. Confirmed live on pentest run 33882314584:
+the browser scan of `novatalks.core`/ephemeral loud-skipped for lack of exactly these
+values.
 
 Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
 values instead of passing them through. `S3_PUBLIC_URL` is declared

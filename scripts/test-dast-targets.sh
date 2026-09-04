@@ -30,6 +30,31 @@ reset_dt; dast_resolve_target novatalks.core browser
 check "core/browser port"        3000     "$DT_PORT"
 check "core/browser health"      /livez   "$DT_HEALTH_PATH"
 check "core/browser needs a db"  true     "$DT_NEEDS_DB"
+# DT_UNSEEDED_ENV: dast/scan.sh only ever applies this when .env.example could not be
+# seeded (ci-dast-pentest.yaml's shape) — never on the build workflow's own path, where
+# the real .env.example already supplies these. Live pentest run 33882314584 loud-skipped
+# the browser scan of this exact repo/surface for lack of them.
+for var in DEFAULT_ADMIN_USER DEFAULT_USER_PASSWORD AWS_S3_ACCESS_KEY_ID AWS_S3_SECRET_ACCESS_KEY AWS_S3_BUCKET AWS_S3_REGION AWS_S3_ENDPOINT; do
+    case "$DT_UNSEEDED_ENV" in
+        *"$var="*) echo "ok   core/browser unseeded-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL core/browser unseeded-env is missing $var — the pentest path would loud-skip on boot again"; fail=$((fail + 1)) ;;
+    esac
+done
+case "$DT_UNSEEDED_ENV" in
+    *"AWS_S3_ACCESS_KEY_ID=dast-dummy"*|*"AWS_S3_SECRET_ACCESS_KEY=dast-dummy"*)
+        echo "ok   core/browser's AWS_S3 fallback values are obviously fake, not plausible-looking"; pass=$((pass + 1)) ;;
+    *) echo "FAIL core/browser's AWS_S3 fallback values do not look like dummies"; fail=$((fail + 1)) ;;
+esac
+# Distinct admin address from the api arm's own nova-ci-apiscan@example.invalid — see the
+# arm's own comment for why: the two must never collide if a future run ever seeded both
+# into the same database.
+case "$DT_UNSEEDED_ENV" in
+    *"DEFAULT_ADMIN_USER=nova-ci-apiscan@example.invalid"*)
+        echo "FAIL core/browser's fallback admin address collides with the api arm's own"; fail=$((fail + 1)) ;;
+    *"@example.invalid"*)
+        echo "ok   core/browser's fallback admin address is its own, at the reserved example.invalid domain"; pass=$((pass + 1)) ;;
+    *) echo "FAIL core/browser's fallback admin address is missing or not at example.invalid"; fail=$((fail + 1)) ;;
+esac
 
 # novatalks.ui, browser surface: DT_ZAP_CONTEXT stays empty. A context file exists
 # (contexts/novatalks-ui.context) with the verified login request shape, but this arm
