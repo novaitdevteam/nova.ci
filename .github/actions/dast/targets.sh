@@ -75,6 +75,26 @@ dast_resolve_target() {
             # serves anything. `npm run db:setup:prod` here could only ever answer
             # `sh: npm: not found` — and did, on run 33752263531.
             DT_SETUP_COMMAND=''
+            # Boot dummies for the S3 file-storage config: run 33863826945 loud-skipped
+            # with the container log reading `[Nest] ERROR [ExceptionHandler] TypeError:
+            # Configuration key "file.awsS3AccessKeyId" does not exist`.
+            # MulterConfigService.createMulterOptions() (apps/engine/src/files/
+            # multer-config.service.ts) runs at module registration — before any
+            # request, let alone a file upload — and getOrThrow()s
+            # awsS3AccessKeyId/awsS3SecretAccessKey/awsS3Endpoint/awsS3Region/awsS3Bucket
+            # unconditionally, because FILE_DRIVER defaults to 's3' (libs/common/src/
+            # config/file.config.ts) and none of those five has a default. The
+            # browser-surface baseline never hit this: it seeds the product repo's own
+            # .env.example, which defines them; dast-api/scan.sh does not seed that file
+            # at all. The scan never uploads a file, so the values only need to exist
+            # and parse — obviously-fake, not a real endpoint or key, since this
+            # repository is public and a plausible-looking fake reads as a leak to
+            # anyone (or any secret scanner) later.
+            DT_EXTRA_ENV='AWS_S3_ACCESS_KEY_ID=dast-dummy-not-a-real-key
+AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
+AWS_S3_BUCKET=dast-dummy-bucket
+AWS_S3_REGION=dast-dummy-region
+AWS_S3_ENDPOINT=http://s3.example.invalid'
             ;;
         nova.chatsconnector.telegram-client-api/api)
             # Verified in the connector's code: api_access_token header (setup-swagger.ts),
@@ -194,11 +214,10 @@ S3_BUCKET=dast-dummy'
             # NATS_SUBJECTS throws before the app ever reaches app.listen() — needed
             # regardless of whether a NATS broker is reachable. main.ts also awaits
             # `microService.listen()` (a real NATS connection) before app.listen(), so
-            # DT_NEEDS_NATS is set honestly here even though, as of this writing,
-            # dast-api/scan.sh has no NATS bring-up block (only dast/scan.sh, the
-            # browser-surface baseline, does) — until that gap is closed this arm's
-            # api-scan is expected to loud-skip on the NATS connection, not silently
-            # scan the wrong thing.
+            # this app-scan needs a real NATS server up, not just the env var — and now
+            # gets one: dast-api/action.yml's needs-nats input reaches scan.sh's
+            # dast_bring_up_nats (dast-common.sh), the same bring-up dast/scan.sh's
+            # browser-surface baseline already used.
             DT_NEEDS_NATS=true
             DT_AUTH_MODE=env-token
             DT_AUTH_HEADER=api_access_token; DT_AUTH_SCHEME_PREFIX=''
@@ -224,6 +243,13 @@ S3_BUCKET=dast-dummy'
         # skip. It has no authentication either (grepped the whole file — no guard, no
         # middleware, no header check), which would be DT_AUTH_MODE=none if a spec ever
         # gets added.
+        #
+        # This is a decision, not an oversight: novatalks.geoip-api gets no DAST
+        # coverage at all — no baseline, no api-scan, no pentest — permanently, for the
+        # two reasons above. It keeps Trivy, Semgrep and secret detection. See CLAUDE.md
+        # and docs/sast-dast.md for the recorded exclusion; it is also why it is not
+        # offered in ci-dast-pentest.yaml's repository dropdown — a choice that always
+        # fails loudly here is worse than not offering it.
         *)
             echo "::error::No DAST configuration for '${repo}' on the '${surface}' surface. Add an arm with its port, health path and auth read from that repository's own code — a guessed value scans nothing and reports it clean."
             return 1

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# Boot an application against ephemeral postgres and redis, run its own migrations and
-# seed, acquire an auth token, and run zap-api-scan.py in safe mode against the app's own
-# OpenAPI spec. Reports one of the same four outcomes as the baseline DAST scan — clean,
-# findings, not-run, error — for the same reason: a boot, migration, seed or auth
-# failure produces the same empty result a clean scan would, and reporting that as clean
-# is the failure this job exists to avoid.
+# Boot an application against ephemeral postgres and redis (and, when needs-nats is set,
+# a NATS server — novatalks.dialer), run its own migrations and seed, acquire an auth
+# token, and run zap-api-scan.py in safe mode against the app's own OpenAPI spec.
+# Reports one of the same four outcomes as the baseline DAST scan — clean, findings,
+# not-run, error — for the same reason: a boot, migration, seed or auth failure produces
+# the same empty result a clean scan would, and reporting that as clean is the failure
+# this job exists to avoid.
 #
 # Four auth-modes, selected by DAST_AUTH_MODE: `login` POSTs a username/password and
 # reads the token from the response (novatalks.core's engine); `db-token` reads a token
@@ -53,6 +54,7 @@ DAST_BOOT_TIMEOUT="${DAST_BOOT_TIMEOUT:-300}"
 # ci-build-ntk-on-push-tags-build.yaml, which names the same port and health path for
 # the baseline scan of the same image.
 DAST_PORT="${DAST_PORT:-3000}"
+DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}"
 # The repository whose image is being scanned — not necessarily the repository this job
 # runs in. Every caller until now was the reusable build workflow, which runs in the
 # product repository's own context, so GITHUB_REPOSITORY named the scanned repository by
@@ -85,6 +87,9 @@ zap_console="${RUNNER_TEMP:-/tmp}/zap-api-console.log"
 zap_conf_src="${DAST_ACTION_ROOT}/zap-api-scan.conf"
 zap_conf="${RUNNER_TEMP:-/tmp}/zap-api-scan.conf"
 spec_file="${RUNNER_TEMP:-/tmp}/dast-api-spec.json"
+# Printed on failure, never suppressed, same reasoning as dast/scan.sh's own copy of
+# this path: a stream that cannot be created must say why.
+nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
 
 emit() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
@@ -97,12 +102,13 @@ emit_message() {
 }
 
 cleanup() {
-    docker rm -f nova-app nova-pg nova-redis >/dev/null 2>&1 || true
+    docker rm -f nova-app nova-pg nova-redis nova-nats >/dev/null 2>&1 || true
     # The console log carries the token in ZAP's own replacer echo — already masked out
     # of the step log by ::add-mask:: below, but the local copy still doesn't belong on a
     # pooled, reused runner past this process's own lifetime. The spec file is a scratch
-    # copy of a public route; same reasoning, lower stakes.
-    rm -f "$zap_console" "$spec_file" >/dev/null 2>&1 || true
+    # copy of a public route; same reasoning, lower stakes. The NATS stream-creation log
+    # is the same idea as the zap console — printed on failure, never left behind.
+    rm -f "$zap_console" "$spec_file" "$nats_stream_log" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -247,6 +253,14 @@ docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
     psql -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
     -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null 2>&1 || true
 
+# --- NATS, only for a repository that needs it (novatalks.dialer) -------------------
+# dast_bring_up_nats lives in dast-common.sh, shared with dast/scan.sh's identical
+# needs-nats block, so the bring-up sequence exists in exactly one place. See that
+# function's own comment for the js-init.sh cross-reference.
+if [ "$DAST_NEEDS_NATS" = "true" ]; then
+    dast_bring_up_nats not_run "$nats_stream_log"
+fi
+
 # --- the engine, seeded with the admin this run generates ----------------------------
 # SWAGGER_ENABLE and NODE_ENV=production: without both, /api-docs-json comes back empty
 # and step 6 below reports a loud skip rather than guessing a route exists. SWAGGER_ENABLE
@@ -295,7 +309,14 @@ docker run -d --name nova-app --network host \
     -e "DATABASE_URL=postgresql://${DATABASE_USERNAME:-postgres}:${DATABASE_PASSWORD:-password}@127.0.0.1:5432/${DATABASE_NAME:-db_name}" \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
     -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
+    -e NATS_SERVERS=127.0.0.1:4222 \
     "$DAST_IMAGE" || true
+# NATS_SERVERS above is unconditional, same as DATABASE_HOST/PORT above it: a var an
+# application never reads costs nothing, and dast/scan.sh sets it unconditionally too —
+# novatalks.dialer's own boot log once read "Error: connect ECONNREFUSED ::1:4222"
+# because the client resolved `localhost` to IPv6 and a NATS server bound to 0.0.0.0
+# still refuses that connection; naming 127.0.0.1 explicitly removes the resolution
+# question. Listed last so it wins over any same-named override in extra-env.
 
 # `docker exec` against a container that never started fails on its own, so this used to
 # cascade into the setup step's loud skip and report "database setup failed" for an image

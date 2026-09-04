@@ -66,7 +66,7 @@ bucket unconditionally, by `check_id`, and the `canary alone is a clean scan` sc
 holds it to that — there is no severity input to coincide with any more.
 
 [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh) does the same for the ZAP
-[`scan.sh`](../.github/actions/dast/scan.sh) across 146 checks, with `docker` and
+[`scan.sh`](../.github/actions/dast/scan.sh) across 147 checks, with `docker` and
 `curl` stubbed. It asserts the four outcomes stay distinct — `clean`, `findings`,
 `not-run` and `error` — plus the boot wait loop, teardown on every path, that a
 no-database run never starts postgres or redis, the `.env.example` seeding filters, the

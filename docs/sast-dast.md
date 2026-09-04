@@ -384,6 +384,24 @@ repository supports, so storage cannot simply be switched off for the scan.
 `AWS_S3_ENDPOINT` uses the same IANA-reserved `example.com` as the signal arm and is
 never contacted by a baseline scan.
 
+`novatalks.core`'s **api** arm hits the same shape from a different angle. The baseline
+never saw it, because `dast/scan.sh` seeds the engine from its own `.env.example`, which
+defines `AWS_S3_*`; `dast-api/scan.sh` seeds nothing from that file at all. Run
+33863826945 loud-skipped with the container log reading `[Nest] ERROR
+[ExceptionHandler] TypeError: Configuration key "file.awsS3AccessKeyId" does not
+exist`: `MulterConfigService.createMulterOptions()` runs at module registration, before
+any request lands, and `getOrThrow()`s `awsS3AccessKeyId`/`awsS3SecretAccessKey`/
+`awsS3Endpoint`/`awsS3Region`/`awsS3Bucket` unconditionally, because `FILE_DRIVER`
+defaults to `s3` and none of the five has a default. The `novatalks.core/api` arm now
+sets `AWS_S3_ACCESS_KEY_ID`, `AWS_S3_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`,
+`AWS_S3_REGION` and `AWS_S3_ENDPOINT` as boot dummies — the scan never uploads a file,
+so the values only need to exist and parse. `AWS_S3_ENDPOINT` uses
+`http://s3.example.invalid`, an RFC 2606-reserved domain, rather than the `example.com`
+convention above, and the other four are self-describing strings like
+`dast-dummy-not-a-real-key` — obviously fake, not a plausible-looking credential, since
+this repository is public and a plausible fake reads as a leak to anyone (or any secret
+scanner) reading it later.
+
 Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
 values instead of passing them through. `S3_PUBLIC_URL` is declared
 `Joi.string().uri(...).empty('')` — optional, no default needed, and
@@ -812,48 +830,78 @@ deployment chart or the Dockerfile, and the api-scan expansion will reuse them.
 `/livez` and `/readyz`); the other five ports from `docker/server.Dockerfile`'s
 `EXPOSE 3000`. None of the six exposes a dedicated HTTP health route, so `/` is correct
 for the same tcpSocket-style reason `nova.botflow` uses it — except `novatalks.dialer`,
-which the chart gives `/livez`. `novatalks.geoip-api`'s `needs-db: false` was an inference
-(no ORM dependency, a five-variable `.env.example`), not a verified fact like the others;
-if the api-scan expansion reaches it and wants a database, flip it to `true`. Several of
-these also needed `.env.example` filters and per-repository `extra-env` overrides to boot
-at all — those are preserved in the
-[`extra-env`](#per-repository-extra-env-overrides) section above and carry over to the
-api-scan work unchanged.
+which the chart gives `/livez`. `novatalks.geoip-api`'s `needs-db: false` was an
+inference (no ORM dependency, a five-variable `.env.example`), never verified like the
+others, and it stays unverified — see below, it will not get an api-scan arm either.
+Every other boot input here (telegram, whatsapp, signal, dialer) was carried forward
+and now has its own `api-scan` arm in `targets.sh`; several also needed `.env.example`
+filters and per-repository `extra-env` overrides to boot at all, preserved in the
+[`extra-env`](#per-repository-extra-env-overrides) section above.
 
-### `needs-nats`, for `novatalks.dialer` only
+### `novatalks.geoip-api` gets no DAST at all
 
-`novatalks.dialer` no longer reaches the baseline, so no arm sets `needs-nats: true`
-today — but the input still exists on
-[`dast/action.yml`](../.github/actions/dast/action.yml) and the bring-up machinery is
-still in `scan.sh`, kept for the api-scan expansion, which will need it: a `novatalks.dialer`
-container reaches NestJS startup and then dies with `Error: connect ECONNREFUSED ::1:4222`
-without a NATS server, because port 4222 is NATS and nothing else in the action listens
-on it.
+This is a decision, not a gap. `novatalks.geoip-api` keeps Trivy, Semgrep and secret
+detection; it gets **no DAST** — no baseline (it was never a browser surface, see
+above), no `api-scan`, and it is not offered in `ci-dast-pentest.yaml`'s `repository`
+dropdown either. Two reasons, verified against the repository's own code, not
+inferred:
 
-When `needs-nats` is `true`, `scan.sh` brings up `nats:2.10-alpine` before the
-application the same way `needs-db` brings up postgres and redis: no config file,
-published on `4222`, started with its monitoring port (`-m 8222`) so a wait-loop shaped
-like the `pg_isready` one can poll `http://127.0.0.1:8222/healthz` before the application
-ever starts. A NATS that never becomes ready takes the same `not-run` path a database
-failure does, naming NATS in the reason. The container is named `nova-nats` and torn
-down by `cleanup()` on every exit path, alongside `nova-pg` and `nova-redis`. It is
-tag-pinned (`nats:2.10-alpine`), not digest-pinned, matching the existing
-`postgres:16`/`redis:8` precedent in this script — digest pinning stays reserved for the
-scanners themselves.
+- **No authentication.** Grepped the whole ~220-line single-file Fastify service — no
+  guard, no middleware, no header check. Anyone who can reach it can call it.
+- **No OpenAPI spec.** No `@fastify/swagger` dependency anywhere in `package.json`.
+  `api-scan` drives `zap-api-scan.py -f openapi` from the application's own spec and has
+  no spider fallback, so there is no way for it to discover routes here at all.
 
-The scan runs this NATS completely unconfigured — no auth, no TLS, no JetStream —
-because that is all the client side needs: `novatalks.dialer`'s own `.env.example`
-already defaults to `NATS_SERVERS=localhost:4222` with `NATS_USER`, `NATS_PASS`,
-`NATS_NKEY`, `NATS_JWT` all blank, `NATS_TLS_ENABLED=false` and
+Adding a `targets.sh` arm for either surface would only ever produce a guaranteed,
+permanent `not-run` — a choice that always fails loudly is worse than not offering it,
+which is why the pentest dropdown omits it too. This exclusion is also recorded as an
+invariant in `CLAUDE.md`; revisiting it needs an explicit request, not a rediscovery of
+the same absence.
+
+### `needs-nats`, for `novatalks.dialer`'s api-scan
+
+`novatalks.dialer` no longer reaches the baseline, so `needs-nats` has no browser-surface
+consumer today — but the input still exists on
+[`dast/action.yml`](../.github/actions/dast/action.yml), because the api-scan arm needs
+it: a `novatalks.dialer` container reaches NestJS startup and then dies with
+`Error: connect ECONNREFUSED ::1:4222` without a NATS server, because
+`nats.config.ts`'s `registerAs` factory calls `NATS_SUBJECTS.split(',')` unconditionally
+at config-load time and `main.ts` awaits `microService.listen()` — a real NATS
+connection — before `app.listen()`.
+
+`needs-nats` is now also an input on
+[`dast-api/action.yml`](../.github/actions/dast-api/action.yml), and
+`novatalks.dialer`'s `api` arm in `targets.sh` sets `DT_NEEDS_NATS=true`. The bring-up
+itself — `docker run nats:2.10-alpine -js -m 8222`, the readiness poll against
+`http://127.0.0.1:8222/healthz`, and creating the `campaign` JetStream stream the
+dialer's client asks `$JS.API.STREAM.NAMES` for at startup — lives in exactly one place,
+`dast_bring_up_nats` in
+[`dast-common.sh`](../.github/actions/dast/dast-common.sh), and both `dast/scan.sh` and
+`dast-api/scan.sh` call it rather than each carrying its own copy. It mirrors
+`~/novatalks/scripts/nats-docker/scripts/js-init.sh`, the stand the team already uses
+locally — same stream, same subjects, same retention — minus its `nsc push` step, which
+provisions JWT accounts this unauthenticated server has no use for.
+
+A NATS that never becomes ready, or a stream that fails to create, takes the same
+`not-run` path a database failure does, naming NATS in the reason — never `clean`, never
+`error`. The container is named `nova-nats` and torn down by each caller's own
+`cleanup()` on every exit path, alongside `nova-pg` and `nova-redis`. It is tag-pinned
+(`nats:2.10-alpine`), not digest-pinned, matching the existing `postgres:16`/`redis:8`
+precedent — digest pinning stays reserved for the scanners themselves.
+
+The scan runs this NATS completely unconfigured — no auth, no TLS, no JetStream account
+provisioning — because that is all the client side needs: `novatalks.dialer`'s own
+`.env.example` already defaults to `NATS_SERVERS=localhost:4222` with `NATS_USER`,
+`NATS_PASS`, `NATS_NKEY`, `NATS_JWT` all blank, `NATS_TLS_ENABLED=false` and
 `NATS_STREAM_ENABLED=false`. Production NATS (`nats-system/ntk-nats-prod-cluster`) is a
 three-node cluster with TLS certificates and NKEY/account authentication — none of that
 belongs here, and nobody should "harden" this bring-up to look more like it; a scan needs
-a server to connect to, not a faithful copy of the production topology. `scan.sh` also
-forces `-e NATS_SERVERS=127.0.0.1:4222` onto the application container after
-`--env-file`, for the same reason `PORT`/`APP_PORT` are forced: the observed failure was
-`::1:4222`, i.e. the client resolved `localhost` to IPv6, and a server bound to `0.0.0.0`
-still refuses that — naming the address explicitly removes the resolution question rather
-than hoping it resolves to `127.0.0.1` on its own.
+a server to connect to, not a faithful copy of the production topology. Both `scan.sh`
+files also force `-e NATS_SERVERS=127.0.0.1:4222` onto the application container, for the
+same reason `PORT`/`APP_PORT` are forced: the observed failure was `::1:4222`, i.e. the
+client resolved `localhost` to IPv6, and a server bound to `0.0.0.0` still refuses that —
+naming the address explicitly removes the resolution question rather than hoping it
+resolves to `127.0.0.1` on its own.
 
 ## The runner-size consequence
 
@@ -1177,6 +1225,18 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   as current — the exact "a scan that could not run looks exactly like a clean one"
   failure this page's [scanner-that-could-not-run](#a-scanner-that-could-not-run-is-not-a-clean-scan)
   rule exists to refuse. Naming the tag by hand is the fix.
+- **Two repositories are absent from the `repository` dropdown, deliberately.**
+  `novatalks.ui`'s ephemeral image is a static SPA with no backend of its own: every
+  route returns the byte-identical nginx shell regardless of surface or payload
+  (confirmed live against the published image — POST to its login path returns 405,
+  and every route shares one ETag), so an active scan of it finds nothing a scan of one
+  page would not. Its passive baseline (`dast-scan`) still covers it; only the pentest
+  excludes it. `novatalks.geoip-api` has no authentication and publishes no OpenAPI
+  spec, and `api-scan` is spec-driven with no spider fallback, so it has no
+  `targets.sh` arm at all — see [the exclusion below](#novatalksgeoip-api-gets-no-dast-at-all)
+  and `CLAUDE.md`. Offering a choice that always fails loudly at `Resolve target` is
+  worse than not offering it; both repositories' `targets.sh` arms (where they exist)
+  are untouched, so nothing here changes what the trunk build itself scans.
 - **Ephemeral by default, live behind a typed confirmation.** The `target` input
   defaults to `ephemeral`: a GHCR image this workflow boots on the runner and tears
   down — the same isolated stack the trunk `dast-scan` / `api-scan` jobs use, just with
@@ -1218,9 +1278,9 @@ runtime choice.
 
 - **The allowlist is the whole safety mechanism.** One host —
   `novatalks-security.cloud.novatalks.com.ua` — named in a `case` inside
-  `ci-dast-pentest.yaml` and nowhere else, keyed off `repository` (`novatalks.core` and
-  `novatalks.ui` today). The same shape as `ci-dast-live-baseline.yaml`'s allowlist, and
-  the same reason: a scanner that can be pointed anywhere eventually is.
+  `ci-dast-pentest.yaml` and nowhere else, keyed off `repository` (`novatalks.core`
+  today). The same shape as `ci-dast-live-baseline.yaml`'s allowlist, and the same
+  reason: a scanner that can be pointed anywhere eventually is.
 - **Typing the host name back is the confirmation.** The `confirm` input must equal the
   allowlisted host exactly, checked before anything is scanned. This cannot be done by
   accident, and it cannot be done without reading which host is about to be attacked —
