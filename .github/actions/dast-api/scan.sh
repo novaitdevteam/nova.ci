@@ -78,14 +78,23 @@ target="http://127.0.0.1:${DAST_PORT}"
 health_url="${target}${DAST_HEALTH_PATH:-/livez}"
 spec_url="${target}${DAST_SPEC_PATH:-/api-docs-json}"
 
-zap_out="${RUNNER_TEMP:-/tmp}/zap-api.md"
+# ZAP's own artifacts (the -w report, the copied triage register) live in a directory
+# of their own, never the whole of RUNNER_TEMP: that directory also holds other job
+# temp files, and the container needs this one world-writable (see the "no --user"
+# comment near the docker run below) — chmod'ing the whole of RUNNER_TEMP would leave
+# those other files' directory entries world-writable too, and outlive this job's own
+# cleanup trap on a pooled, reused runner.
+zap_work_dir="${RUNNER_TEMP:-/tmp}/zap-api-wrk"
+mkdir -p "$zap_work_dir"
+chmod 777 "$zap_work_dir"
+zap_out="${zap_work_dir}/zap-api.md"
 zap_console="${RUNNER_TEMP:-/tmp}/zap-api-console.log"
 # The triage register: which api-scan findings must be fixed, which are accepted, and
 # why. Its own file, not the baseline's zap-baseline.conf — api-scan loads a different
 # rule set (write-path checks the unauthenticated baseline never reaches), so the two
 # registers are never interchangeable.
 zap_conf_src="${DAST_ACTION_ROOT}/zap-api-scan.conf"
-zap_conf="${RUNNER_TEMP:-/tmp}/zap-api-scan.conf"
+zap_conf="${zap_work_dir}/zap-api-scan.conf"
 spec_file="${RUNNER_TEMP:-/tmp}/dast-api-spec.json"
 # Printed on failure, never suppressed, same reasoning as dast/scan.sh's own copy of
 # this path: a stream that cannot be created must say why.
@@ -512,10 +521,13 @@ esac
 # A token containing a single quote would break the quoting again; every token we
 # inject is base64url or a UUID, neither of which can contain one.
 #
-# --user: same reasoning as the baseline — /zap/wrk is a bind mount of RUNNER_TEMP on a
-# pooled runner, and the zaproxy image's own uid may not have write access to it.
+# No --user: same reasoning as the baseline (dast/scan.sh) — the container runs as the
+# image's own default user, `zap` (uid 1000), with its real HOME=/home/zap and add-ons,
+# and zap_work_dir is chmod 777 above so that user can write into it regardless of the
+# host process's own uid (1000 on the self-hosted pool, 1001 on ubuntu-latest). All four
+# ZAP callers in this repository now share this one approach.
 set +e
-docker run --rm --network host --user "$(id -u):$(id -g)" \
+docker run --rm --network host \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" "$ZAP_IMAGE" \
     zap-api-scan.py -t "$spec_url" -f openapi \
     ${zap_mode_args[@]+"${zap_mode_args[@]}"} -I \

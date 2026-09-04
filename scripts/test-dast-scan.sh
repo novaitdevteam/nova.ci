@@ -173,12 +173,16 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     local name="$1" want_outcome="$2" want_rc="$3"
     local out="$WORK/output" summary="$WORK/summary"
     : >"$out"; : >"$summary"; : >"$WORK/log"; : >"$WORK/dockerlog"
-    : >"$WORK/zap.md"; : >"$WORK/dast.env"; : >"$WORK/envfile-snapshot"
+    # zap-wrk mirrors the dedicated, chmod-777'd work directory scan.sh now makes under
+    # RUNNER_TEMP for ZAP's own artifacts (see zap_work_dir in scan.sh) — never the
+    # whole of RUNNER_TEMP, which also holds dast.env/envfile-snapshot below.
+    mkdir -p "$WORK/zap-wrk"
+    : >"$WORK/zap-wrk/zap.md"; : >"$WORK/dast.env"; : >"$WORK/envfile-snapshot"
     : >"$WORK/report"; rm -f "$WORK/zap-console.log"
 
     set +e
     PATH="$WORK/bin:$PATH" \
-    SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap.md" SHIM_ENVFILE_SNAPSHOT="$WORK/envfile-snapshot" \
+    SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap-wrk/zap.md" SHIM_ENVFILE_SNAPSHOT="$WORK/envfile-snapshot" \
     DAST_IMAGE="ghcr.io/x/y:z" \
     DAST_PORT="3000" \
     DAST_HEALTH_PATH="${DAST_HEALTH_PATH:-/}" \
@@ -247,12 +251,16 @@ SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "app boots, ZAP finds nothing" clean 0
 assert_cleanup "clean run tears containers down"
 assert_findings "a tally of all zeroes counts zero" 0
-# /zap/wrk is a bind mount of RUNNER_TEMP on a pooled runner; the image's own uid 1000
-# may not be able to write there, and write_report failing would red a trunk build.
+# --user "$(id -u):$(id -g)" was the self-hosted-only fix (uid 1000 there happens to
+# match the image's own `zap` user) and is exactly what broke ci-dast-pentest.yaml's
+# ubuntu-latest run (uid 1001, run 33867417238: "Failed to start ZAP", exit 3, before
+# any scan happened). ZAP now always runs as the image's own default user, and the
+# bind-mounted work directory is chmod'd 777 instead (asserted separately below) so
+# that user can write into it regardless of the host uid.
 if grep -qE '^run .*zaproxy.*' "$WORK/dockerlog" && grep -qE -- '--user [0-9]+:[0-9]+' "$WORK/dockerlog"; then
-    echo "ok   ZAP runs as the runner's own uid:gid"; pass=$((pass + 1))
+    echo "FAIL ZAP container still pinned to a host uid:gid — breaks on any runner whose uid isn't 1000"; fail=$((fail + 1))
 else
-    echo "FAIL ZAP container is not pinned to the runner's uid:gid"; fail=$((fail + 1))
+    echo "ok   ZAP container carries no --user, so the image's own uid is used"; pass=$((pass + 1))
 fi
 
 SHIM_CURL_RC=0 SHIM_ZAP_RC=2 SHIM_ZAP_CONSOLE="WARN-NEW: 3 things
@@ -787,10 +795,10 @@ else
     grep -E '^run .*zaproxy' "$WORK/dockerlog" | sed 's/^/     /'
     fail=$((fail + 1))
 fi
-if [ -f "$WORK/zap-baseline.conf" ]; then
-    echo "ok   the triage config is copied into RUNNER_TEMP, which /zap/wrk mounts"; pass=$((pass + 1))
+if [ -f "$WORK/zap-wrk/zap-baseline.conf" ]; then
+    echo "ok   the triage config is copied into the zap work directory, which /zap/wrk mounts"; pass=$((pass + 1))
 else
-    echo "FAIL the triage config never reached RUNNER_TEMP"; fail=$((fail + 1))
+    echo "FAIL the triage config never reached the zap work directory"; fail=$((fail + 1))
 fi
 
 # A malformed register is a broken gate, not a warning: an IGNORE that fails to parse

@@ -139,12 +139,16 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     local name="$1" want_outcome="$2" want_rc="$3"
     local out="$WORK/output" summary="$WORK/summary"
     : >"$out"; : >"$summary"; : >"$WORK/log"; : >"$WORK/dockerlog"
-    : >"$WORK/zap-api.md"; : >"$WORK/report"; rm -f "$WORK/zap-api-console.log"
+    # zap-api-wrk mirrors the dedicated, chmod-777'd work directory scan.sh now makes
+    # under RUNNER_TEMP for ZAP's own artifacts (see zap_work_dir in scan.sh) — never
+    # the whole of RUNNER_TEMP.
+    mkdir -p "$WORK/zap-api-wrk"
+    : >"$WORK/zap-api-wrk/zap-api.md"; : >"$WORK/report"; rm -f "$WORK/zap-api-console.log"
     : >"$WORK/zap-argv"
 
     set +e
     PATH="$WORK/bin:$PATH" \
-    SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap-api.md" \
+    SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap-api-wrk/zap-api.md" \
     SHIM_ZAP_ARGV="$WORK/zap-argv" \
     DAST_IMAGE="ghcr.io/x/y:z" \
     DAST_BOOT_TIMEOUT="6" \
@@ -236,6 +240,17 @@ SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "full pipeline, ZAP clean" clean 0
 assert_findings "clean api-scan counts zero" 0
 assert_cleanup "clean run tears containers down"
+# --user "$(id -u):$(id -g)" was the self-hosted-only fix (uid 1000 there happens to
+# match the image's own `zap` user) and is exactly what broke ci-dast-pentest.yaml's
+# ubuntu-latest run (uid 1001, run 33867417238: "Failed to start ZAP", exit 3, before
+# any scan happened). ZAP now always runs as the image's own default user, and the
+# bind-mounted work directory is chmod'd 777 instead so that user can write into it
+# regardless of the host uid.
+if grep -qE '^run .*zaproxy.*' "$WORK/dockerlog" && grep -qE -- '--user [0-9]+:[0-9]+' "$WORK/dockerlog"; then
+    echo "FAIL ZAP container still pinned to a host uid:gid — breaks on any runner whose uid isn't 1000"; fail=$((fail + 1))
+else
+    echo "ok   ZAP container carries no --user, so the image's own uid is used"; pass=$((pass + 1))
+fi
 # The token only ever exists in the docker argv (same visibility as the generated admin
 # password) and in ZAP's own echoed config on stdout — never in the report a human reads.
 if grep -q 'test-jwt-token-123' "$WORK/report" 2>/dev/null; then
