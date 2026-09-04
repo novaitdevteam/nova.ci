@@ -161,7 +161,7 @@ It parses every workflow and action YAML, runs `git diff --check`, verifies the 
 Then review the diff:
 
 ```bash
-git diff -- .github/workflows .github/actions security scripts docs README.md AGENTS.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git diff -- .github/workflows .github/actions security scripts docs README.md AGENTS.md CLAUDE.md .agents/skills .claude/skills
 ```
 
 ## Documentation sync

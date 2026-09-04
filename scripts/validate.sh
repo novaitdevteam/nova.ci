@@ -44,11 +44,31 @@ else
 fi
 
 section "Skill mirror (.agents vs .claude)"
-if diff -q .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md >/dev/null; then
-  echo "OK: .agents and .claude skill copies are identical"
-else
-  echo "ERROR: .agents/skills/nova-ci/SKILL.md and .claude/skills/nova-ci/SKILL.md differ"
-  echo "       keep the canonical .agents copy and its .claude mirror in sync"
+# Every skill under .agents/skills (the canonical copy) is mirrored byte-for-byte into
+# .claude/skills, SKILL.md and every reference file alike. Checked as a directory diff, not
+# a single-file diff, so a skill split into SKILL.md + references/*.md (like nova-ci) stays
+# covered without a second edit here, and so does the next skill anyone adds under
+# .agents/skills. A skill that lives only under .claude/skills (with no .agents counterpart)
+# is not a mirrored one and is intentionally not checked here.
+mirror_ok=1
+for agents_dir in .agents/skills/*/; do
+  skill="$(basename "$agents_dir")"
+  claude_dir=".claude/skills/$skill"
+  if [ ! -d "$claude_dir" ]; then
+    echo "ERROR: .agents/skills/$skill has no .claude/skills/$skill counterpart"
+    mirror_ok=0
+    continue
+  fi
+  if diff -rq "$agents_dir" "$claude_dir" >/dev/null; then
+    echo "OK: .agents/skills/$skill and .claude/skills/$skill are identical"
+  else
+    echo "ERROR: .agents/skills/$skill and .claude/skills/$skill differ"
+    diff -rq "$agents_dir" "$claude_dir" || true
+    mirror_ok=0
+  fi
+done
+if [ "$mirror_ok" -ne 1 ]; then
+  echo "       keep every canonical .agents/skills copy and its .claude/skills mirror in sync"
   fail=1
 fi
 
