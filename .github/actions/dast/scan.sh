@@ -148,7 +148,13 @@ case "${DAST_SCAN_MODE:-baseline}" in
         # failure shape as the unquoted -z replacer in dast-api. -U names the user
         # defined inside the context; both flags travel together or neither does.
         if [ -n "${DAST_ZAP_CONTEXT:-}" ]; then
-            cp "${DAST_ACTION_ROOT}/contexts/${DAST_ZAP_CONTEXT}" "${RUNNER_TEMP:-/tmp}/"
+            # Validated, not just copied. A typo in the filename used to make `cp` fail
+            # under set -e: exit 1 with a bare "cp: cannot stat", no outcome, no message,
+            # no summary and an empty notifier line — the one input-validation path in
+            # this file that did not report itself. Same treatment as the triage register.
+            zap_context_src="${DAST_ACTION_ROOT}/contexts/${DAST_ZAP_CONTEXT}"
+            [ -r "$zap_context_src" ] || scanner_error "the ZAP context file is missing or unreadable: ${zap_context_src}"
+            cp "$zap_context_src" "${RUNNER_TEMP:-/tmp}/"
             zap_mode_args+=(-n "$DAST_ZAP_CONTEXT" -U nova-ci-dast)
         fi
         ;;

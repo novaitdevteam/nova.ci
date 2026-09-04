@@ -1083,7 +1083,14 @@ jobs:
             echo "APISCAN_TOKEN_INSERT_SQL_EOF"
           } >> "$GITHUB_OUTPUT"
           echo "token_env_var=$DT_TOKEN_ENV_VAR" | tee -a "$GITHUB_OUTPUT"
-          echo "setup_command=$DT_SETUP_COMMAND" | tee -a "$GITHUB_OUTPUT"
+          # Heredoc like its multi-line-capable siblings above. Every arm is empty today,
+          # so a plain key=value works — right up until the first setup command that spans
+          # a line, which would corrupt the whole output block rather than fail.
+          {
+            echo "setup_command<<APISCAN_SETUP_COMMAND_EOF"
+            printf '%s\n' "$DT_SETUP_COMMAND"
+            echo "APISCAN_SETUP_COMMAND_EOF"
+          } >> "$GITHUB_OUTPUT"
           echo "swagger_enable=$DT_SWAGGER_ENABLE" | tee -a "$GITHUB_OUTPUT"
           {
             echo "extra_env<<APISCAN_EXTRA_ENV_EOF"

@@ -56,6 +56,14 @@ FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40
         case "$*" in
             *db:setup*) printf '%s\n' "${SHIM_DBSETUP_OUT:-}"; exit "${SHIM_DBSETUP_RC:-0}" ;;
             *pg_isready*) exit "${SHIM_PG_READY_RC:-0}" ;;
+            *"INSERT INTO"*)
+                # psql quotes the offending statement back on error (ERROR: ... / LINE 1:
+                # <the statement>), token and all. That is the whole reason the mask has to
+                # precede the INSERT rather than follow it, so the shim reproduces it.
+                if [ "${SHIM_INSERT_RC:-0}" != "0" ]; then
+                    printf 'ERROR:  relation "tokens" does not exist\nLINE 1: %s\n' "$*"
+                fi
+                exit "${SHIM_INSERT_RC:-0}" ;;
             *"psql -tAq"*)
                 printf '%s\n' "${SHIM_TOKEN_SQL_RESULT-}"
                 exit 0 ;;
@@ -306,10 +314,11 @@ SHIM_TOKEN_SQL_RESULT="" \
 # db-token mode with no token-sql is a broken configuration, not a scan: fail loud.
 DAST_AUTH_MODE="db-token" DAST_TOKEN_SQL="" expect "db-token without token-sql is a scanner error" error 2
 
-# --- db-insert: no seeder in the image, so write the row ourselves --------------------
-# whatsapp and signal prune ts-node out of the runtime image, taking the seeder with it.
-# Migrations still run (sequelize-cli is a runtime dependency), so the tables exist and
-# are empty. db-token would SELECT nothing and loud-skip forever.
+# --- db-insert: write our own row rather than depend on the image's seeder -------------
+# whatsapp and signal prune ts-node out of the runtime image, but their entrypoints still
+# migrate and seed themselves through the compiled JS in dist/ — a token row very likely
+# exists. It is just not one we chose: db-token would have to guess its role value and
+# column shape out of a seeder we do not own, and a guess that misses SELECTs nothing.
 DAST_AUTH_MODE=db-insert DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
 DAST_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id) VALUES ('%TOKEN%', 1);" \
 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
@@ -341,6 +350,36 @@ if [ -n "$mask_line" ] && grep -qF "$mask_line" "$WORK/dockerlog"; then
     echo "ok   the generated token is masked and is the one injected"; pass=$((pass + 1))
 else
     echo "FAIL the generated token was not masked, or not the one used"; fail=$((fail + 1))
+fi
+
+# The mask has to precede the INSERT, not follow it. The token is interpolated into the
+# statement and handed to `docker exec`, and the failure path prints psql's own output —
+# which quotes the statement back, token included. nova.ci is public, so a mask emitted
+# after that point protects nothing that has already been written.
+DAST_AUTH_MODE=db-insert DAST_AUTH_HEADER=api_access_token DAST_AUTH_PREFIX="" \
+DAST_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id) VALUES ('%TOKEN%', 1);" \
+SHIM_INSERT_RC=1 \
+    expect "db-insert: a failed INSERT is a loud skip" not-run 0
+insert_token=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
+mask_ln=$(grep -nF "::add-mask::${insert_token:-__none__}" "$WORK/log" | head -1 | cut -d: -f1)
+echo_ln=$(grep -nF "${insert_token:-__none__}" "$WORK/log" | grep -v '::add-mask::' | head -1 | cut -d: -f1)
+if [ -n "$insert_token" ] && [ -n "$mask_ln" ] && [ -n "$echo_ln" ] && [ "$mask_ln" -lt "$echo_ln" ]; then
+    echo "ok   the db-insert token is masked before anything can echo it"; pass=$((pass + 1))
+else
+    echo "FAIL the token reached the log before its ::add-mask:: (mask line ${mask_ln:-none}, first echo line ${echo_ln:-none})"
+    fail=$((fail + 1))
+fi
+# A loud skip nobody can act on is a dead end, and "the migration may not have created
+# the table" was a guess: the role_id subquery matching no row fails identically.
+if grep -q 'relation "tokens" does not exist' "$WORK/log"; then
+    echo "ok   psql's own output is printed, not discarded"; pass=$((pass + 1))
+else
+    echo "FAIL the INSERT failure printed no evidence"; fail=$((fail + 1))
+fi
+if grep -q 'role subquery matched no row' "$WORK/report"; then
+    echo "ok   the skip names both plausible causes, not one guess"; pass=$((pass + 1))
+else
+    echo "FAIL the skip still names a single guessed cause"; fail=$((fail + 1))
 fi
 
 # A mode with no INSERT is a broken configuration, not a scan without auth.

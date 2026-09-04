@@ -22,7 +22,7 @@ inputs:
     required: false
     default: "/api-docs-json"
   auth-mode:
-    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), db-insert (write a generated token into the seeded database with a caller-supplied INSERT, for an image whose seeder was pruned out of the runtime stage), or env-token (generate a token before the container starts and hand it in as an environment variable, for an app that accepts any token present in a var it reads at boot — no database involved)"
+    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), db-insert (write a generated token into the seeded database with a caller-supplied INSERT, rather than depending on whatever key the image's own seeder happened to write), or env-token (generate a token before the container starts and hand it in as an environment variable, for an app that accepts any token present in a var it reads at boot — no database involved)"
     required: false
     default: "login"
   scan-mode:

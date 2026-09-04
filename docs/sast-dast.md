@@ -1033,7 +1033,11 @@ per-repository **inputs**, not constants. All four modes end with a bare token t
 loud skip (`not-run`), never a scan without auth. `db-insert` and `env-token` cannot
 produce an empty token (both are generated locally, never read back), so their own failure
 modes are a missing prerequisite instead: `db-insert`'s is a failed `INSERT` (`not-run` —
-the migration never created the table to insert into), `env-token`'s is a missing
+the migration never created the table to insert into, or the `role_id` subquery matched no
+row; **psql's own output is captured and printed** rather than discarded, because a loud
+skip that guesses at one cause out of several is a dead end, and the generated token is
+`::add-mask::`ed **before** it is interpolated into the statement, since that failure path
+prints text psql quotes the statement back into), `env-token`'s is a missing
 `token-env-var` name (a **scanner error**, since there is nothing to generate a token
 for — a broken configuration, not a scan that ran without one).
 

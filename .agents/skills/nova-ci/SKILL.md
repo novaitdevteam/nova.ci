@@ -608,7 +608,7 @@ Preserve these behaviors:
   `active` drops `-S`, turning the tool into a real-writes active scan against the seeded
   API. Safe only because the stack is the ephemeral one this action starts and kills, so
   `active` is never the default and an unrecognised mode is a scanner error, not a silent
-  fallback. `scripts/test-dast-api-scan.sh` (68 checks) asserts `-S` on the default, its
+  fallback. `scripts/test-dast-api-scan.sh` (72 checks) asserts `-S` on the default, its
   absence under `active`, and the mask — including a mutation check that a
   mismatched `env-token` value (ZAP holding a different token than the one handed to the
   app) fails the harness, since that scan would look authenticated while checking nothing.

@@ -11,8 +11,9 @@
 # reads the token from the response (novatalks.core's engine); `db-token` reads a token
 # straight out of the seeded database with a caller-supplied SELECT (a connector with a
 # DB-backed token in a header of its own name); `db-insert` writes its own token into the
-# seeded database with a caller-supplied INSERT, for an image whose seeder was pruned out
-# of the runtime stage — there is nothing to SELECT; `env-token` generates a token before
+# seeded database with a caller-supplied INSERT rather than depending on whatever key the
+# image's own seeder happened to write (whatsapp, signal — their entrypoints DO self-seed,
+# via compiled JS, but the token they produce is theirs, not ours); `env-token` generates a token before
 # the container ever starts and hands it in as an environment variable, for an app that
 # accepts any token present in a var it reads at boot (novatalks.dialer) — no database,
 # no seed, no call to the engine at all. All four end with a bare token in $TOKEN,
@@ -363,11 +364,11 @@ fi
 # of the database with the caller's own SELECT — robust against a seeder that never
 # prints the token anywhere, and generalises past parsing console output.
 #
-# db-insert: whatsapp and signal run `npm prune --omit=dev` in their Dockerfiles, which
-# removes ts-node and the seeder with it — the runtime image has no seeder to run at
-# all. sequelize-cli survives as a runtime dependency, so migrations still ran and the
-# tables exist, just empty: db-token would SELECT nothing, forever. Write the row
-# ourselves instead of guessing one that might already be there.
+# db-insert: whatsapp and signal run `npm prune --omit=dev`, which removes ts-node — but
+# their entrypoints still migrate and seed themselves through the compiled JS in dist/,
+# so a row probably does exist. It is not ours, though, and db-token would have to guess
+# its shape and its role value out of a seeder we do not control. Writing our own row is
+# the mode that does not depend on that: the INSERT either lands or loud-skips.
 case "${DAST_AUTH_MODE:-login}" in
     login)
         login_headers="$(curl -s -D - -o /dev/null -X POST "${target}${DAST_LOGIN_PATH:-/auth/sign_in}" \
@@ -396,21 +397,40 @@ case "${DAST_AUTH_MODE:-login}" in
             -c "$DAST_TOKEN_SQL" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
         ;;
     db-insert)
-        # No seeder in the image to produce a token, so produce one. whatsapp and signal
-        # run `npm prune --omit=dev`, which removes ts-node and the seeder with it;
-        # sequelize-cli survives as a runtime dependency, so the migrations ran and the
-        # tables exist and are empty. There is nothing to SELECT and nothing to guess.
+        # Produce our own token rather than depend on the image's. whatsapp and signal
+        # DO self-seed — `npm prune --omit=dev` removes ts-node, but their entrypoints
+        # run the compiled seeders in dist/ through plain `node` — so a token row very
+        # likely exists; it is just not one we chose, and db-token would have to guess
+        # its role value and column shape out of a seeder we do not own.
         #
         # The value is generated here and lives only in this job's database, which is
         # deleted with the container: nothing to store, nothing to rotate, nothing that
         # could be a real credential by accident.
         [ -n "${DAST_TOKEN_INSERT_SQL:-}" ] || scanner_error "db-insert mode needs a token-insert-sql statement"
         TOKEN="nova-ci-apiscan-$(openssl rand -hex 24)"
+        # Masked here, before the value reaches a command line — not at the shared
+        # ::add-mask:: below. The INSERT carries the token, and the failure path prints
+        # psql's own output, which quotes the offending statement back. nova.ci is
+        # public, so the mask has to exist before anything that could echo it does.
+        echo "::add-mask::${TOKEN}"
         insert_sql="${DAST_TOKEN_INSERT_SQL//%TOKEN%/$TOKEN}"
-        docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
-            psql -tAq -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
-            -c "$insert_sql" >/dev/null 2>&1 \
-            || not_run "the token INSERT failed — the migration may not have created the table"
+        # Captured, not discarded. `>/dev/null 2>&1` left the loud skip guessing at one
+        # cause out of several — the table may not exist, or the role_id subquery may
+        # have matched no row, or the column names may have moved. psql says which.
+        # ON_ERROR_STOP=1 so a SQL error is unambiguously a non-zero exit rather than
+        # depending on psql's default per-mode behaviour: an INSERT that failed while
+        # psql exited 0 is a token nothing accepts, scanned as if it were authenticated.
+        insert_log="${RUNNER_TEMP:-/tmp}/dast-api-insert.log"
+        if ! docker exec -e PGPASSWORD="${DATABASE_PASSWORD:-password}" nova-pg \
+            psql -tAq -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${DATABASE_USERNAME:-postgres}" -d "${DATABASE_NAME:-db_name}" \
+            -c "$insert_sql" > "$insert_log" 2>&1; then
+            echo "--- psql output (token INSERT failed) ---"
+            sed 's/^/    /' "$insert_log" 2>/dev/null || true
+            echo "--- end ---"
+            rm -f "$insert_log" >/dev/null 2>&1 || true
+            not_run "the token INSERT failed — the migration may not have created the table, or the role subquery matched no row; psql's own output is above"
+        fi
+        rm -f "$insert_log" >/dev/null 2>&1 || true
         ;;
     env-token)
         # Already generated above — it had to exist before the container did.

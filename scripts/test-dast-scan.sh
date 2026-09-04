@@ -1008,6 +1008,22 @@ fi
 DAST_SCAN_MODE=deep expect "an unknown scan-mode is a scanner error" error 2
 unset DAST_SCAN_MODE
 
+# A context filename that names no file used to reach `cp` under set -e: exit 1 with a
+# bare "cp: cannot stat", no outcome, no message, no summary, and an empty notifier line
+# — the one input-validation path in this file that did not report itself. It is invalid
+# input, exactly like an unknown scan-mode or a missing triage register, and reports the
+# same way.
+DAST_SCAN_MODE=full DAST_ZAP_CONTEXT=no-such-file.context \
+    expect "a missing ZAP context file is a scanner error" error 2
+if grep -q 'context file is missing or unreadable' "$WORK/output"; then
+    echo "ok   the missing context is named, not left to cp"; pass=$((pass + 1))
+else
+    echo "FAIL the missing context did not report itself"
+    sed 's/^/     /' "$WORK/output"
+    fail=$((fail + 1))
+fi
+unset DAST_SCAN_MODE DAST_ZAP_CONTEXT
+
 # --- which repository is being scanned is an input, not an accident of who is running --
 # Every caller until ci-dast-pentest.yaml was the reusable build workflow, which runs in
 # the product repository's own context, so GITHUB_REPOSITORY happened to name the scanned
