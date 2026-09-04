@@ -499,13 +499,13 @@ Preserve these behaviors:
   `/health` — and a `Joi` schema requiring five `STORAGE_PATH`/`S3_*` vars whatsapp has
   no equivalent of). `uspacy`/`geoip` have no OpenAPI spec, so neither is tracked for an
   arm — `api-scan` is spec-driven with no spider fallback, and adding one would only ever
-  loud-skip forever. The `needs-nats` input still exists on `dast/action.yml` and its
-  NATS bring-up in `scan.sh` — the browser-surface baseline's `scan.sh`, not
-  `dast-api/scan.sh`'s, which has no NATS bring-up at all yet. `novatalks.dialer`'s
-  `api` arm sets `DT_NEEDS_NATS=true` honestly (its `main.ts` awaits
-  `microService.listen()`, a real NATS connection, before `app.listen()`), so until that
-  gap in `dast-api/scan.sh` is closed, its `apiscan*` runs are expected to loud-skip on
-  the NATS connection rather than silently scan the wrong thing.
+  loud-skip forever; `novatalks.geoip-api` gets **no DAST at all** (no baseline, no
+  api-scan, no pentest) by explicit decision for that reason plus having no
+  authentication either — see `CLAUDE.md`. The `needs-nats` input exists on both
+  `dast/action.yml` and `dast-api/action.yml` now; `novatalks.dialer`'s `api` arm sets
+  `DT_NEEDS_NATS=true` (its `main.ts` awaits `microService.listen()`, a real NATS
+  connection, before `app.listen()`), and both `scan.sh`s bring one up through the
+  shared `dast_bring_up_nats` in `dast-common.sh` rather than two copies — see below.
 - **`target: live` in `ci-dast-pentest.yaml` is browser-surface only.** The live path
   runs `zap-full-scan.py` straight at the allowlisted host — no image to boot, so no
   seeded database for a token and no spec for `zap-api-scan.py` — so `surface: api` was
@@ -557,9 +557,16 @@ Preserve these behaviors:
   five as the old baseline arm's `S3_ENDPOINT`-plus-blanks); dialer needs
   `NATS_SUBJECTS=campaign.*` (`nats.config.ts`'s `registerAs` factory calls
   `NATS_SUBJECTS.split(',')` unconditionally at config-load time, unrelated to the old
-  arm's `AWS_S3_*` set). Every value is a dummy and none is a credential; a real
-  one belongs in a secret. `example.com`/`example.invalid` are the placeholder hosts —
-  IANA/RFC 2606 reserved, so they satisfy URL/email validators and are never contacted.
+  arm's `AWS_S3_*` set); and **`novatalks.core`'s `api` arm now needs five `AWS_S3_*`
+  boot dummies too** — run 33863826945 loud-skipped with `TypeError: Configuration key
+  "file.awsS3AccessKeyId" does not exist`, because `MulterConfigService`'s multer
+  factory runs at module registration and `getOrThrow()`s five `file.awsS3*` keys with
+  no default (`FILE_DRIVER` defaults to `s3`), and unlike the browser-surface baseline,
+  `dast-api/scan.sh` seeds nothing from `.env.example`. Every value is a dummy and none
+  is a credential; a real one belongs in a secret. `example.com`/`example.invalid` are
+  the placeholder hosts — IANA/RFC 2606 reserved, so they satisfy URL/email validators
+  and are never contacted; do not "improve" a dummy's realism, since Gitleaks and any
+  future reader cannot tell a plausible fake from a leak.
   Keep `TELEGRAM_API_HASH` as
   thirty-two *identical* hex characters: a realistic-looking hash trips Gitleaks'
   `generic-api-key` entropy heuristic and reds the required `secret-scan` check.
@@ -608,7 +615,7 @@ Preserve these behaviors:
   `active` drops `-S`, turning the tool into a real-writes active scan against the seeded
   API. Safe only because the stack is the ephemeral one this action starts and kills, so
   `active` is never the default and an unrecognised mode is a scanner error, not a silent
-  fallback. `scripts/test-dast-api-scan.sh` (72 checks) asserts `-S` on the default, its
+  fallback. `scripts/test-dast-api-scan.sh` (86 checks) asserts `-S` on the default, its
   absence under `active`, and the mask — including a mutation check that a
   mismatched `env-token` value (ZAP holding a different token than the one handed to the
   app) fails the harness, since that scan would look authenticated while checking nothing.
@@ -641,6 +648,16 @@ Preserve these behaviors:
   numeric guard) is sourced by `dast`, `dast-api` and the live-baseline workflow. Never
   re-inline or copy it — the ANSI-C `\t` and the shape-not-prefix anchor are the exact
   divergent-copy hazard it exists to remove; a copy that rots reds only on GNU runners.
+- **The NATS bring-up lives once too, in the same `dast-common.sh`.**
+  `dast_bring_up_nats <err_fn> <stream-log-file>` starts `nats:2.10-alpine -js -m 8222`,
+  polls `http://127.0.0.1:8222/healthz`, and creates the `campaign` JetStream stream —
+  mirrors `~/novatalks/scripts/nats-docker/scripts/js-init.sh` minus its `nsc push`
+  step, which provisions JWT accounts this unauthenticated server has no use for. Both
+  `dast/scan.sh` and `dast-api/scan.sh` call it under `needs-nats`/`DAST_NEEDS_NATS`
+  rather than each carrying an inline copy, following the same house rule as the tally
+  parse above. `<err_fn>` is the caller's own `not_run`, passed by name exactly like
+  `zap_tally_parse`'s `<error-fn>` — the shared function calls back into the caller's
+  scope rather than assuming one.
 - **The per-repository DAST table lives once, in `dast/targets.sh`.** `dast_resolve_target
   <repo> <api|browser>` sets `DT_*` in the caller's scope and is sourced by the `Resolve
   DAST target` and `Resolve api-scan target` steps. Never re-inline or copy an arm into a
@@ -674,11 +691,17 @@ Preserve these behaviors:
   input anywhere** — `repository` is a `type: choice`, `surface` is `api`/`browser`, and
   for its default `target: ephemeral` the port/health/auth wiring comes from the same
   `dast_resolve_target` table every other DAST caller sources; an attacking scanner that
-  cannot be pointed anywhere cannot be pointed somewhere it must not go. Only eight
-  repository/surface pairs have a `targets.sh` arm today (`novatalks.ui`/`nova.botflow`
-  browser, `novatalks.core` both, telegram/whatsapp/signal/dialer api); an unwired choice fails loudly at the
-  resolve step (which only runs for `target: ephemeral`), which is correct — do not add
-  placeholder arms to `targets.sh` to silence it. Its `Resolve target` step emits
+  cannot be pointed anywhere cannot be pointed somewhere it must not go.
+  `novatalks.ui` and `novatalks.geoip-api` are deliberately absent from the `repository`
+  dropdown, not just unwired: `novatalks.ui`'s ephemeral image is a static SPA with no
+  backend — every route returns the byte-identical shell — so an active scan finds
+  nothing a scan of one page would not (its passive baseline is untouched, only the
+  pentest excludes it); `novatalks.geoip-api` gets no DAST at all (see above). Only
+  seven of the remaining twelve repository/surface pairs have a `targets.sh` arm today
+  (`nova.botflow` browser, `novatalks.core` both, telegram/whatsapp/signal/dialer api);
+  an unwired choice (e.g. `nova.botflow` api, or any connector's browser surface) fails
+  loudly at the resolve step (which only runs for `target: ephemeral`), which is correct
+  — do not add placeholder arms to `targets.sh` to silence it. Its `Resolve target` step emits
   **every** `DT_*` key unconditionally, not just the surface's own subset: the step
   feeds both the `dast-api` and `dast` scan steps below it, and the browser scan needs
   `needs-db`/`needs-nats` regardless of which surface was actually chosen — emitting
@@ -710,7 +733,8 @@ Preserve these behaviors:
   security-testing instance, never production; adding a second host is a deliberate
   edit to the `case` in this file, never a runtime choice. Same allowlist shape as the
   live baseline — one host (`novatalks-security.cloud.novatalks.com.ua`), keyed off
-  `repository` (`novatalks.core`/`novatalks.ui`) in the `Validate live target` step
+  `repository` (`novatalks.core` only — `novatalks.ui` was dropped from this workflow
+  entirely, see above) in the `Validate live target` step
   (`id: confirm_live`), which runs ahead of every other step. `confirm` must equal the
   allowlisted host **literally**, checked before anything is scanned — typing the host
   name is the point: it cannot be done by accident, and it cannot be done without
