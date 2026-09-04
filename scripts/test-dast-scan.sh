@@ -1074,6 +1074,13 @@ DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CON
 assert_pg_image "a non-core repository takes postgres:16" postgres:16
 unset GITHUB_REPOSITORY
 
+# scan.sh runs under `set -u`; GitHub Actions always sets GITHUB_REPOSITORY, but a
+# developer running this harness directly (bash 5, not the bash 3.2 on macOS this went
+# unnoticed on) does not have it. Both unset must not abort the script.
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+DAST_NEEDS_DB=true SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "both target-repository and GITHUB_REPOSITORY unset: no unbound-variable abort" clean 0
+
 # The workspace is nova.ci's checkout, the scanned image is novatalks.core's. nova.ci has
 # an .env.example of its own (outline/jira MCP keys). Seeding it would hand the engine
 # four unrelated variables, log a plausible "seeded 4 variable(s)", and then blame the

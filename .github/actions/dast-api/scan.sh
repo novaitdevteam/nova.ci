@@ -60,7 +60,13 @@ DAST_PORT="${DAST_PORT:-3000}"
 # image, and the postgres major version below keys off this name. The input wins when
 # set; the fallback reproduces every pre-existing caller byte for byte.
 DAST_TARGET_REPO="${DAST_TARGET_REPO:-}"
-scanned_repo="${DAST_TARGET_REPO:-${GITHUB_REPOSITORY##*/}}"
+# GITHUB_REPOSITORY is always set on a real Actions run; the :- default here only
+# keeps `set -u` from aborting when a developer runs this script (or the harness)
+# locally without it — the stripped value is identical either way. The nested
+# ${GITHUB_REPOSITORY##*/} inside a ${DAST_TARGET_REPO:-...} default still evaluates
+# the inner expansion eagerly, so it needs the same guard.
+github_repository="${GITHUB_REPOSITORY:-}"
+scanned_repo="${DAST_TARGET_REPO:-${github_repository##*/}}"
 if [ -n "$DAST_TARGET_REPO" ]; then
     repo_source="the target-repository input"
 else

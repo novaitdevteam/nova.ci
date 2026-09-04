@@ -42,7 +42,11 @@ DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # the checkout sitting in GITHUB_WORKSPACE is the scanned repository's own. The input
 # wins when set; the fallback reproduces every pre-existing caller byte for byte.
 DAST_TARGET_REPO="${DAST_TARGET_REPO:-}"
-workspace_repo="${GITHUB_REPOSITORY##*/}"
+# GITHUB_REPOSITORY is always set on a real Actions run; the :- default here only
+# keeps `set -u` from aborting when a developer runs this script (or the harness)
+# locally without it — the stripped value is identical either way.
+github_repository="${GITHUB_REPOSITORY:-}"
+workspace_repo="${github_repository##*/}"
 scanned_repo="${DAST_TARGET_REPO:-$workspace_repo}"
 if [ -n "$DAST_TARGET_REPO" ]; then
     repo_source="the target-repository input"

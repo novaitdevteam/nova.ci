@@ -615,5 +615,13 @@ SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
 assert_pg_image "a connector takes postgres:16" postgres:16
 unset GITHUB_REPOSITORY
 
+# scan.sh runs under `set -u`; GitHub Actions always sets GITHUB_REPOSITORY, but a
+# developer running this harness directly (bash 5, not the bash 3.2 on macOS this went
+# unnoticed on) does not have it, and the nested ${DAST_TARGET_REPO:-${GITHUB_REPOSITORY##*/}}
+# form still evaluates the inner expansion eagerly. Both unset must not abort the script.
+unset DAST_TARGET_REPO GITHUB_REPOSITORY
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "both target-repository and GITHUB_REPOSITORY unset: no unbound-variable abort" clean 0
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
