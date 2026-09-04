@@ -361,8 +361,12 @@ DAST_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id) VALUES ('%TOKEN%'
 SHIM_INSERT_RC=1 \
     expect "db-insert: a failed INSERT is a loud skip" not-run 0
 insert_token=$(sed -n 's/^::add-mask:://p' "$WORK/log" | grep '^nova-ci-apiscan-' | head -1 || true)
-mask_ln=$(grep -nF "::add-mask::${insert_token:-__none__}" "$WORK/log" | head -1 | cut -d: -f1)
-echo_ln=$(grep -nF "${insert_token:-__none__}" "$WORK/log" | grep -v '::add-mask::' | head -1 | cut -d: -f1)
+# `|| true` on both: with pipefail set, a grep that matches nothing aborts the whole
+# harness instead of failing this one assertion — and "matches nothing" is exactly what
+# the mutation of this guard produces, so without it the guard could never be watched
+# to fail cleanly.
+mask_ln=$(grep -nF "::add-mask::${insert_token:-__none__}" "$WORK/log" | head -1 | cut -d: -f1 || true)
+echo_ln=$(grep -nF "${insert_token:-__none__}" "$WORK/log" | grep -v '::add-mask::' | head -1 | cut -d: -f1 || true)
 if [ -n "$insert_token" ] && [ -n "$mask_ln" ] && [ -n "$echo_ln" ] && [ "$mask_ln" -lt "$echo_ln" ]; then
     echo "ok   the db-insert token is masked before anything can echo it"; pass=$((pass + 1))
 else
