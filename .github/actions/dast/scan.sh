@@ -128,6 +128,14 @@ case "${DAST_SCAN_MODE:-baseline}" in
         # app is exactly one page to ZAP: nginx serves index.html for every route and the
         # traditional spider has no JavaScript to follow.
         zap_mode_args=(-j)
+        # A context file teaches ZAP the login form. Without one the "authenticated"
+        # scan is an anonymous crawl that looks exactly like a successful one — the same
+        # failure shape as the unquoted -z replacer in dast-api. -U names the user
+        # defined inside the context; both flags travel together or neither does.
+        if [ -n "${DAST_ZAP_CONTEXT:-}" ]; then
+            cp "${DAST_ACTION_ROOT}/contexts/${DAST_ZAP_CONTEXT}" "${RUNNER_TEMP:-/tmp}/"
+            zap_mode_args+=(-n "$DAST_ZAP_CONTEXT" -U nova-ci-dast)
+        fi
         ;;
     *) scanner_error "unknown scan-mode: ${DAST_SCAN_MODE}" ;;
 esac

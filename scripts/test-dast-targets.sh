@@ -31,6 +31,16 @@ check "core/browser port"        3000     "$DT_PORT"
 check "core/browser health"      /livez   "$DT_HEALTH_PATH"
 check "core/browser needs a db"  true     "$DT_NEEDS_DB"
 
+# novatalks.ui, browser surface: DT_ZAP_CONTEXT stays empty. A context file exists
+# (contexts/novatalks-ui.context) with the verified login request shape, but this arm
+# boots no backend to log into (nginx serving static files, no API base URL configured
+# anywhere) — confirmed both in source and live against the published image (POST
+# /auth/sign_in returns 405; every route returns the byte-identical static shell). Set
+# it and this check must be updated deliberately, alongside the arm's own comment.
+reset_dt; dast_resolve_target novatalks.ui browser
+check "ui/browser port"          8000     "$DT_PORT"
+check "ui/browser has no context yet" "" "$DT_ZAP_CONTEXT"
+
 # novatalks.core, api surface: same image, different scanner, JWT login.
 reset_dt; dast_resolve_target novatalks.core api
 check "core/api auth mode"       login              "$DT_AUTH_MODE"

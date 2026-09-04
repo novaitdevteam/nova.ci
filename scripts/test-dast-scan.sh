@@ -968,6 +968,32 @@ else
     echo "FAIL full mode reused the baseline register"; fail=$((fail + 1))
 fi
 
+# A context file teaches ZAP the login form. -n and -U must travel together: a context
+# loaded with no user selected scans as nobody while looking configured, the same
+# failure shape as the unquoted -z replacer in dast-api.
+DAST_SCAN_MODE=full DAST_ZAP_CONTEXT=novatalks-ui.context \
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "full mode with a context reports a clean scan" clean 0
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -q -- "-n novatalks-ui.context"; then
+    echo "ok   the context file is passed"; pass=$((pass + 1))
+else
+    echo "FAIL no -n — the scan would run anonymously and look successful"; fail=$((fail + 1))
+fi
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -q -- "-U nova-ci-dast"; then
+    echo "ok   the context user is selected"; pass=$((pass + 1))
+else
+    echo "FAIL -n without -U — ZAP loads the context and scans as nobody"; fail=$((fail + 1))
+fi
+
+unset DAST_ZAP_CONTEXT
+DAST_SCAN_MODE=full SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "full mode without a context still scans" clean 0
+if grep -E 'zap-full-scan\.py' "$WORK/dockerlog" | grep -q -- "-U"; then
+    echo "FAIL -U passed with no context to define the user"; fail=$((fail + 1))
+else
+    echo "ok   no context means no -n and no -U"; pass=$((pass + 1))
+fi
+
 # Baseline stays the default, and stays free of -j: the traditional spider is what the
 # baseline's finding counts have always been measured with.
 unset DAST_SCAN_MODE

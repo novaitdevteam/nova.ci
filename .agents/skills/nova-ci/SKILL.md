@@ -449,6 +449,21 @@ Preserve these behaviors:
   identical between the two scripts (`zap-full-scan.py:480` and `:511-522`), so
   `dast-common.sh` and the `0|1|2` exit case stay shared, unchanged, between modes. An
   unrecognised `scan-mode` is a scanner error, never a silent fallback to `baseline`.
+- **`dast/action.yml`'s `zap-context` input** (empty default) reaches `scan.sh` as
+  `DAST_ZAP_CONTEXT` and, only under `scan-mode: full`, appends `-n <file> -U
+  nova-ci-dast` to the `zap-full-scan.py` invocation. `-n` and `-U` travel together or
+  neither does — a context loaded with no user selected scans as nobody while looking
+  configured, same shape as the `-z` replacer rule below. A context file
+  (`.github/actions/dast/contexts/<repo>.context`) must define **both**
+  `loggedInIndicatorRegex` and `loggedOutIndicatorRegex`; one alone lets ZAP silently
+  crawl anonymously while reporting a successful authenticated run.
+  `contexts/novatalks-ui.context` exists with a source/image-verified login request
+  (URL, JSON field names) but is **not** wired into `targets.sh` — that arm leaves
+  `DT_ZAP_CONTEXT` empty because `novatalks.ui`'s ephemeral scan boots no backend at
+  all (`POST /auth/sign_in` returns `405` live; every route returns the same static
+  shell regardless of credentials, since the SPA's auth state is client-side only, with
+  no HTTP response ZAP can regex-match). A wrong indicator is worse than none — do not
+  fill one in to "finish" that arm.
 - **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not
   vendored into `security/`. `ERROR` and `WARNING` are both counted and both listed in
   the report body — there is no `severity` input to narrow that. `INFO` is counted for

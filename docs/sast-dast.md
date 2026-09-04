@@ -492,6 +492,42 @@ are shared unchanged between both modes; see
 > any logic flaw behind a login. It finds more than the baseline on the same surface, not
 > a different surface.
 
+### `zap-context`: teaching the crawl to log in
+
+`dast/action.yml`'s `zap-context` input (empty by default) names a file under
+[`.github/actions/dast/contexts/`](../.github/actions/dast/contexts/). When `scan-mode` is
+`full` and this is set, `scan.sh` copies that file into `RUNNER_TEMP` and appends
+`-n <file> -U nova-ci-dast` to the `zap-full-scan.py` invocation — `nova-ci-dast` is the
+one user name every context in this repository defines, never a per-repository value. A
+context tells ZAP a login URL, the field names to POST, and a regex pair — one that
+matches only while logged in, one that matches only while logged out — so the crawl can
+tell the two states apart.
+
+> [!WARNING]
+> **A context needs both regexes or it is worse than no context.** With only one, ZAP can
+> silently crawl as an anonymous user while the run still looks configured for
+> authentication — the same "authenticated-looking, completely blind" shape as an
+> unquoted `-z` replacer in `dast-api` (further down this page, the `-z` replacer values
+> are single-quoted in `scan.sh` for exactly this reason). `-n` and `-U` travel together
+> in `scan.sh` for the same reason: a context loaded with no user selected scans as
+> nobody while looking configured.
+
+[`contexts/novatalks-ui.context`](../.github/actions/dast/contexts/novatalks-ui.context)
+exists and documents the one login request this repository has verified — both against
+`novatalks.ui`'s own source and against its published image — but it is **not** wired
+into [`targets.sh`](../.github/actions/dast/targets.sh): that arm leaves `DT_ZAP_CONTEXT`
+empty, and the context file's own header comment explains why in full. In short,
+`novatalks.ui` is a static SPA with no backend of its own; the ephemeral DAST scan boots
+it alone (no database, no proxy), so `/auth/sign_in` has nothing behind it — confirmed
+live (`POST /auth/sign_in` → `405 Not Allowed`) as well as in source (no API base URL is
+configured anywhere in the client). Every route nginx serves is a byte-identical static
+shell, logged in or not, because the SPA renders the difference client-side where no HTTP
+response ZAP can regex-match ever reflects it. There is consequently no reliable
+`loggedInIndicatorRegex`/`loggedOutIndicatorRegex` pair for this deployment shape, and per
+the warning above, guessing one would be worse than leaving the context unwired. Revisit
+once `novatalks.ui` is scanned alongside a real backend (or through something proxying to
+one).
+
 ### Recording a decision about a finding
 
 A scanner that can only ever add to its count is one people stop reading. Both scanners

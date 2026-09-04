@@ -30,6 +30,23 @@ dast_resolve_target() {
             # Helm chart (novatalks.charts, novatalks_v5/values.yaml) — authoritative
             # because it is what runs in prod.
             DT_PORT=8000; DT_HEALTH_PATH=/livez
+            # DT_ZAP_CONTEXT deliberately stays empty. A context (contexts/novatalks-ui.context)
+            # exists with the verified login request shape (/auth/sign_in, JSON body,
+            # username/password/station), but this arm boots no backend
+            # (DT_NEEDS_DB is false) and there is none to add one for: novatalks.ui is a
+            # static nginx image with no API base URL configured anywhere (grepped
+            # configurationParams.js, axios.client.js, entrypoint.sh's VITE_APP_* list) —
+            # in production it shares an origin with novatalks.core through an ingress
+            # this container never sees. Confirmed live on ghcr.io/novaitdevteam/
+            # novatalks.ui:latest (2026-09-04): POST /auth/sign_in returns 405, and every
+            # route returns the byte-identical static index.html shell (same ETag)
+            # whether or not any credential is sent — nginx's try_files serves that shell
+            # for everything, and Vue Router renders the difference client-side, where no
+            # HTTP response ZAP can regex-match ever reflects it. Setting the context here
+            # would pass -n/-U into a login that structurally cannot succeed, which is the
+            # same "authenticated-looking, completely blind" failure this project already
+            # hardened against in dast-api's -z replacer. Revisit once this arm boots (or
+            # is proxied to) a real backend — see the context file's own header comment.
             ;;
         novatalks.core/browser)
             # NestJS engine. Same chart source as above.
