@@ -75,6 +75,26 @@ dast_resolve_target() {
             # serves anything. `npm run db:setup:prod` here could only ever answer
             # `sh: npm: not found` — and did, on run 33752263531.
             DT_SETUP_COMMAND=''
+            # Boot dummies for the S3 file-storage config: run 33863826945 loud-skipped
+            # with the container log reading `[Nest] ERROR [ExceptionHandler] TypeError:
+            # Configuration key "file.awsS3AccessKeyId" does not exist`.
+            # MulterConfigService.createMulterOptions() (apps/engine/src/files/
+            # multer-config.service.ts) runs at module registration — before any
+            # request, let alone a file upload — and getOrThrow()s
+            # awsS3AccessKeyId/awsS3SecretAccessKey/awsS3Endpoint/awsS3Region/awsS3Bucket
+            # unconditionally, because FILE_DRIVER defaults to 's3' (libs/common/src/
+            # config/file.config.ts) and none of those five has a default. The
+            # browser-surface baseline never hit this: it seeds the product repo's own
+            # .env.example, which defines them; dast-api/scan.sh does not seed that file
+            # at all. The scan never uploads a file, so the values only need to exist
+            # and parse — obviously-fake, not a real endpoint or key, since this
+            # repository is public and a plausible-looking fake reads as a leak to
+            # anyone (or any secret scanner) later.
+            DT_EXTRA_ENV='AWS_S3_ACCESS_KEY_ID=dast-dummy-not-a-real-key
+AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
+AWS_S3_BUCKET=dast-dummy-bucket
+AWS_S3_REGION=dast-dummy-region
+AWS_S3_ENDPOINT=http://s3.example.invalid'
             ;;
         nova.chatsconnector.telegram-client-api/api)
             # Verified in the connector's code: api_access_token header (setup-swagger.ts),

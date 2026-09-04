@@ -50,6 +50,21 @@ check "core/api prefix"          "Bearer "          "$DT_AUTH_SCHEME_PREFIX"
 check "core/api spec path"       /api-docs-json     "$DT_SPEC_PATH"
 # Empty on purpose: the runtime image ships no npm and its entrypoint migrates and seeds.
 check "core/api setup command"   ""                 "$DT_SETUP_COMMAND"
+# Run 33863826945: MulterConfigService.createMulterOptions() getOrThrow()s these five
+# file.awsS3* keys at module registration, unconditionally, since dast-api/scan.sh seeds
+# no .env.example. Obviously-fake values, never a plausible-looking one — this
+# repository is public.
+for var in AWS_S3_ACCESS_KEY_ID AWS_S3_SECRET_ACCESS_KEY AWS_S3_BUCKET AWS_S3_REGION AWS_S3_ENDPOINT; do
+    case "$DT_EXTRA_ENV" in
+        *"$var="*) echo "ok   core/api extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL core/api extra-env is missing $var — MulterConfigService.getOrThrow() would crash on boot"; fail=$((fail + 1)) ;;
+    esac
+done
+case "$DT_EXTRA_ENV" in
+    *"AWS_S3_ACCESS_KEY_ID=dast-dummy"*|*"AWS_S3_SECRET_ACCESS_KEY=dast-dummy"*)
+        echo "ok   core/api's AWS_S3 values are obviously fake, not plausible-looking"; pass=$((pass + 1)) ;;
+    *) echo "FAIL core/api's AWS_S3 values do not look like dummies"; fail=$((fail + 1)) ;;
+esac
 
 # The telegram connector: a DB-backed token under its own header, no scheme prefix.
 reset_dt; dast_resolve_target nova.chatsconnector.telegram-client-api api
