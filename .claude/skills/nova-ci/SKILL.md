@@ -549,8 +549,10 @@ Preserve these behaviors:
   either way; `db-insert` writes its own rather than depending on the seeder's own
   `findOrCreate` key), or `env-token` (generate a token before the app container starts and
   hand it in as `-e <token-env-var>=<token>` — for `novatalks.dialer`, whose auth
-  middleware accepts any token present in the `API_ACCESS_TOKENS` env var and never calls
-  the engine at all; no DB, no seed). Every
+  middleware always queries `accessTokens.findFirst` first (never skipped — that query
+  is why this arm still needs `needs-db: true`), but also accepts any token present in
+  the `API_ACCESS_TOKENS` env var, which is enough on its own to skip the middleware's
+  outbound call to the engine; no seed, no stored row). Every
   other mode acquires its token *after* boot; `env-token` is the one mode that must
   generate and `::add-mask::` its token before the container exists, right beside
   `ADMIN_PASS` — the application only reads the variable once, at its own startup, so a

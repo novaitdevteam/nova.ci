@@ -865,11 +865,17 @@ header it is injected under is a per-repository input — a connector's is not t
   it means the migration never created the table, a broken setup rather than a finding.
   The value is generated for this run only and lives in a database that dies with the
   container: nothing is stored, nothing to rotate.
-- **`env-token` (`novatalks.dialer`).** No database and no seed at all: `novatalks.dialer`'s
-  `src/auth/auth.middleware.ts` accepts any token present in `app.apiAccessTokens`, which
-  `src/config/app.config.ts` builds by splitting the `API_ACCESS_TOKENS` environment
-  variable — a token on that list short-circuits before the middleware would call out to
-  the engine. Every other mode acquires its token *after* the application container boots;
+- **`env-token` (`novatalks.dialer`).** No seed at all, but not "no database" either:
+  `novatalks.dialer`'s `src/auth/auth.middleware.ts` always queries
+  `prismaService.accessTokens.findFirst` first, for every request carrying the header —
+  that query just finds nothing, because nothing was ever seeded into it. The request is
+  still authenticated because the header value is also checked against
+  `app.apiAccessTokens`, which `src/config/app.config.ts` builds by splitting the
+  `API_ACCESS_TOKENS` environment variable; either the DB row or the env-list match is
+  enough, and only the *outbound call to the engine* (`fetchTokenInfo`) is skipped when
+  one of them hits — the DB lookup itself is never skipped. That is why this arm still
+  needs `needs-db: true` despite seeding no token anywhere. Every other mode acquires its
+  token *after* the application container boots;
   this is the one mode that cannot, because the application only ever reads the variable
   once, at its own startup. So `scan.sh` generates the token and masks it before the
   container exists at all — right beside `ADMIN_PASS` — and the container-start step

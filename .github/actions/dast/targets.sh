@@ -143,10 +143,14 @@ S3_SECRET_ACCESS_KEY=dast-dummy
 S3_BUCKET=dast-dummy'
             ;;
         novatalks.dialer/api)
-            # env-token, confirmed in auth.middleware.ts: a request carrying
-            # api_access_token that matches an entry in app.apiAccessTokens
-            # (API_ACCESS_TOKENS, comma-split in app.config.ts) short-circuits before
-            # any DB lookup or outbound call to the engine.
+            # env-token, confirmed in auth.middleware.ts: handleApiAccessToken always
+            # queries `accessTokens.findFirst` against Prisma first, then separately
+            # checks whether the header value is in app.apiAccessTokens
+            # (API_ACCESS_TOKENS, comma-split in app.config.ts) — either one
+            # authenticates the request, and the env-list match still succeeds even
+            # though the query finds no row (an empty/irrelevant table). The DB lookup
+            # always happens, never skipped or short-circuited — that is exactly why
+            # this arm needs DT_NEEDS_DB=true despite seeding no token into a database.
             #
             # Health from health.controller.ts's /readyz, which checks Prisma and Redis —
             # /livez here only checks memory thresholds and reports healthy even before
