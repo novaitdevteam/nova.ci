@@ -185,7 +185,11 @@ cannot tell them apart is one people learn to ignore:
 | the scan itself failed | `🔧 secret-scan could not run` — this change is **UNSCANNED**; a broken gate, not a leak |
 
 The message carries repository, branch or pull request, author, commit, finding count
-and a link to the run. It carries **no credential and not even the rule IDs** — the
+and a link to the run. It names the **commit author Gitleaks reports for the finding**, not
+whoever opened the pull request — on a merge pull request those are routinely different
+people, and the one who can act is the one who committed. Where findings span several
+authors or commits it says how many rather than naming one. It carries **no credential and
+not even the rule IDs** — the
 redacted detail stays in the job summary, behind repository access, because a chat group
 is a wider audience than the repository.
 

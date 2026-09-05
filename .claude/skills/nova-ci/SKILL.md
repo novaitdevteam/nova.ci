@@ -219,7 +219,15 @@ Preserve these behaviors:
 - `secret-scan-notify` (`needs: [secret-scan]`, runs only on `failure`) is the
   compensating control for the missing merge block. The message text is composed in
   `scan.sh`, not in the workflow, so the harness covers it. It must stay free of
-  credentials **and rule IDs** (a chat group is wider than the repository), must keep
+  credentials **and rule IDs** (a chat group is wider than the repository) — but file
+  paths are not rule IDs and do belong there, since a path is usually enough to
+  recognise a fixture or docs directory without opening the run. It attributes findings
+  to the **commit author Gitleaks reports per finding**, never `NOTIFY_ACTOR` or
+  `GITHUB_SHA` (on a merge PR those name whoever opened it and its tip), says how many
+  when findings span several authors, and words remediation by branch shape: rewriting
+  history is right on a topic branch and impossible between two long-lived ones, so a
+  trunk-to-trunk merge is told to fix forward. The trunk definition is the push gate's,
+  reused not reinvented. It must keep
   the three-way split between a pull-request leak, a protected-branch leak and a failed
   scan, and must keep the workflow-level fallback message for a job that dies before
   `scan.sh` runs — silence looks like a clean run. Route it through

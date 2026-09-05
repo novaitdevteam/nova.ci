@@ -96,6 +96,17 @@ commit() { # commit <repo> <message> [file content...]
     git -C "$d" add -A
     git -C "$d" commit -q --allow-empty -m "$m"
 }
+
+commit_as() { # commit_as <repo> <author-name> <message>
+    # Attribution scenarios need findings from *different* people. Gitleaks reports the
+    # commit author per finding, which is the whole point of the notifier change these
+    # exercise: the person who can act on a leak is whoever committed it, not whoever
+    # opened the pull request.
+    local d="$1" who="$2" m="$3"
+    git -C "$d" add -A
+    git -C "$d" -c user.name="$who" -c user.email="${who}@example.invalid" \
+        commit -q --allow-empty -m "$m"
+}
 at() { git -C "$1" rev-parse "${2:-HEAD}"; }
 
 # --- runner ----------------------------------------------------------------------
@@ -457,6 +468,66 @@ else
         fail=$((fail + 1))
     fi
 fi
+
+# --- notifier accuracy -------------------------------------------------------------
+# novatalks.core PR #273 sent an alert naming the pull request's author for five findings
+# committed by somebody else sixteen days earlier, telling them to rebase a 46-commit
+# merge of development into main, and not saying what was found. Each of those is a
+# separate assertion below.
+
+# One author: name them, and do not fall back to the actor who opened the pull request.
+r="$(new_repo notify-one-author)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+mkdir -p "$r/config"
+printf 'const token = "%s"\n' "$LEAK_ONE" > "$r/config/app.js.example"
+commit_as "$r" "Zim4" "add example"
+expect "notify: leak from one author" 1 "$r" pull_request \
+    PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")" \
+    PR_BASE_REF="development" PR_HEAD_REF="NC2-1234-feature"
+assert_output "notify: names the commit author, not the PR actor" "Author: Zim4"
+assert_output "notify: does not name the PR actor" "Author: someone" --absent
+assert_output "notify: names the file so a docs path is recognisable" "config/app.js.example"
+# The invariant holds: rule IDs stay out of the chat message. They are in the job
+# summary, which is behind repository access; a chat group is a wider audience.
+assert_output "notify: still carries no rule ID" "github-pat" --absent
+assert_summary "notify: the rule ID is in the summary, where it belongs" "github-pat"
+# A topic branch is the case where rewriting history is the right answer.
+assert_output "notify: topic branch is told to rewrite" "rebase"
+
+# Several authors: say how many rather than picking whichever printed first.
+r="$(new_repo notify-two-authors)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+printf 'const a = "%s"\n' "$LEAK_ONE" > "$r/one.js"; commit_as "$r" "Zim4" "one"
+printf 'const b = "%s"\n' "$LEAK_TWO" > "$r/two.js"; commit_as "$r" "avoylenko" "two"
+expect "notify: leaks from two authors" 1 "$r" pull_request \
+    PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")" \
+    PR_BASE_REF="development" PR_HEAD_REF="NC2-1234-feature"
+assert_output "notify: counts the authors instead of guessing one" "2 authors:"
+
+# A merge between two long-lived branches: nobody rebases a trunk to clear a check.
+r="$(new_repo notify-trunk-merge)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+printf 'const token = "%s"\n' "$LEAK_ONE" > "$r/app.js"; commit_as "$r" "Zim4" "oops"
+expect "notify: trunk-to-trunk merge pull request" 1 "$r" pull_request \
+    PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")" \
+    PR_BASE_REF="main" PR_HEAD_REF="development"
+assert_output "notify: trunk merge is NOT told to rebase" "rebase" --absent
+assert_output "notify: trunk merge is told to fix forward" "long-lived branches"
+
+# The trunk list follows the repository's own default branch, exactly as the push gate
+# does — a repository whose trunk is not called main/master/development still has one.
+r="$(new_repo notify-odd-default)"
+echo "hello" > "$r/app.js"; commit "$r" "base"
+base="$(at "$r")"
+printf 'const token = "%s"\n' "$LEAK_ONE" > "$r/app.js"; commit_as "$r" "Zim4" "oops"
+expect "notify: default_branch counts as a trunk" 1 "$r" pull_request \
+    PR_BASE_SHA="$base" PR_HEAD_SHA="$(at "$r")" \
+    PR_BASE_REF="main" PR_HEAD_REF="NC2-1992_docker" \
+    DEFAULT_BRANCH="NC2-1992_docker"
+assert_output "notify: odd default branch is not told to rebase" "rebase" --absent
 
 echo
 # The skip is named on the tally line on purpose: validate.sh surfaces only this line, and

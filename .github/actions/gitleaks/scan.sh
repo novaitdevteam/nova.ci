@@ -24,6 +24,10 @@
 #
 # Optional, only used to compose the notifier message:
 #   NOTIFY_ACTOR / NOTIFY_PR_TITLE / NOTIFY_RUN_URL / GITHUB_REF_NAME
+#   PR_BASE_REF          github.event.pull_request.base.ref     — is this a merge
+#   PR_HEAD_REF          github.event.pull_request.head.ref       between trunk branches?
+#   DEFAULT_BRANCH       github.event.repository.default_branch — same trunk definition
+#                        the push gate in ci-build-trigger-switcher.yaml uses
 #
 # Emits, before exiting, so a failed run can still be reported:
 #   outcome   clean | leaks | error
@@ -38,6 +42,53 @@ GITLEAKS_BIN="${GITLEAKS_BIN:-gitleaks}"
 GITLEAKS_CONFIG="${GITLEAKS_CONFIG:?GITLEAKS_CONFIG is required}"
 LOG_FILE="${GITLEAKS_LOG_FILE:-gitleaks.log}"
 
+# Distinct values of a Gitleaks verbose field ("Author", "Commit", "File", ...), one per
+# line, in first-seen order across every finding in the log. `gitleaks git -v` prints
+# these per finding, not per event — GITHUB_SHA is only the pull request's head or the
+# push tip, almost never the commit that actually introduced the secret, so read the
+# log instead of guessing from the event.
+field_values() { # field_values <field-name> <log-file>
+  awk -v f="^${1}:" '$0 ~ f { sub(f, ""); sub(/^[ \t]+/, ""); if (!seen[$0]++) print }' "$2"
+}
+
+# Name the one value when every finding agrees; otherwise say how many rather than
+# picking one arbitrarily — attributing several findings to whichever one happened to
+# print first is exactly the "By: avoylenko" bug this replaces.
+#
+# A plain while-read loop, not `mapfile`: this script targets whatever `bash` a
+# contributor's machine resolves first, and macOS still ships bash 3.2 by default,
+# which has no `mapfile` builtin (added in 4.0) — the same reason nothing else in
+# this repository uses it.
+summarize() { # summarize <noun> <cap> <newline-separated values>
+  local noun="$1" cap="$2" values="$3" total=0 first="" shown="" line
+  [ -n "$values" ] || { printf '?'; return; }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    total=$((total + 1))
+    [ "$total" -eq 1 ] && first="$line"
+    [ "$total" -le "$cap" ] && shown="${shown:+$shown, }$line"
+  done <<EOF
+$values
+EOF
+  if [ "$total" -eq 1 ]; then
+    printf '%s' "$first"
+    return
+  fi
+  [ "$total" -gt "$cap" ] && shown="${shown}, +$((total - cap)) more"
+  printf '%d %ss: %s' "$total" "$noun" "$shown"
+}
+
+# The same trunk definition the push gate in ci-build-trigger-switcher.yaml uses —
+# main/master/development plus whatever the repository itself treats as its default
+# branch. Reused here rather than reinvented so the two never drift apart.
+is_trunk() { # is_trunk <ref-name>
+  case "$1" in
+    "") return 1 ;;
+    main | master | development) return 0 ;;
+  esac
+  [ -n "${DEFAULT_BRANCH:-}" ] && [ "$1" = "$DEFAULT_BRANCH" ]
+}
+
 # Composed here rather than in the workflow so the harness covers it: the message is
 # the whole point of the notifier, and a chat alert that is subtly wrong is worse than
 # none. It distinguishes a leak ("someone committed a credential, rotate it") from a
@@ -45,18 +96,43 @@ LOG_FILE="${GITLEAKS_LOG_FILE:-gitleaks.log}"
 # and an alert that cannot tell them apart is one people learn to ignore.
 #
 # It carries no credential and not even the rule IDs: the redacted detail is in the job
-# summary, behind repository access, and a chat group is a wider audience than that.
+# summary, behind repository access, and a chat group is a wider audience than that. File
+# paths are not a rule ID — they are usually enough on their own to recognise a fixture
+# or documentation directory, which is the whole reason this notifier exists: so nobody
+# has to open the run to learn that much.
 compose() { # compose <outcome> <findings>
   local outcome="$1" count="${2:-0}" head advice where
   local branch="${GITHUB_REF_NAME:-?}" pr="${PR_NUMBER:-?}"
 
   if [ "$outcome" = leaks ]; then
+    # Per-finding attribution, not the PR author or the event's tip SHA: the person who
+    # can act on a finding is whoever committed it, which may be neither.
+    local who what files_line
+    who="$(summarize author 5 "$(field_values Author "$LOG_FILE")")"
+    what="$(summarize commit 5 "$(field_values Commit "$LOG_FILE" | cut -c1-8 | awk '!seen[$0]++')")"
+    files_line="$(summarize file 10 "$(field_values File "$LOG_FILE")")"
+
     if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
       head="⚠️ SECRET DETECTED in a pull request — ${GITHUB_REPOSITORY:-?}"
-      advice="Do not merge. The secret is in the pull request's commits, so merging buries it in
+      if is_trunk "${PR_BASE_REF:-}" && is_trunk "${PR_HEAD_REF:-}"; then
+        # A release-style merge between two long-lived branches: the commits were
+        # already reviewed and merged on ${PR_HEAD_REF} once, so rewriting either
+        # branch is not on the table — nobody rebases or force-pushes a trunk branch
+        # to clear a check.
+        advice="Do not merge. This pull request merges ${PR_HEAD_REF:-?} into ${PR_BASE_REF:-?} —
+both long-lived branches, so rewriting either one is not an option. Fix it forward
+instead: if the credential is real, rotate it at the provider now — it has been
+reachable on ${PR_HEAD_REF:-?} since the commit(s) below. Then push a NEW commit to
+${PR_HEAD_REF:-?} that removes it, or, if this is a false positive, allowlists the
+fingerprint (.gitleaksignore or an inline gitleaks:allow — see
+docs/secret-detection.md). Pushing to ${PR_HEAD_REF:-?} updates this pull request's
+commit range automatically."
+      else
+        advice="Do not merge. The secret is in the pull request's commits, so merging buries it in
 history. Rotate the credential, then rewrite the branch (git rebase -i or
 git commit --amend, then force-push). Deleting the line in a NEW commit will not
 clear this check."
+      fi
       where="Pull request: #${pr}${NOTIFY_PR_TITLE:+ — $NOTIFY_PR_TITLE}"
     else
       head="🚨 SECRET DETECTED on a protected branch — ${GITHUB_REPOSITORY:-?}"
@@ -64,8 +140,8 @@ clear this check."
 immediately. Deleting the line is not remediation — the secret stays in history."
       where="Branch: ${branch}"
     fi
-    printf '%s\n\n%s\n\n%s\nBy: %s\nCommit: %s\nFindings: %s (values redacted)\n\n%s\n%s\n' \
-      "$head" "$advice" "$where" "${NOTIFY_ACTOR:-?}" "${GITHUB_SHA:0:8}" "$count" \
+    printf '%s\n\n%s\n\n%s\nAuthor: %s\nCommit: %s\nFindings: %s (values redacted)\nFiles: %s\n\n%s\n%s\n' \
+      "$head" "$advice" "$where" "$who" "$what" "$count" "$files_line" \
       "Details (file, line, rule, fingerprint) - no plaintext values:" "${NOTIFY_RUN_URL:-?}"
   else
     head="🔧 secret-scan could not run — ${GITHUB_REPOSITORY:-?}"
