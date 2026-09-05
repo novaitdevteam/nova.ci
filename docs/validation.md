@@ -27,7 +27,7 @@ Run it alone against any copy of the script:
 [`scripts/test-secret-scan.sh`](../scripts/test-secret-scan.sh) gives
 [`scan.sh`](../.github/actions/gitleaks/scan.sh) the same treatment, for the same
 reason: it decides whether a pull request may merge. It builds throwaway git repos and
-runs the real, pinned Gitleaks binary over them — 50 checks covering clean and
+runs the real, pinned Gitleaks binary over them — 63 checks covering clean and
 dirty pull requests, follow-up deletion versus branch rewrite, both allowlist
 mechanisms, merge-base scoping, push ranges, a legacy finding outside the range, new
 branches and rewritten history, that findings stay redacted in both stdout and the
