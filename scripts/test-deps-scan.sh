@@ -279,5 +279,28 @@ expect "30 findings still report as 30" findings 30
 assert_in "the summary says how many of how many it showed" "$WORK/summary" "Showing 25 of 30"
 assert_in "and names the artifact that has the rest" "$WORK/summary" "artifact"
 
+# --- the notifier line ---------------------------------------------------------------
+# Composed in scan.sh, not in the workflow, so this harness covers its wording — the same
+# rule the other scanners follow, and for the same reason: a chat line that is subtly
+# wrong is worse than none.
+
+run "$(trivy_json normal HIGH CRITICAL)" success "$(osv_json 3)" 1
+assert_in "notify: findings line names both tools' counts" "$WORK/output" "Trivy 2, OSV 3"
+assert_in "notify: findings line carries the report URL" "$WORK/output" "example.invalid/r"
+
+run "$(trivy_json normal)" success "$(osv_json 0)" 0
+assert_in "notify: clean line says both tools parsed a lockfile" "$WORK/output" "both parsed a lockfile"
+
+# no-manifests is the outcome that must never read as clean: a repository with no
+# lockfile was not checked, it was skipped, and a bare count cannot tell those apart.
+run "$(trivy_json no-results)" success "$(osv_json 0)" 128
+assert_in "notify: no-manifest line does not claim clean" "$WORK/output" "🟢" --absent
+assert_in "notify: no-manifest line says nothing was checked" "$WORK/output" "nothing was checked"
+
+# A broken scanner is its own line, never a finding count.
+run "$(trivy_json normal)" success "$(osv_json 0)" 127
+assert_in "notify: broken scanner says scan failed" "$WORK/output" "scan failed"
+assert_in "notify: broken scanner is not reported clean" "$WORK/output" "🟢" --absent
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

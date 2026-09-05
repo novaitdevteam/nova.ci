@@ -47,11 +47,20 @@ emit() { # emit <key> <value>
     printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"
 }
 
+emit_message() { # emit_message <text>
+    {
+        echo "message<<DEPS_EOF"
+        printf '%s\n' "$1"
+        echo "DEPS_EOF"
+    } >> "${GITHUB_OUTPUT:-/dev/null}"
+}
+
 finish_error() { # finish_error <reason>
     local reason="$1"
     echo "::error::Dependency scan could not complete: ${reason}"
     emit outcome error
     emit findings 0
+    emit_message "📚 Deps (Trivy fs + OSV): ❌ scan failed — ${reason}"
     {
         echo "## 📦 Dependency scan (Trivy fs + OSV-Scanner)"
         echo ""
@@ -269,6 +278,22 @@ if [ "$outcome" = "findings" ]; then
         echo "</details>"
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 fi
+
+# Composed here rather than in the workflow so the harness covers the wording, the same
+# rule the other scanners follow. Four outcomes, and `no-manifests` is the one that must
+# never read as clean: a repository with no lockfile has not been checked, it has been
+# skipped, and those look identical in a bare count.
+case "$outcome" in
+    findings)
+        emit_message "📚 Deps (Trivy fs + OSV): 🟡 ${findings} finding(s) — Trivy ${trivy_findings}, OSV ${osv_findings}"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+        ;;
+    no-manifests)
+        emit_message "📚 Deps (Trivy fs + OSV): ⚠️ no lockfile found — nothing was checked"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+        ;;
+    *)
+        emit_message "📚 Deps (Trivy fs + OSV): 🟢 clean — Trivy and OSV both parsed a lockfile and found nothing"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+        ;;
+esac
 
 emit outcome "$outcome"
 emit findings "$findings"
