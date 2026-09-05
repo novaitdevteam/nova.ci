@@ -124,8 +124,11 @@ indicator is worse than none — do not fill one in to "finish" that arm.
 and checks header/cookie hygiene, so it only earns its keep where there is a browser surface
 to spider. A `Resolve DAST target` step (the same house pattern as `Resolve scan policy` in
 `trivy-scan`) resolves port, health path, `needs-db`, `needs-nats` and `extra-env` per
-repository via `.github/actions/dast/targets.sh`'s `dast_resolve_target` — see
-`.agents/skills/dast-target-wiring/SKILL.md` for how an arm is built and verified.
+repository by calling `.github/actions/dast-target`, a composite action that sources
+`.github/actions/dast/targets.sh`'s `dast_resolve_target` relative to its own
+`github.action_path` rather than `GITHUB_WORKSPACE` — see "Things that live once" below for
+why that indirection exists, and `.agents/skills/dast-target-wiring/SKILL.md` for how an arm
+is built and verified.
 `nova.botflow` has no dedicated HTTP health route (its chart probes over `tcpSocket`), so its
 health path is `/` — the boot wait-loop accepts any HTTP response, 404 included, since it only
 tests that the process is listening; do not "fix" it to `/livez`. It brings up both redis and
@@ -198,11 +201,32 @@ caller's own `not_run`, passed by name exactly like `zap_tally_parse`'s `<error-
 shared function calls back into the caller's scope rather than assuming one.
 
 **The per-repository DAST table lives once, in `dast/targets.sh`.** `dast_resolve_target
-<repo> <api|browser>` sets `DT_*` in the caller's scope and is sourced by the `Resolve DAST
-target` and `Resolve api-scan target` steps. Never re-inline or copy an arm into a workflow's
-own `case` — same divergent-copy hazard as the tally parse above. Every arm sets every `DT_*`
-variable, even ones with no consumer yet, so a stale value can never leak from the previous
-caller.
+<repo> <api|browser>` sets `DT_*` in the caller's scope. Never re-inline or copy an arm into a
+workflow's own `case` — same divergent-copy hazard as the tally parse above. Every arm sets
+every `DT_*` variable, even ones with no consumer yet, so a stale value can never leak from
+the previous caller.
+
+**`targets.sh` itself is reached exactly one way: `.github/actions/dast-target`, never a
+workflow's own `run:` step.** That composite action sources `targets.sh` relative to its own
+`github.action_path` and emits every `DT_*` as a step output; `ci-build-ntk-on-push-tags-build.yaml`'s
+`Resolve DAST target` and `Resolve api-scan target` steps and `ci-dast-pentest.yaml`'s
+`Resolve target` step all call it with `uses:`. A `run:` step doing
+`. "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"` looks identical in review — a
+`Checkout` step precedes it every time — but `GITHUB_WORKSPACE` in a `workflow_call` reusable
+workflow is the *calling* repository's checkout, not nova.ci's, and `targets.sh` has never
+lived in `nova.botflow` or `novatalks.core`. That exact step broke `dast-scan` and `api-scan`
+outright, for every repository, the moment the table was extracted into its own file
+(`nova.botflow` run 33955935398) — two reviews missed it because both asked whether a
+`Checkout` step preceded the resolve step, never which repository it checked out.
+`ci-dast-pentest.yaml` worked the whole time only because it runs directly in nova.ci
+(`workflow_dispatch`, not `workflow_call`), which made `targets.sh` look proven when only that
+one caller's `GITHUB_WORKSPACE` ever agreed with it. `uses:` does not have this ambiguity:
+GitHub checks out the *whole* calling repository next to the action, so `github.action_path`
+always resolves to nova.ci regardless of whose checkout `GITHUB_WORKSPACE` holds — the same
+mechanism `gitleaks/action.yml`'s own comment documents for its central config.
+`scripts/validate.sh`'s "GITHUB_WORKSPACE self-reference" guard now fails any
+`workflow_call`-triggered workflow that sources a nova.ci-only path via `GITHUB_WORKSPACE`, so
+this exact regression reds the harness instead of shipping silently.
 
 ## `.env.example` and boot environment
 
