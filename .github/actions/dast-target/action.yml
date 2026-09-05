@@ -1,0 +1,137 @@
+name: "Resolve DAST target"
+description: "Look up a repository's port, health path, auth and boot environment from the central DAST target table"
+
+# Why this exists rather than a `run:` step sourcing targets.sh directly: this action is
+# invoked with `uses: novaitdevteam/nova.ci/.github/actions/dast-target@main`, which makes
+# GitHub check out the WHOLE nova.ci repository next to it — same mechanism the gitleaks
+# action's own comment documents. That gives this step a `github.action_path` that always
+# points at nova.ci, at the ref this action itself was pinned to, regardless of whose
+# checkout GITHUB_WORKSPACE holds. A plain `run:` step sourcing
+# "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh" has no such guarantee: in the
+# reusable build workflow, GITHUB_WORKSPACE is the *product repository's* checkout —
+# nova.botflow, novatalks.core, whichever repo called it — and targets.sh has never lived
+# there. That broke every dast-scan and api-scan job in production (nova.botflow run
+# 33955935398) until this action replaced the direct sourcing.
+#
+# Does not change targets.sh itself — only how workflows reach it. See
+# .agents/skills/dast-target-wiring/SKILL.md for wiring a new repository into the table.
+
+inputs:
+  repository:
+    description: "Bare repository name to resolve, e.g. novatalks.core. Never inferred from GITHUB_REPOSITORY — ci-dast-pentest.yaml runs in nova.ci, not in the repository being scanned."
+    required: true
+  surface:
+    description: "api or browser — passed straight through to dast_resolve_target"
+    required: true
+
+outputs:
+  port:
+    description: "Port the application listens on"
+    value: ${{ steps.resolve.outputs.port }}
+  health_path:
+    description: "Path polled to decide the application is up"
+    value: ${{ steps.resolve.outputs.health_path }}
+  spec_path:
+    description: "OpenAPI spec path (api surface)"
+    value: ${{ steps.resolve.outputs.spec_path }}
+  needs_db:
+    description: "Bring up postgres and redis alongside the application"
+    value: ${{ steps.resolve.outputs.needs_db }}
+  needs_nats:
+    description: "Bring up a plain, unconfigured NATS server alongside the application"
+    value: ${{ steps.resolve.outputs.needs_nats }}
+  auth_mode:
+    description: "none | login | db-token | db-insert | env-token"
+    value: ${{ steps.resolve.outputs.auth_mode }}
+  login_path:
+    description: "Login endpoint path (auth-mode: login)"
+    value: ${{ steps.resolve.outputs.login_path }}
+  auth_header:
+    description: "Header name the acquired token is injected under"
+    value: ${{ steps.resolve.outputs.auth_header }}
+  auth_scheme_prefix:
+    description: "Scheme prefix prepended to the token in the auth header (may carry a trailing space)"
+    value: ${{ steps.resolve.outputs.auth_scheme_prefix }}
+  token_sql:
+    description: "SELECT statement that reads a seeded token (auth-mode: db-token)"
+    value: ${{ steps.resolve.outputs.token_sql }}
+  token_insert_sql:
+    description: "INSERT statement that writes a generated token (auth-mode: db-insert)"
+    value: ${{ steps.resolve.outputs.token_insert_sql }}
+  token_env_var:
+    description: "Environment variable name the application reads its token allowlist from (auth-mode: env-token)"
+    value: ${{ steps.resolve.outputs.token_env_var }}
+  setup_command:
+    description: "Command run inside the application container before the scan, via docker exec"
+    value: ${{ steps.resolve.outputs.setup_command }}
+  swagger_enable:
+    description: "Whether the application needs SWAGGER_ENABLE=true to serve its OpenAPI spec"
+    value: ${{ steps.resolve.outputs.swagger_enable }}
+  zap_context:
+    description: "ZAP context filename (scan-mode: full) teaching the crawl how to log in"
+    value: ${{ steps.resolve.outputs.zap_context }}
+  extra_env:
+    description: "Newline-separated KEY=VALUE lines applied to the application container via -e"
+    value: ${{ steps.resolve.outputs.extra_env }}
+  unseeded_env:
+    description: "Newline-separated KEY=VALUE lines applied only when the scanned repository's .env.example could not be seeded at all"
+    value: ${{ steps.resolve.outputs.unseeded_env }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve target
+      id: resolve
+      shell: bash
+      env:
+        REPO_NAME: ${{ inputs.repository }}
+        SURFACE: ${{ inputs.surface }}
+        DAST_TARGET_ACTION_ROOT: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+
+        # shellcheck source=../dast/targets.sh
+        . "${DAST_TARGET_ACTION_ROOT}/../dast/targets.sh"
+        dast_resolve_target "$REPO_NAME" "$SURFACE"
+
+        # One group, one redirect for the plain keys — several individual
+        # `>> "$GITHUB_OUTPUT"` writes in a row is a shellcheck SC2129 finding.
+        {
+          echo "port=$DT_PORT"
+          echo "health_path=$DT_HEALTH_PATH"
+          echo "spec_path=$DT_SPEC_PATH"
+          echo "needs_db=$DT_NEEDS_DB"
+          echo "needs_nats=$DT_NEEDS_NATS"
+          echo "auth_mode=$DT_AUTH_MODE"
+          echo "login_path=$DT_LOGIN_PATH"
+          echo "auth_header=$DT_AUTH_HEADER"
+          echo "token_env_var=$DT_TOKEN_ENV_VAR"
+          echo "swagger_enable=$DT_SWAGGER_ENABLE"
+          echo "zap_context=$DT_ZAP_CONTEXT"
+        } >> "$GITHUB_OUTPUT"
+
+        # Heredoc-delimited: auth_scheme_prefix carries a trailing space and
+        # token_sql/token_insert_sql/setup_command/extra_env/unseeded_env are multi-line.
+        # A plain key=value for any of these would silently corrupt it.
+        {
+          echo "auth_scheme_prefix<<DAST_TARGET_AUTH_PREFIX_EOF"
+          printf '%s\n' "$DT_AUTH_SCHEME_PREFIX"
+          echo "DAST_TARGET_AUTH_PREFIX_EOF"
+          echo "token_sql<<DAST_TARGET_TOKEN_SQL_EOF"
+          printf '%s\n' "$DT_TOKEN_SQL"
+          echo "DAST_TARGET_TOKEN_SQL_EOF"
+          echo "token_insert_sql<<DAST_TARGET_TOKEN_INSERT_SQL_EOF"
+          printf '%s\n' "$DT_TOKEN_INSERT_SQL"
+          echo "DAST_TARGET_TOKEN_INSERT_SQL_EOF"
+          echo "setup_command<<DAST_TARGET_SETUP_COMMAND_EOF"
+          printf '%s\n' "$DT_SETUP_COMMAND"
+          echo "DAST_TARGET_SETUP_COMMAND_EOF"
+          echo "extra_env<<DAST_TARGET_EXTRA_ENV_EOF"
+          printf '%s\n' "$DT_EXTRA_ENV"
+          echo "DAST_TARGET_EXTRA_ENV_EOF"
+          echo "unseeded_env<<DAST_TARGET_UNSEEDED_ENV_EOF"
+          printf '%s\n' "$DT_UNSEEDED_ENV"
+          echo "DAST_TARGET_UNSEEDED_ENV_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "Resolved $REPO_NAME/$SURFACE: port=$DT_PORT health-path=$DT_HEALTH_PATH auth-mode=$DT_AUTH_MODE"

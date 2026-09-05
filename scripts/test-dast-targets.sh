@@ -229,28 +229,41 @@ fi
 # DT_ZAP_CONTEXT was set by the table, declared as an input on dast/action.yml and
 # honoured by dast/scan.sh — and no resolve step bridged the two. Setting it on an arm,
 # updating this file, and watching everything pass would still have produced an anonymous
-# crawl with no signal anywhere. ci-dast-pentest.yaml's resolve step is the one consumer
-# that promises to emit EVERY key (it serves both surfaces), so that promise is what gets
-# asserted, for every field rather than only for the one that was missed.
+# crawl with no signal anywhere.
+#
+# The bridge used to live inline in ci-dast-pentest.yaml's own resolve step; it now lives
+# in .github/actions/dast-target, the composite action all three consumers
+# (ci-build-ntk-on-push-tags-build.yaml's two resolve steps and ci-dast-pentest.yaml's)
+# route through — a plain `run:` step sourcing targets.sh via GITHUB_WORKSPACE only
+# resolves correctly in a workflow that runs in nova.ci's own checkout, which the
+# reusable build workflow never does (nova.botflow run 33955935398). dast-target/action.yml
+# is the one place that promises to emit EVERY key, so that promise is what gets asserted,
+# for every field rather than only for the one that was missed.
 PENTEST="$ROOT/.github/workflows/ci-dast-pentest.yaml"
 TARGETS="$ROOT/.github/actions/dast/targets.sh"
+DAST_TARGET_ACTION="$ROOT/.github/actions/dast-target/action.yml"
 
 missing=""
 for v in $(grep -oE 'DT_[A-Z_]+' "$TARGETS" | sort -u); do
-    grep -qE "\\\$${v}\\b" "$PENTEST" || missing="$missing $v"
+    grep -qE "\\\$${v}\\b" "$DAST_TARGET_ACTION" || missing="$missing $v"
 done
 if [ -z "$missing" ]; then
-    echo "ok   every DT_* the table sets is emitted by ci-dast-pentest.yaml's resolve step"
+    echo "ok   every DT_* the table sets is emitted by dast-target/action.yml's resolve step"
     pass=$((pass + 1))
 else
-    echo "FAIL ci-dast-pentest.yaml's resolve step never reads:$missing — the table can set them and nothing happens"
+    echo "FAIL dast-target/action.yml's resolve step never reads:$missing — the table can set them and nothing happens"
     fail=$((fail + 1))
 fi
 
 # The other half: a key emitted into $GITHUB_OUTPUT that no scan step passes on is
-# equally inert. Both directions have to hold or the bridge has a hole at one end.
+# equally inert. Both directions have to hold or the bridge has a hole at one end. The
+# keys are enumerated from dast-target/action.yml (where they are emitted); whether each
+# is *read* is still asserted against ci-dast-pentest.yaml specifically, because it is the
+# one consumer that reads every key (it serves both surfaces) — the build workflow's two
+# callers each read only their own surface's subset, so checking them here would produce
+# false failures for keys they legitimately never touch.
 unread=""
-for k in $(grep -oE '^ +echo "[a-z_]+(=|<<)' "$PENTEST" | grep -oE '"[a-z_]+' | tr -d '"' | sort -u); do
+for k in $(grep -oE '^ +echo "[a-z_]+(=|<<)' "$DAST_TARGET_ACTION" | grep -oE '"[a-z_]+' | tr -d '"' | sort -u); do
     # Two keys belong to other steps, not the resolve step: `host` (the live-target
     # allowlist) and `message` (the live scan's verdict). Both are read through their own
     # step ids, so steps.target.outputs is the wrong place to look for them.
@@ -260,7 +273,7 @@ done
 if [ -z "$unread" ]; then
     echo "ok   every key that step emits is passed on to a scan step"; pass=$((pass + 1))
 else
-    echo "FAIL ci-dast-pentest.yaml emits but never uses:$unread"; fail=$((fail + 1))
+    echo "FAIL dast-target/action.yml emits but ci-dast-pentest.yaml never uses:$unread"; fail=$((fail + 1))
 fi
 
 # Named explicitly as well as covered by the loop above, because this is the one that
