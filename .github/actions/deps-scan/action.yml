@@ -23,6 +23,9 @@ outputs:
   findings:
     description: "Total number of vulnerability findings across both tools (no de-duplication between them — that is the point of running two databases)"
     value: ${{ steps.scan.outputs.findings }}
+  message:
+    description: "Ready-to-send notifier text, composed in scan.sh so the harness covers its wording"
+    value: ${{ steps.scan.outputs.message }}
 
 runs:
   using: composite
