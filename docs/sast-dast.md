@@ -983,19 +983,43 @@ These per-repository values are resolved by
 <api|browser>`: a `case "${repo}/${surface}"` in bash, one arm per repository/surface
 pair, every value set explicitly (no arm inherits from another), setting `DT_PORT`,
 `DT_HEALTH_PATH`, `DT_NEEDS_DB`, `DT_NEEDS_NATS` and `DT_EXTRA_ENV` (among others) in the
-caller's scope. The **`Resolve DAST target`** step in `dast-scan` sources it and writes
-those to `$GITHUB_OUTPUT`, following the same house pattern as `Resolve scan policy` in
-`trivy-scan` and `Resolve test plan` in the test workflow. The table is a single sourced
-file rather than a `case` inline in each step because it now has three consumers —
-`dast-scan`'s browser surface, `api-scan`'s api surface, and the live-baseline dispatch —
-and a copy in each step is a copy that drifts: a port fixed in one and not the others
-silently reverts to guessing. This replaced a chain of inline ternaries that did not
-scale past two repositories. The default arm is not a fallback: a repository/surface
-pair that reaches a scan with no configured arm is a wiring mistake, and guessing a port
-would scan nothing and report it clean — so the default arm emits `::error::` and returns
-non-zero instead. `pg-image` stays a two-branch ternary (`postgres:17.9-trixie` for
-`novatalks.core`, the action's `postgres:16` default for everyone else) rather than a
-resolver arm, since it only ever has two truthy branches.
+caller's scope.
+
+Every consumer reaches `targets.sh` through
+[`dast-target/action.yml`](../.github/actions/dast-target/action.yml), a composite action
+that sources it relative to its own `github.action_path` and emits every `DT_*` value as
+a step output — `dast-scan`'s **`Resolve DAST target`** step and `api-scan`'s **`Resolve
+api-scan target`** step both call it (`uses:`, not `run:`), each reading only the outputs
+its own surface needs. This indirection exists because a plain `run:` step cannot source
+`targets.sh` safely: `ci-build-ntk-on-push-tags-build.yaml` is a `workflow_call` reusable
+workflow, so its `GITHUB_WORKSPACE` is whichever product repository called it —
+`nova.botflow`, `novatalks.core`, and so on — never `nova.ci`, and `targets.sh` has never
+lived there. A step that did
+`. "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"` broke `dast-scan` and `api-scan`
+outright, for every repository, the moment the table was extracted into its own file (`nova.botflow`
+run 33955935398) — it went unnoticed because the only recent green DAST run predated the
+extraction, and because `ci-dast-pentest.yaml`, which does run in `nova.ci`, worked fine
+and made `targets.sh` itself look proven. `uses:` does not have this problem: GitHub
+checks out the *whole* calling repository next to the action, so `github.action_path`
+always points at `nova.ci`, at the ref the action is pinned to, regardless of whose
+checkout `GITHUB_WORKSPACE` holds — the same mechanism
+[`gitleaks/action.yml`](../.github/actions/gitleaks/action.yml)'s own comment documents
+for reaching the central Gitleaks config. `scripts/validate.sh`'s "GITHUB_WORKSPACE
+self-reference" guard fails any `workflow_call`-triggered workflow that sources a
+nova.ci-only path via `GITHUB_WORKSPACE`, so a regression of this shape reds the harness
+instead of shipping quietly.
+
+The table is a single sourced file rather than a `case` inline in each step because it
+has three consumers — `dast-scan`'s browser surface, `api-scan`'s api surface, and
+`ci-dast-pentest.yaml`'s either-surface dispatch — and a copy in each step is a copy that
+drifts: a port fixed in one and not the others silently reverts to guessing. This
+replaced a chain of inline ternaries that did not scale past two repositories. The
+default arm is not a fallback: a repository/surface pair that reaches a scan with no
+configured arm is a wiring mistake, and guessing a port would scan nothing and report it
+clean — so the default arm emits `::error::` and returns non-zero instead. `pg-image`
+stays a two-branch ternary (`postgres:17.9-trixie` for `novatalks.core`, the action's
+`postgres:16` default for everyone else) rather than a resolver arm, since it only ever
+has two truthy branches.
 
 Adding a fourth repository to the baseline needs an explicit request, a real browser
 surface worth spidering, **and a boot probe first** — port and health path verified

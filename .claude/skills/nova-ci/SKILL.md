@@ -30,7 +30,8 @@ Primary files:
 - `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
 - `.github/actions/semgrep/action.yml` + `scan.sh` + `canary.yaml`: the only place any workflow may invoke Semgrep (SAST)
 - `.github/actions/dast/action.yml` + `scan.sh` + `dast-common.sh`: the unauthenticated OWASP ZAP scan (DAST) — `scan-mode` picks `zap-baseline.py` (default) or `zap-full-scan.py` (`full`, modern spider); `dast-common.sh` holds the shared tally parse sourced by all three ZAP callers
-- `.github/actions/dast/targets.sh`: the one per-repository DAST table (port, health path, auth) — `dast_resolve_target <repo> <api|browser>`, sourced by the `Resolve DAST target` / `Resolve api-scan target` steps and every later consumer. Wiring a new repository into it is its own skill: `.agents/skills/dast-target-wiring/SKILL.md`
+- `.github/actions/dast/targets.sh`: the one per-repository DAST table (port, health path, auth) — `dast_resolve_target <repo> <api|browser>`. Wiring a new repository into it is its own skill: `.agents/skills/dast-target-wiring/SKILL.md`
+- `.github/actions/dast-target/action.yml`: the only way any workflow reaches `targets.sh` — sources it relative to its own `github.action_path` (never `${GITHUB_WORKSPACE}`, which in a `workflow_call` reusable workflow is the *caller's* checkout, not nova.ci's) and emits every `DT_*` value as a step output. Called by the `Resolve DAST target` / `Resolve api-scan target` steps in the build workflow and the `Resolve target` step in `ci-dast-pentest.yaml`.
 - `references/`: the depth behind this skill's "SAST and DAST Semantics" section — one file per scanner surface, read on demand rather than in full
 - `.github/actions/dast-api/action.yml` + `scan.sh`: the authenticated ZAP API scan (`apiscan*`, `novatalks.core`, telegram, whatsapp, signal, dialer)
 - `.github/workflows/ci-dast-live-baseline.yaml`: the `workflow_dispatch` live baseline against the real deployment, target allowlisted
@@ -376,6 +377,14 @@ workflow still parses:
 - **Every `DT_*` value `targets.sh` sets must be bridged to a consumer, not just declared** —
   a value set but never emitted or read produces a scan that looks configured and is not.
   `scripts/test-dast-targets.sh` asserts both directions. `references/dast-baseline.md`.
+- **`targets.sh` is reached only through `.github/actions/dast-target`, never a workflow's own
+  `run:` step.** `github.action_path` on a `uses:` step always points at nova.ci; a `run:`
+  step's `GITHUB_WORKSPACE` does not — in a `workflow_call` reusable workflow it is the
+  *caller's* checkout. A direct `. "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"` step
+  broke `dast-scan`/`api-scan` for every repository the build workflow runs in (`nova.botflow`
+  run 33955935398); `scripts/validate.sh`'s "GITHUB_WORKSPACE self-reference" guard now fails
+  any `workflow_call`-triggered workflow that sources a nova.ci path this way.
+  `references/dast-baseline.md`.
 - **Neither DAST `scan.sh` infers the scanned repository from the runner's own repository** —
   `ci-dast-pentest.yaml` runs in `nova.ci`, not in the product repository, so a fallback to
   `${GITHUB_REPOSITORY##*/}` would be silently wrong there. `references/dast-baseline.md`.
@@ -490,7 +499,7 @@ Keep `docs/` as the canonical broad reference and `README.md` as a thin landing 
 Run the validation harness; it bundles every check (YAML parse of workflows and
 actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, the
 `ci-build-create-runner.sh`, Gitleaks, Semgrep and DAST (baseline and API) `scan.sh` scenario self-checks,
-the scanner-invocation and notifier transport guards, and `actionlint` when installed — advisory by default given the repo's pre-existing
+the scanner-invocation and notifier transport guards, the GITHUB_WORKSPACE self-reference guard (no `workflow_call`-triggered workflow may source a nova.ci path via `GITHUB_WORKSPACE`), and `actionlint` when installed — advisory by default given the repo's pre-existing
 backlog; `STRICT_ACTIONLINT=1` enforces):
 
 ```bash

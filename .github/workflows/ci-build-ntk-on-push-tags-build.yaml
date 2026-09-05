@@ -931,28 +931,15 @@ jobs:
 
       - name: Resolve DAST target
         id: dast_target
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          # shellcheck source=.github/actions/dast/targets.sh
-          . "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"
-          dast_resolve_target "$REPO_NAME" browser
-
-          echo "port=$DT_PORT" | tee -a "$GITHUB_OUTPUT"
-          echo "health_path=$DT_HEALTH_PATH" | tee -a "$GITHUB_OUTPUT"
-          echo "needs_db=$DT_NEEDS_DB" | tee -a "$GITHUB_OUTPUT"
-          echo "needs_nats=$DT_NEEDS_NATS" | tee -a "$GITHUB_OUTPUT"
-          {
-            echo "extra_env<<DAST_EXTRA_ENV_EOF"
-            printf '%s\n' "$DT_EXTRA_ENV"
-            echo "DAST_EXTRA_ENV_EOF"
-            echo "unseeded_env<<DAST_UNSEEDED_ENV_EOF"
-            printf '%s\n' "$DT_UNSEEDED_ENV"
-            echo "DAST_UNSEEDED_ENV_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "Resolved DAST target for $REPO_NAME: port=$DT_PORT health-path=$DT_HEALTH_PATH needs-db=$DT_NEEDS_DB needs-nats=$DT_NEEDS_NATS extra-env=$([ -n "$DT_EXTRA_ENV" ] && echo set || echo none)"
+        # A `run:` step here would source targets.sh via GITHUB_WORKSPACE — the product
+        # repository's own checkout in this reusable workflow, not nova.ci's, where
+        # targets.sh has never lived (nova.botflow run 33955935398). This composite action
+        # gets its own github.action_path pointing at nova.ci regardless of whose checkout
+        # GITHUB_WORKSPACE holds — see the action's own header comment.
+        uses: novaitdevteam/nova.ci/.github/actions/dast-target@main
+        with:
+          repository: ${{ github.event.repository.name }}
+          surface: browser
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -1064,53 +1051,14 @@ jobs:
 
       - name: Resolve api-scan target
         id: apiscan_target
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          # shellcheck source=.github/actions/dast/targets.sh
-          . "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh"
-          dast_resolve_target "$REPO_NAME" api
-
-          echo "port=$DT_PORT" | tee -a "$GITHUB_OUTPUT"
-          echo "health_path=$DT_HEALTH_PATH" | tee -a "$GITHUB_OUTPUT"
-          echo "spec_path=$DT_SPEC_PATH" | tee -a "$GITHUB_OUTPUT"
-          echo "auth_mode=$DT_AUTH_MODE" | tee -a "$GITHUB_OUTPUT"
-          echo "login_path=$DT_LOGIN_PATH" | tee -a "$GITHUB_OUTPUT"
-          echo "auth_header=$DT_AUTH_HEADER" | tee -a "$GITHUB_OUTPUT"
-          {
-            echo "auth_scheme_prefix<<APISCAN_AUTH_PREFIX_EOF"
-            printf '%s\n' "$DT_AUTH_SCHEME_PREFIX"
-            echo "APISCAN_AUTH_PREFIX_EOF"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "token_sql<<APISCAN_TOKEN_SQL_EOF"
-            printf '%s\n' "$DT_TOKEN_SQL"
-            echo "APISCAN_TOKEN_SQL_EOF"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "token_insert_sql<<APISCAN_TOKEN_INSERT_SQL_EOF"
-            printf '%s\n' "$DT_TOKEN_INSERT_SQL"
-            echo "APISCAN_TOKEN_INSERT_SQL_EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "token_env_var=$DT_TOKEN_ENV_VAR" | tee -a "$GITHUB_OUTPUT"
-          echo "needs_nats=$DT_NEEDS_NATS" | tee -a "$GITHUB_OUTPUT"
-          # Heredoc like its multi-line-capable siblings above. Every arm is empty today,
-          # so a plain key=value works — right up until the first setup command that spans
-          # a line, which would corrupt the whole output block rather than fail.
-          {
-            echo "setup_command<<APISCAN_SETUP_COMMAND_EOF"
-            printf '%s\n' "$DT_SETUP_COMMAND"
-            echo "APISCAN_SETUP_COMMAND_EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "swagger_enable=$DT_SWAGGER_ENABLE" | tee -a "$GITHUB_OUTPUT"
-          {
-            echo "extra_env<<APISCAN_EXTRA_ENV_EOF"
-            printf '%s\n' "$DT_EXTRA_ENV"
-            echo "APISCAN_EXTRA_ENV_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "Resolved api-scan target for $REPO_NAME: port=$DT_PORT health-path=$DT_HEALTH_PATH auth-mode=$DT_AUTH_MODE swagger-enable=$DT_SWAGGER_ENABLE needs-nats=$DT_NEEDS_NATS"
+        # Same reasoning as the browser surface's "Resolve DAST target" step above: this
+        # reusable workflow's GITHUB_WORKSPACE is the product repository's own checkout,
+        # never nova.ci's, so targets.sh can only be reached through this composite
+        # action's own github.action_path.
+        uses: novaitdevteam/nova.ci/.github/actions/dast-target@main
+        with:
+          repository: ${{ github.event.repository.name }}
+          surface: api
 
       - name: ZAP API scan
         id: dast_api

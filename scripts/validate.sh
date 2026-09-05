@@ -399,6 +399,44 @@ else
   fail=1
 fi
 
+section "GITHUB_WORKSPACE self-reference"
+# The class of bug behind nova.botflow run 33955935398: a `run:` step doing
+# . "${GITHUB_WORKSPACE}/.github/actions/dast/targets.sh" assumes GITHUB_WORKSPACE holds
+# nova.ci's own checkout. In a workflow_call-triggered (reusable) workflow it never does —
+# it holds whichever repository called it (nova.botflow, novatalks.core, ...), and a
+# nova.ci-only path has never existed there. Two reviews missed this because both asked
+# whether a Checkout step preceded the step in question, which it did; neither asked which
+# repository that checkout contained.
+#
+# Composite actions don't have this problem: `uses:` checks out the WHOLE calling
+# repository next to itself, so github.action_path always points at nova.ci regardless of
+# whose checkout GITHUB_WORKSPACE is — see .github/actions/dast-target and
+# .github/actions/gitleaks for the pattern this guard pushes every callable workflow
+# toward.
+#
+# Scoped to workflow_call-triggered files only: the workflow_dispatch-only ops workflows
+# (ci-dast-pentest.yaml, ci-dast-live-baseline.yaml) and ci-self-validate.yaml run directly
+# in nova.ci, so their own GITHUB_WORKSPACE genuinely is nova.ci's checkout and sourcing a
+# nova.ci path from it there is correct, not an instance of this bug. Case-insensitive: the
+# same mistake can appear as the bash env var (${GITHUB_WORKSPACE}) or the workflow
+# expression context (${{ github.workspace }}).
+workspace_offenders=""
+for f in .github/workflows/*.yaml; do
+  grep -q 'workflow_call:' "$f" || continue
+  hits="$(grep -inE 'github[._]workspace.*\.github/' "$f" | grep -v ':[0-9]*: *#' || true)"
+  if [ -n "$hits" ]; then
+    workspace_offenders="${workspace_offenders}$(printf '%s\n' "$hits" | sed "s#^#$f:#")
+"
+  fi
+done
+if [ -z "$workspace_offenders" ]; then
+  echo "OK: no callable workflow sources a nova.ci path via GITHUB_WORKSPACE"
+else
+  printf '%s' "$workspace_offenders" | sed 's/^/       /'
+  echo "ERROR: these callable-workflow lines source a nova.ci-only path via GITHUB_WORKSPACE, which holds the CALLER's checkout, not nova.ci's — route through a composite action (github.action_path) instead, like .github/actions/dast-target"
+  fail=1
+fi
+
 section "Notifier transport"
 # The Telegram and Google Chat transport lives in .github/actions/notify only. A
 # workflow that reaches either API itself is the copy-paste that action replaced.
