@@ -267,8 +267,21 @@ if [ "$outcome" = "findings" ]; then
         echo ""
         echo '```'
         echo "SEVERITY  PACKAGE  INSTALLED  FIXED  ADVISORY"
+        # `awk 'NR <= cap'`, never `head -n cap`. head closes the pipe as soon as it has
+        # its lines; the sed still writing upstream then takes SIGPIPE, GNU sed exits 4,
+        # and `pipefail` turns a successful scan into a failed job. nova.botflow PR #348
+        # hit exactly that with 52 findings — `sed: couldn't flush stdout: Broken pipe`,
+        # exit 4, after the scan had already reported its result.
+        #
+        # It survived a harness scenario with 30 findings because 30 rows fit in the pipe
+        # buffer, so the upstream finished before head could close it. That is what makes
+        # this class of bug worth a comment: it is timing-dependent on input size, so a
+        # test that does not exceed the buffer passes while the code is broken.
+        #
+        # awk reads to EOF and filters, so nothing closes early. The cost is reading a few
+        # dozen extra lines.
         { trivy_rows | sed 's/^/[trivy]  /'; osv_rows | sed 's/^/[osv]    /'; } \
-            | head -n "$SUMMARY_LIST_CAP" | tr '\t' '  '
+            | awk -v cap="$SUMMARY_LIST_CAP" 'NR <= cap' | tr '\t' '  '
         echo '```'
         if [ "$findings" -gt "$SUMMARY_LIST_CAP" ]; then
             echo ""
