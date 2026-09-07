@@ -895,6 +895,97 @@ jobs:
           prerelease: true
           files: ${{ env.REPORT_FILE }}
 
+  deps-scan:
+    name: Deps Scan
+    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    # No `environment:`, unlike the sibling scan jobs. They carry it because they were
+    # copied from each other; this one needs no environment secret — it reads the
+    # checkout and publishes with the default GITHUB_TOKEN. Adding it would have added
+    # one more instance of an existing actionlint finding for nothing.
+    permissions:
+      contents: write
+    # Trunk and `scan*` only, unlike sast-scan which runs on every build. The
+    # pull-request path already gives a developer the finding while it is cheap to fix
+    # (the switcher's inline deps-scan); what this job adds is the report attached to
+    # the release, so the standing backlog is visible and the quarterly evidence pack
+    # has it. A release only exists on those builds, so running anywhere else would
+    # produce a report with nowhere to put it.
+    if: >-
+      ${{ always()
+      && github.event_name != 'pull_request'
+      && needs.build-image.result == 'success'
+      && (needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan')) }}
+    # build-image only, like every other scan job — they fan out in parallel rather than
+    # chaining. This one does not need the image at all: it reads the checkout. It waits
+    # solely for RELEASE/SHORT_REF_NAME/SHORT_SHA, which name the report and address the
+    # release.
+    needs: [build-image]
+    outputs:
+      SCANNED: 'true'
+      OUTCOME: ${{ steps.deps.outputs.outcome }}
+      FINDINGS: ${{ steps.deps.outputs.findings }}
+      MESSAGE: ${{ steps.deps.outputs.message }}
+    env:
+      REPORT_FILE: deps-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}-${{ needs.build-image.outputs.SHORT_SHA }}.report
+      TRIVY_JSON_FILE: trivy-deps-${{ needs.build-image.outputs.REP_NAME }}-${{ needs.build-image.outputs.SHORT_SHA }}.json
+      RELEASE_TAG: TRIVY.SCAN_${{ needs.build-image.outputs.RELEASE }}_${{ needs.build-image.outputs.SHORT_REF_NAME }}${{ needs.build-image.outputs.IMAGE_SUFFIX }}_${{ needs.build-image.outputs.SHORT_SHA }}
+      PUBLISH_RELEASE: ${{ needs.build-image.outputs.IS_TRUNK == 'true' || startsWith(github.ref_name, 'scan') }}
+    steps:
+      - name: Checkout
+        # The commit SHA, not the trigger ref: a tag-triggered build deletes the tag in
+        # build-image, which has already finished by the time this job runs.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Docker
+        uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
+
+      # Called directly here, as it is in the switcher and in trivy-scan: Trivy has no
+      # .github/actions wrapper in this repository, and inventing one for this caller
+      # alone would be a second way to do the same thing.
+      - name: Trivy fs scan (JSON)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_PKG_TYPES: library
+        with:
+          scan-type: fs
+          format: json
+          output: ${{ env.TRIVY_JSON_FILE }}
+          scanners: vuln
+          hide-progress: "true"
+
+      - name: Dependency scan
+        id: deps
+        uses: novaitdevteam/nova.ci/.github/actions/deps-scan@main
+        with:
+          report-file: ${{ env.REPORT_FILE }}
+          report-url: ${{ env.PUBLISH_RELEASE == 'true' && format('{0}/{1}/releases/download/{2}/{3}', github.server_url, github.repository, env.RELEASE_TAG, env.REPORT_FILE) || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          trivy-json: ${{ env.TRIVY_JSON_FILE }}
+          trivy-outcome: ${{ steps.trivy.outcome }}
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPORT_FILE }}
+          path: ${{ env.REPORT_FILE }}
+
+      # Upsert into the release trivy-scan created for this build — one release carrying
+      # every scanner's report. Never where PUBLISH_RELEASE is false: action-gh-release
+      # would mint a TRIVY.SCAN_ git tag per feature build, and there the run artifact is
+      # the report's copy.
+      - name: Publish report release
+        if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          prerelease: true
+          files: ${{ env.REPORT_FILE }}
+
   dast-scan:
     name: DAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -1105,7 +1196,7 @@ jobs:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [build-image, linter, trivy-scan, unit-test, sast-scan, dast-scan, api-scan]
+    needs: [build-image, linter, trivy-scan, unit-test, sast-scan, deps-scan, dast-scan, api-scan]
     steps:
       - name: Compose Trivy line
         id: trivy_line
@@ -1171,6 +1262,33 @@ jobs:
             printf '%s\n' "$line"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Compose deps line
+        id: deps_line
+        env:
+          RESULT: ${{ needs.deps-scan.result }}
+          SCANNED: ${{ needs.deps-scan.outputs.SCANNED }}
+          MESSAGE: ${{ needs.deps-scan.outputs.MESSAGE }}
+        run: |
+          set -euo pipefail
+
+          # Four states, and `no-manifests` is why the wording lives in scan.sh rather
+          # than here: a repository with no lockfile was not checked, and a bare count
+          # cannot tell that from a clean one.
+          if [[ "$SCANNED" != "true" ]]; then
+            line="📚 Deps (Trivy fs + OSV): ⏭️ skipped (not a trunk build or scan* tag)"
+          elif [[ -n "$MESSAGE" ]]; then
+            line="$MESSAGE"
+          else
+            line="📚 Deps (Trivy fs + OSV): ❌ scan job failed before reporting (${RESULT})"
+          fi
+
+          {
+            echo "value<<EOF"
+            printf '%s\n' "$line"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
 
       - name: Compose DAST line
         id: dast_line
@@ -1248,6 +1366,8 @@ jobs:
             ${{ steps.trivy_line.outputs.value }}
 
             ${{ steps.sast_line.outputs.value }}
+
+            ${{ steps.deps_line.outputs.value }}
 
             ${{ steps.dast_line.outputs.value }}
 
