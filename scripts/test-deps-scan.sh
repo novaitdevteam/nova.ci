@@ -272,12 +272,25 @@ expect "a clean scan lists nothing" clean 0
 assert_in "no findings block on a clean scan" "$WORK/summary" "<details>" --absent
 
 # --- above the cap, the summary truncates and names the artifact ---
+#
+# Both tools contribute, and the volume is deliberately well over the cap. The earlier
+# version of this scenario used 30 findings from Trivy alone and passed while the code
+# was broken: the summary capped with `head -n 25`, which closes the pipe, and the sed
+# still writing upstream takes SIGPIPE — but 30 short rows fit inside the pipe buffer,
+# so the upstream finished before head could close it and nothing failed. nova.botflow
+# PR #348 hit it in production with 52 findings: `sed: couldn't flush stdout: Broken
+# pipe`, exit 4, after the scan had already reported its result.
+#
+# So this scenario has to exceed the buffer, and both sides have to be producing when
+# the cap is reached — otherwise it goes back to testing nothing.
 many_sevs=()
-for i in $(seq 1 30); do many_sevs+=(HIGH); done
-run "$(trivy_json normal "${many_sevs[@]}")" success "$(osv_json 0)" 1
-expect "30 findings still report as 30" findings 30
-assert_in "the summary says how many of how many it showed" "$WORK/summary" "Showing 25 of 30"
+for i in $(seq 1 120); do many_sevs+=(HIGH); done
+run "$(trivy_json normal "${many_sevs[@]}")" success "$(osv_json 80)" 1
+expect "200 findings still report as 200" findings 200
+expect_rc "a run far above the cap still exits 0" 0
+assert_in "the summary says how many of how many it showed" "$WORK/summary" "Showing 25 of 200"
 assert_in "and names the artifact that has the rest" "$WORK/summary" "artifact"
+assert_in "no broken pipe reached the log" "$WORK/log" "Broken pipe" --absent
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
