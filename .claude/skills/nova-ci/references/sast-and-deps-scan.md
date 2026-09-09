@@ -6,7 +6,7 @@ of the invariants themselves.
 
 ## Job architecture
 
-The switcher carries an **inline `sast-scan` job on `pull_request`** for the same eleven
+The switcher carries an **inline `sast-scan` job on `pull_request`** for the same twelve
 repositories `secret-scan` covers. Builds are the evidence path, not the feedback path — an
 ordinary pull request builds no image and so reaches no `sast-scan` in the build workflow,
 which would leave a developer learning about a finding only after it is on trunk. It checks
@@ -17,7 +17,7 @@ scanner reds it) and has no notifier line. It is inline for the same reason `sec
 `novatalks.core`'s PR route is a two-entry `build_target` matrix, so a job in the build
 workflow would scan identical source twice per event.
 
-The switcher also carries an **inline `deps-scan` job on `pull_request`**, same eleven
+The switcher also carries an **inline `deps-scan` job on `pull_request`**, same twelve
 repositories, same reason: `trivy-scan`'s image scan reads dependencies that ship inside a
 built image, and cannot see a manifest-less frontend bundle (`novatalks.ui`'s runtime image
 has no `node_modules`), a pruned devDependency (`novatalks.core`'s `npm prune --omit=dev`),

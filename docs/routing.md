@@ -21,13 +21,13 @@
 | `push` | `novatalks.chatwidget` | tag contains `build` | [`…-widget-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml) |
 | `push` | `novatalks.botflow.flows` | tag contains `build` | [`…-flows-to-pub.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml) |
 | `push` | `novatalks.tests` | any tag | [`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) |
-| `pull_request` / `push` | the 11 secret-scan repositories | PRs, drafts included, on the same actions; branch push to the default branch or `main`/`master`/`development` | the inline `secret-scan` job — see [Secret detection](secret-detection.md) |
-| `pull_request` | the same 11 repositories | PRs, drafts included, on the same actions | the inline `sast-scan` job — Semgrep on the proposed code, advisory; see [SAST and DAST](sast-dast.md#semgrep-on-the-pull-request) |
-| `pull_request` | the same 11 repositories | PRs, drafts included, on the same actions | the inline `deps-scan` job — Trivy fs and OSV-Scanner over the checkout's own lockfiles, advisory; see [SAST and DAST](sast-dast.md#dependency-scanning-source-manifests) |
+| `pull_request` / `push` | the 12 secret-scan repositories | PRs, drafts included, on the same actions; branch push to the default branch or `main`/`master`/`development` | the inline `secret-scan` job — see [Secret detection](secret-detection.md) |
+| `pull_request` | the same 12 repositories | PRs, drafts included, on the same actions | the inline `sast-scan` job — Semgrep on the proposed code, advisory; see [SAST and DAST](sast-dast.md#semgrep-on-the-pull-request) |
+| `pull_request` | the same 12 repositories | PRs, drafts included, on the same actions | the inline `deps-scan` job — Trivy fs and OSV-Scanner over the checkout's own lockfiles, advisory; see [SAST and DAST](sast-dast.md#dependency-scanning-source-manifests) |
 | `push` | any repository | branch name contains `build-me-please` | [`…-on-push-branches.yaml`](../.github/workflows/ci-build-ntk-on-push-branches.yaml) |
 | ~~`push`~~ | ~~standard build repositories~~ | ~~branch push commit message contains `build`~~ | **Disabled 2026-08-12** — see [Legacy branch-push build route](#legacy-branch-push-build-route) |
 
-**Standard build repositories:** `novatalks.core`, `novatalks.ui`, `nova.botflow`, `nova.chatsconnector.telegram-client-api`, `novatalks.dialer`, `nova.chatsconnector.genesys.cloud.premium.wizard.engine`, `novatalks.geoip-api`, `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api`, `novatalks.uspacy.connector`.
+**Standard build repositories:** `novatalks.core`, `novatalks.ui`, `nova.botflow`, `novatalks.flowrunner`, `nova.chatsconnector.telegram-client-api`, `novatalks.dialer`, `nova.chatsconnector.genesys.cloud.premium.wizard.engine`, `novatalks.geoip-api`, `nova.chatsconnector.whatsapp-client-api`, `nova.chatsconnector.signal-client-api`, `novatalks.uspacy.connector`.
 
 **Standard PR build repositories** are the same list without `novatalks.core`, which has its own PR targets.
 

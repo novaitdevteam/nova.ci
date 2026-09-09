@@ -40,6 +40,8 @@ For `novatalks.core`, linting is targeted by build target:
 
 `novatalks.core` lint also uses `NODE_OPTIONS=--max-old-space-size=4096`. Other repository-specific lint strategies live inside the build workflow; repositories without one use the fallback eslint bootstrap path.
 
+`novatalks.flowrunner` is the one repository with **no linter at all** — no eslint config and no `lint` script (its own `CLAUDE.md` says so). Its lint plan therefore resolves to no command, and the job is a no-op success reported as `⏭️ n/a (no lint configured)`, never `✅`: a green tick for zero checks is the same guard-that-measures-nothing the unit gate already refuses. It cannot use the fallback bootstrap path either — `npx eslint` with no config file fails outright, which would red every build for a repository that never asked to be linted.
+
 ## Dockerfile selection
 
 Based on `build_target` when present, otherwise `github.ref_name`:
@@ -51,6 +53,7 @@ Based on `build_target` when present, otherwise `github.ref_name`:
 | `build-restore-historical` | `docker/restore-historical.Dockerfile` | `_restore-historical` |
 | `build-message-source-id` | `docker/message-source-id.Dockerfile` | `_migrate-message-source-id` |
 | `build` / default | `docker/server.Dockerfile` | none |
+| any target, on `novatalks.flowrunner` | `Dockerfile` (repository root — it has no `docker/` directory) | none |
 | `build-pwa` / `build-spa` / `build-crm` (mobile workflow) | — | `_pwa` / `_spa` / `_crm` |
 
 ## Image tags

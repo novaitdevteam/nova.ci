@@ -53,8 +53,9 @@ action. No second checkout, no `curl`, and no way for the two to drift apart.
 Wired through the switcher — **no change needed in these repositories**:
 
 `novatalks.core` · `novatalks.ui` · `novatalks.ui-lite` · `nova.botflow` ·
-`novatalks.dialer` · `novatalks.chatwidget` · `novatalks.geoip-api` ·
-`novatalks.uspacy.connector` · `nova.chatsconnector.telegram-client-api` ·
+`novatalks.flowrunner` · `novatalks.dialer` · `novatalks.chatwidget` ·
+`novatalks.geoip-api` · `novatalks.uspacy.connector` ·
+`nova.chatsconnector.telegram-client-api` ·
 `nova.chatsconnector.whatsapp-client-api` · `nova.chatsconnector.signal-client-api`
 
 `nova.ci` scans itself through `ci-self-validate.yaml`, having no caller workflow.
@@ -84,11 +85,13 @@ than a hardcoded list. As verified for NC2-2742:
 | --- | --- |
 | `development` | 4 — `novatalks.core`, `novatalks.ui`, `nova.botflow`, whatsapp connector |
 | `master` | 3 — `novatalks.dialer`, `novatalks.chatwidget`, telegram connector |
-| `main` | 3 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector` |
+| `main` | 4 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector`, `novatalks.flowrunner` |
 | `NC2-1992_docker` | 1 — `nova.chatsconnector.signal-client-api`, **temporary**: unifies to `development`/`master` once its regression run finishes |
 
-`master` exists in all 11, `development` in 9 (not in `novatalks.geoip-api` or the signal
-connector), so both of the branches the team actually works on are covered everywhere. The
+`master` exists in 11 of the 12 (`novatalks.flowrunner` has only `main` — no `master`, no
+`development`), `development` in 9 (not in `novatalks.geoip-api`, `novatalks.flowrunner` or
+the signal connector), so both of the branches the team actually works on are covered
+everywhere. The
 `default_branch` clause is what covers the signal connector, whose default is a feature
 branch — a hardcoded list would silently never fire there, and it needs no edit when that
 repository unifies its branches.
