@@ -124,6 +124,14 @@ jobs:
               set_output install_command "npm install"
               set_output lint_command "npm run eslint"
               ;;
+            novatalks.flowrunner)
+              # No linter exists in that repository at all (its own CLAUDE.md: "No
+              # lint/format script is configured"), so there is nothing to run and the
+              # generic fallback below would red every build on a missing eslint config.
+              # An empty command reports "n/a", never a green tick for zero checks --
+              # same rule as the unit gate.
+              strategy="novatalks.flowrunner"
+              ;;
             *)
               strategy="other"
               set_output bootstrap_command "npm install -g yarn"
@@ -173,11 +181,18 @@ jobs:
       - name: End Linter Step
         if: always()
         id: linter_res
+        env:
+          LINT_COMMAND: ${{ steps.lint_plan.outputs.lint_command }}
         run: |
-          if [[ "${{ job.status }}" == "success" ]]; then
-            echo "LINTER_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
-          else
+          if [[ "${{ job.status }}" != "success" ]]; then
             echo "LINTER_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
+          elif [[ -z "$LINT_COMMAND" ]]; then
+            # No lint plan for this repository: the job is a no-op success. Report it as
+            # "not configured" so the notifier does not claim the code was linted --
+            # same rule as the unit gate's n/a below.
+            echo "LINTER_CHECK=⏭️ n/a (no lint configured)" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "LINTER_CHECK=✅" | tee -a "$GITHUB_OUTPUT"
           fi
 
   unit-test:
@@ -235,6 +250,19 @@ jobs:
                 set_output unit_test_command "npm run test:unit"
                 selected_unit_cmd="npm run test:unit"
               fi
+              ;;
+            novatalks.flowrunner)
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              # `jest` (via npm test) over src/**/*.spec.ts. The specs pull in
+              # PrismaService, and @prisma/client throws on import until the client is
+              # generated, so generate is part of the install -- with a stub
+              # DATABASE_URL, which prisma.config.ts requires to load at all and which
+              # generate never connects with.
+              set_output install_command "npm ci
+          DATABASE_URL=postgresql://stub:stub@localhost:5432/stub npx prisma generate"
+              set_output unit_test_command "npm test"
+              selected_unit_cmd="npm test"
               ;;
             *) ;;  # other repos: no unit gate (no-op success)
           esac
@@ -449,6 +477,12 @@ jobs:
             echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_OUTPUT
+          elif [[ "$REPO_NAME" == "novatalks.flowrunner" ]]; then
+            # Single image, Dockerfile at the repository root -- it has no docker/ directory
+            # for the default arm below to find.
+            echo "DOCKERFILE_PATH=./Dockerfile" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
+            echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
           else
             echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
             echo "IMAGE_SUFFIX=" >> $GITHUB_ENV

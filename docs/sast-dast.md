@@ -82,7 +82,7 @@ developer first learns about a Semgrep finding after the change is already on tr
 the wrong end of the review.
 
 So the switcher carries its **own inline `sast-scan` job**, on `pull_request` for the
-same eleven repositories `secret-scan` covers. It checks out the merge of head into
+same twelve repositories `secret-scan` covers. It checks out the merge of head into
 base — the code actually being proposed — runs the same pinned `semgrep` action, and
 leaves two things behind:
 
@@ -299,7 +299,7 @@ for why.
 
 ### Which repositories
 
-The same eleven-repository list `secret-scan` and `sast-scan` already cover — dependency
+The same twelve-repository list `secret-scan` and `sast-scan` already cover — dependency
 scanning asks a different question of the same set of live repositories, and there is
 nothing per-repository about reading a lockfile the way there is about booting an image
 for DAST.

@@ -65,13 +65,14 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Tags containing `full-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: both`.
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget, botflow assets, and Playwright tests.
-- The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 11 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
+- The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 12 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
 
 - `novatalks.core`
 - `novatalks.ui`
 - `nova.botflow`
+- `novatalks.flowrunner`
 - `nova.chatsconnector.telegram-client-api`
 - `novatalks.dialer`
 - `nova.chatsconnector.genesys.cloud.premium.wizard.engine`
@@ -93,6 +94,7 @@ Standard build repositories currently are:
 - `build-restore-historical`: `docker/restore-historical.Dockerfile`, suffix `_restore-historical`.
 - `build-message-source-id`: `docker/message-source-id.Dockerfile`, suffix `_migrate-message-source-id`.
 - `build` or any default target: `docker/server.Dockerfile`, no suffix.
+- On `novatalks.flowrunner`, any target: `./Dockerfile` at the repository root, no suffix — it has no `docker/` directory for the default arm to find.
 
 Pull request events run lint and unit tests only. Keep the `build-image` and notifier jobs gated on `github.event_name != 'pull_request'` so PRs never build or publish an image.
 
@@ -114,13 +116,15 @@ Mobile APK workflows should keep Node.js at `22.22.0` or newer because current Q
 
 ### Unit Test Gate (ci-build-ntk-on-push-tags-build.yaml)
 
-A `unit-test` job runs sequentially after `linter` (`needs: [linter]`, `if: !cancelled()`) on both PR and non-PR events, so a build uses one runner at a time instead of two. It runs even when lint failed. It is repo-aware via a "Resolve test plan" step. Currently only `novatalks.core` runs `npm run test:unit`; all other standard build repos resolve to a no-op success. To enable unit tests for a new repository, add a case in that step.
+A `unit-test` job runs sequentially after `linter` (`needs: [linter]`, `if: !cancelled()`) on both PR and non-PR events, so a build uses one runner at a time instead of two. It runs even when lint failed. It is repo-aware via a "Resolve test plan" step. `novatalks.core` runs `npm run test:unit` and `novatalks.flowrunner` runs its own `npm test` (it has no `test:unit` script; the canonical-script rule is that the command lives in the product repository's `package.json`, not that the name is literal), preceded by `npx prisma generate` with a stub `DATABASE_URL` — its specs import `PrismaService`, `@prisma/client` throws on import before generate, and `prisma.config.ts` will not load without that variable. All other standard build repos resolve to a no-op success. To enable unit tests for a new repository, add a case in that step.
 
 `build-image` has `needs: [linter, unit-test]`. The condition is `!cancelled() && github.event_name != 'pull_request'`. Both lint and unit tests are advisory: the build runs even if either fails. They are reported in the notifier and PR checks.
 
 PR pipeline: `linter` then `unit-test` only. No image build. A unit test failure fails the PR check but blocks nothing downstream.
 
 Do not add `continue-on-error` to the `unit-test` job — it must still report red on failure. Keep it backward-compatible: repos without a unit test plan must resolve to no-op success, not error.
+
+The `linter` job carries the same three states, for the same reason: `⏭️ n/a (no lint configured)` when the "Resolve lint plan" step produced no `lint_command`, computed in "End Linter Step" from `job.status` plus that command. `novatalks.flowrunner` is the repository that needs it — no eslint config and no `lint` script, so it gets an arm with no command rather than the generic yarn+eslint fallback, which would red every build on the missing config.
 
 The notifier includes a `Unit Tests Status:` line in the build message alongside the ESLinter status, with three states: `✅` (tests ran and passed), `❌` (job failed), and `⏭️ n/a (no unit tests configured)` when the "Resolve test plan" step produced no `unit_test_command`. Keep the `n/a` state: reporting `✅` for a repository that ran zero tests is misleading. The status is computed in the "End Unit Step" step from `job.status` plus the resolved `unit_test_command`; the job result stays `success` for a no-op run.
 
@@ -250,10 +254,11 @@ Preserve these behaviors:
 - Changing `scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the
   same change; `validate.sh` also fails if any workflow invokes Gitleaks directly.
 
-Repositories covered (11, all reached through their existing caller workflow, no
+Repositories covered (12, all reached through their existing caller workflow, no
 product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
-`nova.botflow`, `novatalks.dialer`, `novatalks.chatwidget`, `novatalks.geoip-api`,
-`novatalks.uspacy.connector`, and the telegram, whatsapp and signal chatsconnectors.
+`nova.botflow`, `novatalks.flowrunner`, `novatalks.dialer`, `novatalks.chatwidget`,
+`novatalks.geoip-api`, `novatalks.uspacy.connector`, and the telegram, whatsapp and
+signal chatsconnectors.
 `nova.ci` scans itself via `ci-self-validate.yaml`.
 
 Out of scope by decision on NC2-2742, do not add without a request: `novatalks.tests`,
@@ -327,7 +332,7 @@ reasoning and evidence behind every rule in this section — **read the invarian
 its "why" lives one hop away, never dropped, only moved.**
 
 Job map: the switcher runs inline `sast-scan` and `deps-scan` jobs on `pull_request` (Semgrep;
-Trivy fs + OSV-Scanner) for the eleven `secret-scan` repositories, since a PR builds no image
+Trivy fs + OSV-Scanner) for the twelve `secret-scan` repositories, since a PR builds no image
 and would otherwise get no SAST/dependency feedback until trunk. The build workflow runs
 `sast-scan` on every build of every standard repository, and `dast-scan` (ZAP baseline/full)
 plus opt-in `api-scan` (authenticated ZAP) only on trunk/`scan*` builds of the repositories

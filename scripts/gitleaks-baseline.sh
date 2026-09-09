@@ -35,6 +35,7 @@ DEFAULT_REPOS=(
     novatalks.ui
     novatalks.ui-lite
     nova.botflow
+    novatalks.flowrunner
     novatalks.dialer
     novatalks.chatwidget
     novatalks.geoip-api
