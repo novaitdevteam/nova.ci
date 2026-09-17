@@ -90,8 +90,10 @@ jobs:
 
       - name: Install Playwright Browsers
         run: |
-          # install-deps is apt work on the VM itself, never in the cache.
-          sudo npx playwright install-deps chromium
+          # install-deps is apt work on the VM itself, never in the cache. No sudo in
+          # front: it resets PATH, so the setup-node toolchain disappears and npx is
+          # not found — playwright escalates on its own where it needs to.
+          npx playwright install-deps chromium
           npx playwright install chromium
         working-directory: ./
 
