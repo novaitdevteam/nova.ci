@@ -29,6 +29,11 @@ on:
         description: "BotFlow admin URL — base URL + adminPath, e.g. https://host/redbot."
         required: true
         type: string
+      workers:
+        description: "Playwright workers. Each one needs its own Node-RED channel slot."
+        required: false
+        type: string
+        default: "2"
       report_base_url:
         description: "Public base URL of the bucket the HTML report is published to."
         required: false
@@ -140,10 +145,8 @@ jobs:
           TELEGRAM_URL: "/telegram/"
           VIBER_URL: "/viber/"
           META_URL: "/messenger/channel-messenger/"
-          # Three workers need a Node-RED telegram endpoint per slot, and the QA flow
-          # set only registers /telegram/1, /2 and /4 — slot 3's node never starts.
-          # Raise this once that node is fixed; the suite defaults to 3 under CI.
-          WORKERS: "2"
+          # One Node-RED channel slot per worker; the QA flow set defines four.
+          WORKERS: ${{ inputs.workers }}
 
       - name: Runner capacity after the suite
         if: ${{ !cancelled() }}

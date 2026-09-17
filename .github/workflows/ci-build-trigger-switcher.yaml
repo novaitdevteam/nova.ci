@@ -418,3 +418,4 @@ jobs:
       env_url: ${{ github.event.inputs.env_url }}
       botflow_url: ${{ github.event.inputs.botflow_url }}
       report_base_url: ${{ github.event.inputs.report_base_url }}
+      workers: ${{ github.event.inputs.workers || '2' }}
