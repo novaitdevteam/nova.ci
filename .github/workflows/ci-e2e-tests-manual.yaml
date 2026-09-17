@@ -29,6 +29,11 @@ on:
         description: "BotFlow admin URL — base URL + adminPath, e.g. https://host/redbot."
         required: true
         type: string
+      report_base_url:
+        description: "Public base URL of the bucket the HTML report is published to."
+        required: false
+        type: string
+        default: ""
 
 # One shared stand: two runs would create and delete each other's entities.
 concurrency:
@@ -154,10 +159,12 @@ jobs:
           aws configure list
           aws --endpoint-url ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://${{ env.AWS_BUCKET }}/${{ env.HTML_REPORT_URL_PATH }} --recursive
         env:
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+          # The stand's own attachment bucket: the old CF_R2_AWS_BUCKET still accepts
+          # uploads, but nothing serves it — every published report 404ed.
+          AWS_ENDPOINT_URL: ${{ secrets.E2E_R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.E2E_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.E2E_R2_SECRET_ACCESS_KEY }}
+          AWS_BUCKET: ${{ secrets.E2E_R2_BUCKET }}
           AWS_REGION: "eeur"
 
   notify-telegram:
@@ -177,7 +184,7 @@ jobs:
             👷 Tests triggered manually have been completed ✅
 
             ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ Web View Report: ${{ inputs.report_base_url }}/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
 
             Repository: ${{ github.repository }}
             Stand: ${{ inputs.env_url }}
@@ -188,7 +195,7 @@ jobs:
             👷 Tests triggered manually have been failed
 
             ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ Web View Report: ${{ inputs.report_base_url }}/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
 
             Repository: ${{ github.repository }}
             Stand: ${{ inputs.env_url }}
