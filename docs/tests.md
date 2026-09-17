@@ -41,6 +41,21 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 
 **Sharding** (jest `--shard` + matrix) is intentionally not enabled. Integration tests share database state and run with `--runInBand`; each shard would need its own Postgres and Redis services plus `--shard=i/N`. Unit tests already parallelize via jest workers, and the integration bottleneck is DB I/O, not CPU.
 
+## End-to-end tests (novatalks.tests)
+
+[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against the shared E2E lab on the dev cluster: it restores the lab database from the latest R2 dump, reloads the botflow flows into Redis, restarts the engine, runs the tests, publishes the HTML report to R2 and notifies.
+
+It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigger** → **Run workflow**; the caller creates the runner and the switcher forwards the form:
+
+| Input | Empty means |
+| --- | --- |
+| `tests_ref` | the branch picked in "Use workflow from" |
+| `test_tags` | all tests. Otherwise Playwright tags, `@smoke` or `@smoke + @regression` (each ` + ` becomes a `--grep` alternative) |
+
+There is no tag route: every run drops and restores the one lab database, so a run should always be somebody's deliberate choice. For the same reason the workflow sits in a `concurrency: e2e-lab` group — a second dispatch waits for the first instead of restoring the database under it.
+
+The notification reports the tests' own result, the branch and commit that ran, the tags and who dispatched it. A future target — a stack started on the runner from image tags instead of the shared lab — is a new optional input with a default, so the existing form keeps working.
+
 ## Reading failures
 
 - **`unit-test` red** — advisory. It does not block the build, but the PR check fails and it is reported in the notifier message.
