@@ -82,6 +82,16 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
+      # Sizing evidence: every repository but novatalks.core resolves to a small VM,
+      # and nobody has measured whether the browser workers fit. Printed before and
+      # after the suite so a flaky timeout can be told apart from a starved runner.
+      - name: Runner capacity
+        working-directory: ./
+        run: |
+          echo "cpus: $(nproc) | load: $(cut -d' ' -f1-3 /proc/loadavg)"
+          free -m | sed -n '1,2p'
+          df -h --output=source,size,avail,pcent / | tail -1
+
       - name: Run Playwright Tests
         run: |
           if [ -z "$TEST_TAGS" ]; then
@@ -120,6 +130,13 @@ jobs:
           # Raise this once that node is fixed; the suite defaults to 3 under CI.
           WORKERS: "2"
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
+
+      - name: Runner capacity after the suite
+        if: ${{ !cancelled() }}
+        working-directory: ./
+        run: |
+          echo "load after: $(cut -d' ' -f1-3 /proc/loadavg)"
+          free -m | sed -n '2p'
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7
