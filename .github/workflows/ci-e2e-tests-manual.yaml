@@ -110,6 +110,10 @@ jobs:
           TELEGRAM_URL: "/telegram/"
           VIBER_URL: "/viber/"
           META_URL: "/messenger/channel-messenger/"
+          # Three workers need a Node-RED telegram endpoint per slot, and the QA flow
+          # set only registers /telegram/1, /2 and /4 — slot 3's node never starts.
+          # Raise this once that node is fixed; the suite defaults to 3 under CI.
+          WORKERS: "2"
           PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
       - name: Save Artifact
