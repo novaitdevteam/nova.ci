@@ -25,10 +25,6 @@ concurrency:
   group: e2e-lab
   cancel-in-progress: false
 
-defaults:
-  run:
-    working-directory: /home/runner/work/
-
 jobs:
   build-tests:
     name: Run Playwright Tests
@@ -55,9 +51,11 @@ jobs:
       - name: Install AWS CLI
         working-directory: ./
         run: |
+          # Runner images ship no unzip; both jobs can land on the same reused VM.
+          sudo apt-get update -qq && sudo apt-get install -y unzip
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install
+          unzip -qo awscliv2.zip
+          sudo ./aws/install --update
           aws --version
 
       - name: Install psql, redis tools
@@ -208,9 +206,11 @@ jobs:
 
       - name: Install AWS CLI
         run: |
+          # Runner images ship no unzip; both jobs can land on the same reused VM.
+          sudo apt-get update -qq && sudo apt-get install -y unzip
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install
+          unzip -qo awscliv2.zip
+          sudo ./aws/install --update
           aws --version
 
       - name: Upload to R2
