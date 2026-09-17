@@ -415,3 +415,5 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
       tests_ref: ${{ github.event.inputs.tests_ref }}
       test_tags: ${{ github.event.inputs.test_tags }}
+      env_url: ${{ github.event.inputs.env_url }}
+      botflow_url: ${{ github.event.inputs.botflow_url }}

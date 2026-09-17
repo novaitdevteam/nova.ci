@@ -43,7 +43,7 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 
 ## End-to-end tests (novatalks.tests)
 
-[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against the shared E2E lab on the dev cluster: it restores the lab database from the latest R2 dump, reloads the botflow flows into Redis, restarts the engine, runs the tests, publishes the HTML report to R2 and notifies.
+[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand — today the e2e lab at `novatalks-e2e-tests.k3s.dev.novait.com.ua` — then publishes the HTML report to R2 and notifies.
 
 It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigger** → **Run workflow**; the caller creates the runner and the switcher forwards the form:
 
@@ -51,10 +51,16 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | --- | --- |
 | `tests_ref` | the branch picked in "Use workflow from" |
 | `test_tags` | all tests. Otherwise Playwright tags, `@smoke` or `@smoke + @regression` (each ` + ` becomes a `--grep` alternative) |
+| `env_url` | required — the stand's base URL |
+| `botflow_url` | required — base URL + adminPath, e.g. `…/redbot` |
 
-There is no tag route: every run drops and restores the one lab database, so a run should always be somebody's deliberate choice. For the same reason the workflow sits in a `concurrency: e2e-lab` group — a second dispatch waits for the first instead of restoring the database under it.
+The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 
-The notification reports the tests' own result, the branch and commit that ran, the tags and who dispatched it. A future target — a stack started on the runner from image tags instead of the shared lab — is a new optional input with a default, so the existing form keeps working.
+The run needs seven environment variables and no more — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
+
+The workflow used to restore the lab database from an R2 dump, reload Redis and restart the engine before running. Those steps were removed on 2026-09-17: they reached the cluster from an in-cluster runner, that runner track is retired, and Hetzner runners have no route into k3s. Seeding the stand is now the stand's own business. Two rules survive from that era: never `FLUSHALL` the stand's Redis (DB 15 holds `nr:flows`, the chatbot logic, which no Postgres dump contains), and runs against one stand stay serialized — the `concurrency` group keys on `env_url`, because concurrent runs create and delete each other's entities.
+
+The notification reports the tests' own result, the stand, the branch and commit that ran, the tags and who dispatched it.
 
 ## Reading failures
 
