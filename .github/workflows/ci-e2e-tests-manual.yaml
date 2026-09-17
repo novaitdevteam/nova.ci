@@ -67,20 +67,33 @@ jobs:
         uses: actions/setup-node@v6
         id: node_inst
         with:
-          node-version: 20
-          package-manager-cache: false
+          node-version: 24
+          # Keyed on package-lock.json; the suite's only native builds are imap and pg.
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: ▶️ Install Node.js dependencies
-        run: ls -la ./ && npm ci
+        run: npm ci
         working-directory: ./
+
+      # Browsers used to live in ./browsers, inside the workspace actions/checkout
+      # wipes, so every run re-downloaded chromium. They now sit in the runner's own
+      # cache directory, shared across runs on a reused VM and restored from the
+      # Actions cache on a fresh one.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright_cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Browsers
         run: |
-          npx playwright install-deps chromium
+          # install-deps is apt work on the VM itself, never in the cache.
+          sudo npx playwright install-deps chromium
           npx playwright install chromium
         working-directory: ./
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
       # Sizing evidence: every repository but novatalks.core resolves to a small VM,
       # and nobody has measured whether the browser workers fit. Printed before and
@@ -129,7 +142,6 @@ jobs:
           # set only registers /telegram/1, /2 and /4 — slot 3's node never starts.
           # Raise this once that node is fixed; the suite defaults to 3 under CI.
           WORKERS: "2"
-          PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
       - name: Runner capacity after the suite
         if: ${{ !cancelled() }}
