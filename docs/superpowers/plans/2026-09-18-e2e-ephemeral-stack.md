@@ -12,9 +12,9 @@ it is the guard-that-measures-nothing this repository refuses everywhere else.
 Nothing below is worth building if the UI cannot be pointed at a different engine, or if the
 canonical BotFlow flow cannot transfer a conversation.
 
-- Pull `novatalks.ui`, inspect its entrypoint, and find how the 21 `VITE_APP_*` values reach
-  the served bundle. **Verify:** start it alone with an engine URL that is obviously not the
-  lab's, load `/`, and read the URL the page actually calls.
+- ~~How the UI takes its configuration~~ **answered**: runtime, from every `VITE_APP_*` in the
+  environment; the container proxies nothing, hence the front proxy in D15, and the value set
+  comes from a production configmap per D16.
 - Boot `novatalks.core` with the DAST bring-up's env set. **Verify:** `/readyz` answers 200;
   record every key that had to be added and the error that demanded it.
 - Boot BotFlow with the canonical `BotAgent_Sys_ChatBot` from `novatalks.botflow.flows`, send
