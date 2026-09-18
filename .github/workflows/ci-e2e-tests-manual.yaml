@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: ""
+      reset_stand:
+        description: "prune: delete the entities earlier runs left on the stand before starting. off: keep them."
+        required: false
+        type: string
+        default: "prune"
       workers:
         description: "Playwright workers. Each one needs its own Node-RED channel slot."
         required: false
@@ -134,6 +139,12 @@ jobs:
         env:
           TEST_TAGS: ${{ inputs.test_tags }}
           EXCLUDE_TAGS: ${{ inputs.exclude_tags }}
+          # Pruning runs BEFORE the suite, not after: a cancelled or crashed run never
+          # reaches an "after" step, so the garbage that matters most would be the
+          # garbage that survives. Starting from a known state also needs no record of
+          # what this run created. Two regression runs left 977 users, 423 inboxes and
+          # 391 teams behind, and the suite reads those lists.
+          RESET_STAND: ${{ inputs.reset_stand }}
           # Seven variables and no more: the suite derives CLIENT_URL/CLIENT_URL_API
           # from ENV_URL itself, and needs no database — USE_DB stays unset, which is
           # what keeps this run free of kubeconfig, port-forward and DB credentials.

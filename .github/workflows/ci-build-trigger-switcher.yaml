@@ -420,3 +420,4 @@ jobs:
       report_base_url: ${{ github.event.inputs.report_base_url }}
       workers: ${{ github.event.inputs.workers || '2' }}
       exclude_tags: ${{ github.event.inputs.exclude_tags }}
+      reset_stand: ${{ github.event.inputs.reset_stand || 'prune' }}
