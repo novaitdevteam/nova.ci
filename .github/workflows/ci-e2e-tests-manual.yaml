@@ -29,6 +29,11 @@ on:
         description: "BotFlow admin URL — base URL + adminPath, e.g. https://host/redbot."
         required: true
         type: string
+      exclude_tags:
+        description: "Tags to skip, e.g. '@campaigns' or '@campaigns + @db'. Empty: skip nothing."
+        required: false
+        type: string
+        default: ""
       workers:
         description: "Playwright workers. Each one needs its own Node-RED channel slot."
         required: false
@@ -114,17 +119,21 @@ jobs:
 
       - name: Run Playwright Tests
         run: |
-          if [ -z "$TEST_TAGS" ]; then
-            echo "No tags given: running all tests"
-            npx playwright test
-          else
-            GREP_PATTERN=$(printf '%s' "$TEST_TAGS" | sed 's/ *+ */|/g')
-            echo "Running tests matching: $GREP_PATTERN"
-            npx playwright test --grep "$GREP_PATTERN"
+          # ' + ' separates alternatives in both inputs, so "@smoke + @regression"
+          # becomes one --grep and "@campaigns + @db" one --grep-invert.
+          ARGS=()
+          if [ -n "$TEST_TAGS" ]; then
+            ARGS+=(--grep "$(printf '%s' "$TEST_TAGS" | sed 's/ *+ */|/g')")
           fi
+          if [ -n "$EXCLUDE_TAGS" ]; then
+            ARGS+=(--grep-invert "$(printf '%s' "$EXCLUDE_TAGS" | sed 's/ *+ */|/g')")
+          fi
+          echo "playwright test ${ARGS[*]:-(everything)}"
+          npx playwright test "${ARGS[@]}"
         working-directory: ./
         env:
           TEST_TAGS: ${{ inputs.test_tags }}
+          EXCLUDE_TAGS: ${{ inputs.exclude_tags }}
           # Seven variables and no more: the suite derives CLIENT_URL/CLIENT_URL_API
           # from ENV_URL itself, and needs no database — USE_DB stays unset, which is
           # what keeps this run free of kubeconfig, port-forward and DB credentials.
@@ -137,6 +146,13 @@ jobs:
           UI_ADMIN_LOGIN: ${{ secrets.E2E_UI_ADMIN_LOGIN }}
           UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
           API_TOKEN: ${{ secrets.E2E_API_TOKEN }}
+          # QANT-21 waits for the invitation mail, so the suite needs a mailbox it can
+          # read over IMAP. Secrets, unlike the URLs above: a real account's password.
+          IMAP_USER: ${{ secrets.E2E_IMAP_USER }}
+          IMAP_PASSWORD: ${{ secrets.E2E_IMAP_PASSWORD }}
+          IMAP_HOST: ${{ secrets.E2E_IMAP_HOST }}
+          IMAP_PORT: ${{ secrets.E2E_IMAP_PORT }}
+          TEST_EMAIL_ADDRESS: ${{ secrets.E2E_TEST_EMAIL_ADDRESS }}
           # Node-RED webhook paths from the QA flow set, appended to BOTFLOW_URL by
           # the channel helpers. They come from the flow file, not from the stand,
           # so they are literals here rather than inputs or secrets.

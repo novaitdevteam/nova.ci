@@ -53,10 +53,17 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | `test_tags` | all tests. Otherwise Playwright tags, `@smoke` or `@smoke + @regression` (each ` + ` becomes a `--grep` alternative) |
 | `env_url` | required — the stand's base URL |
 | `botflow_url` | required — base URL + adminPath, e.g. `…/redbot` |
+| `exclude_tags` | skip nothing. Otherwise tags to leave out, `@campaigns`, applied as `--grep-invert` |
+| `workers` | two. One Node-RED channel slot per worker, and the QA flow set defines four |
+| `report_base_url` | no link in the notification; otherwise the public base of the report bucket |
 
 The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 
-The run needs seven environment variables and no more — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
+One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs.
+
+Measured on the e2e lab: two workers finish the smoke suite in 14.8 minutes at a load average of 1.2, four in 9.3 at 2.3, both on a `small` runner (4 vCPU, 8 GB) whose memory never went past 0.8 GB. The runner is not the bottleneck at either setting, so `novatalks.tests` stays on `small`; the ceiling is the channel slots, not the VM.
+
+The run needs seven environment variables for the stand itself — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
 
 The workflow used to restore the lab database from an R2 dump, reload Redis and restart the engine before running. Those steps were removed on 2026-09-17: they reached the cluster from an in-cluster runner, that runner track is retired, and Hetzner runners have no route into k3s. Seeding the stand is now the stand's own business. Two rules survive from that era: never `FLUSHALL` the stand's Redis (DB 15 holds `nr:flows`, the chatbot logic, which no Postgres dump contains), and runs against one stand stay serialized — the `concurrency` group keys on `env_url`, because concurrent runs create and delete each other's entities.
 
