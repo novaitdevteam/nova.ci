@@ -48,10 +48,11 @@ Not a migration. **Both targets stay**, selected per run, the same shape
 | D8 | **`FILE_DRIVER=local`, no object storage** | The ephemeral stack has no R2 bucket and needs none: the file assertions check upload and retrieval through the app, which the local driver serves. Rules out running MinIO for parity nobody asserts. |
 | D9 | **The dialer and campaigns are in scope, so NATS is part of the stack** | Campaigns are the one product area the lab cannot cover at all: turning `APPLICATION_CAMPAIGN_ENABLE` on there makes the engine await a NATS connection at boot, the lab runs none, and its engine sat `0/1` for nine minutes when that was tried on 2026-09-18. An ephemeral stack can simply have one. The bring-up is already written and used: `dast_bring_up_nats` in `dast-common.sh` starts `nats:2.10-alpine -js -m 8222`, polls `/healthz` and creates the `campaign` JetStream stream the dialer's client asks for at startup — without that stream a running JetStream still answers "no stream matches subject". The dialer's own requirements are equally known, from its `targets.sh` arm: port 3000, `/readyz` (which exists only with `HEALTH_ENABLED=true`, or the path 404s for the life of the container), its own database, `NATS_SUBJECTS` set or its config factory throws before `app.listen()`, and `AWS_S3_*` dummies because `file.config.ts` defaults `FILE_DRIVER` to `s3` and reads five keys unconditionally. Its entrypoint runs `db:setup` itself, so there is no setup command to invent. Ordering follows from this: NATS before the engine, not after — the engine blocks on it. |
 | D9a | **Campaigns tests stay excluded on `lab`, and run on `ephemeral`** | Same suite, different capability of the target. `ui/e2e/campains` is currently red on the lab for a reason that is not a defect, and the `@campaigns` tag exists precisely so a target without the module can skip them. The exclusion becomes a property of the target rather than a permanent apology in the test file. |
-| D10 | **The tests reach the stack on `localhost` ports; the containers reach each other by container name** | `ENV_URL=http://localhost:8080`, `BOTFLOW_URL=http://localhost:1880/redbot`. The engine's own webhook to BotFlow must use the container name, because it is issued from inside the Docker network — the same distinction that made 451 webhook failures on the lab when a fixture named a dead service. |
+| D10 | **The tests reach the stack on `localhost` ports; the containers reach each other by container name** | `ENV_URL=http://localhost:8080`, `BOTFLOW_URL=http://localhost:8080/redbot` — both through the one front proxy of D15, exactly as they are on the lab. The engine's own webhook to BotFlow must use the container name, because it is issued from inside the Docker network — the same distinction that made 451 webhook failures on the lab when a fixture named a dead service. |
 | D11 | **`e2e-medium` runner for `target: ephemeral`** | Measured on the stand: engine 1 CPU / 2 GB, postgres 500m / 2 GB, botflow 1 / 1.5 GB, ui 500m / 256 MB, redis 100m / 512 MB, plus the dialer (chart preset 250m) and NATS — about 3.5 CPU and 7 GB before a single browser starts. Four Chromium workers add roughly 2 GB. A 4-vCPU / 8 GB runner would be at its limit before the suite begins; the 8-vCPU size is the first that is not. Since 2026-09-18 these sizes live in the E2E pool of their own (`e2e-small`/`e2e-medium`), so an ephemeral run competes with neither product builds nor the scan pool. |
 | D12 | **`concurrency` keys on the target, not on one global group** | Ephemeral runs share nothing, so they must not queue behind each other; lab runs must. `group: e2e-${{ inputs.env_url }}` already does this by accident — with `target: ephemeral` the key becomes the run id, so the serialization disappears exactly where it is pointless. |
 | D13 | **Teardown is unconditional and logs are captured on failure** | `docker logs` of every container into the run artifact when the suite fails: a stack nobody can inspect afterwards is worse than no stack. The same reason `dast-api/scan.sh` prints container logs on a loud skip. |
+| D15 | **A front proxy container, mirroring the lab's route table** | Discovered while answering the first open question: the UI image serves static files and nothing else, and the SPA calls same-origin paths (`/api/v1`, `/auth`, `/ws`). On the lab a Traefik `IngressRoute` splits those between three services; on a runner nothing does. Publishing each container on its own port would need the SPA to call a different origin, which the suite does not support (it derives `CLIENT_URL_API` from `ENV_URL`) and which CORS would fight. So one nginx container fronts the stack on the single published port, with the lab's own route table copied verbatim: `/redbot` → botflow, `/store/ /api/ /auth/ /ws /webrtc-ws /widget /api-docs /webwidget-docs` → engine, `/api/v1/dialer/` → dialer, `/` → ui. Copied rather than invented: a route the lab has and the runner lacks is a test that passes in one place and fails in the other for no product reason. |
 | D14 | **`reset_stand` has no meaning for `target: ephemeral`, and the workflow says so** | The database is new. Silently ignoring an input the caller set is how a run ends up not doing what its form said; the step refuses the combination rather than skipping quietly. |
 
 ## Architecture
@@ -64,24 +65,29 @@ runner (e2e-medium, 8 vCPU / 16 GB)
 │   ├── nats:2.10-alpine -js      ← JetStream + the `campaign` stream
 │   ├── engine   (novatalks.core) :3000 → published on localhost:3000
 │   ├── dialer   (novatalks.dialer) :3000 → its own database on the same postgres
-│   ├── ui       (novatalks.ui)   :8000 → published on localhost:8080   ENV_URL
-│   └── botflow  (nova.botflow)   :1880 → published on localhost:1880   BOTFLOW_URL
-│                                          flows = sys chatbot + N slots
+│   ├── ui       (novatalks.ui)   :8000  ← static files only, no proxying
+│   ├── botflow  (nova.botflow)   :1880  ← flows = sys chatbot + N slots
+│   └── proxy    (nginx:alpine)   :8080 → published on localhost:8080
+│                                          one origin, the lab's route table:
+│                                          /redbot→botflow, /api /auth /ws /store
+│                                          /widget /api-docs→engine,
+│                                          /api/v1/dialer/→dialer, /→ui
+│
+│   ENV_URL=http://localhost:8080   BOTFLOW_URL=http://localhost:8080/redbot
 └── Playwright, N workers ── HTTP ──> localhost
 ```
 
 Bring-up order, each step gated on the previous one being ready rather than on a sleep:
 postgres → redis → **nats (stream created)** → engine (migrations and seeds run at boot; wait
 for `/readyz`) → SQL for the three stand settings and the AgentBot token → dialer (wait for
-`/readyz`) → botflow (wait for `/redbot/`) → deploy flows → wait for every channel route → ui
-→ run. NATS comes before the engine because the engine awaits it when campaigns are on, and
+`/readyz`) → botflow (wait for `/redbot/`) → deploy flows → wait for every channel route → ui → proxy → run. NATS comes before the engine because the engine awaits it when campaigns are on, and
 the dialer after the engine because its `db:setup` runs against the same server.
 
 ## Open questions, to answer with measurements during implementation
 
 | Question | Why it matters | How to answer |
 | --- | --- | --- |
-| How does the UI image take its configuration? The lab passes 21 `VITE_APP_*` values, and Vite normally bakes those at build time | If they are build-time only, the ephemeral UI needs a different way to point at the engine | Inspect the image's entrypoint; check whether it templates a JS file at start |
+| ~~How does the UI image take its configuration?~~ **Answered 2026-09-18** | — | Its entrypoint generates `window.configs` into `/tmp/config.js` from **every** `VITE_APP_*` variable present in the environment, and nginx serves it at `/config.js` with no-cache. Runtime, not build time, and no list to keep in sync. What it does *not* do is proxy anything: the container serves static files only (`/etc/nginx/conf.d/default.conf`), so the single-origin routing the SPA depends on comes from Traefik on the lab — and must come from something on the runner. See D15. |
 | Which of the engine's 155 config keys are actually required to boot | The DAST bring-up already runs the engine with far fewer | Start from the DAST set, add only what the container demands, and record each addition with the error that forced it |
 | Does the canonical `BotAgent_Sys_ChatBot` flow transfer a conversation to a team the way the QA flow set does | The reverted merge on 2026-09-17 proved it does not, out of the box | Boot both, send one message, compare the conversation's `team`/`assignee` |
 | Boot time end to end | Decides whether ephemeral is viable for a 9-test smoke run or only for regressions | Measure; target under 3 minutes |
