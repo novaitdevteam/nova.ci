@@ -49,8 +49,9 @@ and redis bring-up rather than repeating it.
 
 ## Step 3 — Wire the target into the workflow
 
-- `target` input (`lab` default, `ephemeral`), plus `engine_image` / `ui_image` /
-  `botflow_image`, each defaulting to the tag the stand runs.
+- `target` input (`lab` default, `ephemeral`), plus `engine_tag` / `ui_tag` / `botflow_tag`,
+  each defaulting to the tag the stand runs. The registry and repository are fixed in the
+  workflow per component, so the form cannot point the runner at an arbitrary image.
 - `ephemeral` resolves `ENV_URL` and `BOTFLOW_URL` to the published localhost ports and
   ignores nothing silently: `reset_stand` with `target: ephemeral` fails the step with a
   message, per D14.
