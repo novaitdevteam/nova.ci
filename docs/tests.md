@@ -54,14 +54,25 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | `env_url` | required — the stand's base URL |
 | `botflow_url` | required — base URL + adminPath, e.g. `…/redbot` |
 | `exclude_tags` | skip nothing. Otherwise tags to leave out, `@campaigns`, applied as `--grep-invert` |
-| `workers` | two. One Node-RED channel slot per worker, and the QA flow set defines four |
+| `workers` | two. One Node-RED channel slot per worker; the slots are reconciled against the stand at run start, so a worker count with no slot yet gets one |
+| `runner_size` | `small`. `medium`/`large` exist for measuring — see the table below for why routine runs stay on `small` |
 | `report_base_url` | no link in the notification; otherwise the public base of the report bucket |
 
 The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 
 One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs.
 
-Measured on the e2e lab: two workers finish the smoke suite in 14.8 minutes at a load average of 1.2, four in 9.3 at 2.3, both on a `small` runner (4 vCPU, 8 GB) whose memory never went past 0.8 GB. The runner is not the bottleneck at either setting, so `novatalks.tests` stays on `small`; the ceiling is the channel slots, not the VM.
+Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
+
+| Suite | Workers | VM | Wall time | Load (5 min) | Result |
+| --- | --- | --- | --- | --- | --- |
+| `@smoke` (9 tests) | 4 | small | 7.4 min | 0.9 | 5 passed, 3 flaky, 1 failed |
+| `@smoke` | 6 | small | 6.1 min | 1.3 | 4 passed, 2 flaky, 3 failed |
+| `@smoke` | 8 | small | 5.9 min | 2.0 | 1 passed, 4 flaky, 4 failed |
+| `@e2e` (417 tests) | 4 | small | 1.2 h | 5.4 | 343 passed, 14 flaky, 28 failed |
+| `@e2e` | 4 | medium | 1.2 h | 2.7 | 326 passed, 25 flaky, 31 failed |
+
+Two conclusions, both measured rather than preferred. **A bigger VM buys nothing**: doubling the cores halved the load and moved the regression's wall time by zero, because that time is spent waiting on the application and on fixed timeouts (30 s per click, 60 s per `expect`, 360 s per test), not on CPU. And **more workers cost stability faster than they buy time**: 4 → 8 workers on the smoke suite saved 1.5 minutes and turned five passing tests into one, because the suite shares one account and its `afterEach` cleanups delete entities belonging to whichever worker is running alongside. Four workers on `small` is the working setting until that isolation is fixed; the per-worker channel slots, generated on demand against the stand, are the other ceiling.
 
 The run needs seven environment variables for the stand itself — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
 
