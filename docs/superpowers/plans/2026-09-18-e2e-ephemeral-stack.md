@@ -38,6 +38,22 @@ and redis bring-up rather than repeating it.
 - **Verify:** run it on a runner by hand; `/readyz`, `/redbot/` and the UI all answer; then
   `down` leaves no container, no volume and no network behind (`docker ps -a`, `docker volume ls`).
 
+## Step 1b — NATS, the dialer and campaigns
+
+The one area the lab cannot cover, so it is worth its own step rather than a line in the
+bring-up.
+
+- `dast_bring_up_nats` from `dast-common.sh` (never a second copy): the broker, the health
+  poll and the `campaign` stream.
+- Engine with `APPLICATION_CAMPAIGN_ENABLE=true`, started **after** NATS — it awaits the
+  connection before it listens, which is exactly how the lab's engine sat `0/1` for nine
+  minutes when this was tried there.
+- Dialer from its `targets.sh` arm: `HEALTH_ENABLED=true` or `/readyz` 404s forever,
+  `NATS_SUBJECTS`, its own database, `AWS_S3_*` dummies; its entrypoint runs `db:setup`.
+- **Verify:** the engine reports the campaign feature to the UI (the sidebar item is a link,
+  not a promo button — the exact thing QANT-49 asserts), `/readyz` on the dialer answers, and
+  a campaigns spec that is excluded on `lab` passes here.
+
 ## Step 2 — Flows for an ephemeral BotFlow
 
 - Assemble the flow document: canonical sys chatbot + N slots from the existing
