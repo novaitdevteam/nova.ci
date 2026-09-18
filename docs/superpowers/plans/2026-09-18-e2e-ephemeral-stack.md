@@ -15,8 +15,10 @@ canonical BotFlow flow cannot transfer a conversation.
 - ~~How the UI takes its configuration~~ **answered**: runtime, from every `VITE_APP_*` in the
   environment; the container proxies nothing, hence the front proxy in D15, and the value set
   comes from a production configmap per D16.
-- Boot `novatalks.core` with the DAST bring-up's env set. **Verify:** `/readyz` answers 200;
-  record every key that had to be added and the error that demanded it.
+- ~~Which engine keys are required~~ **answered**: `helm template` renders all of them offline,
+  so the stack renders the chart instead of curating a list (D17). What is left to verify is
+  which values must differ on a runner. **Verify:** the rendered engine env boots the container
+  to `/readyz` 200 with only hosts, ports and `FILE_DRIVER` overridden.
 - Boot BotFlow with the canonical `BotAgent_Sys_ChatBot` from `novatalks.botflow.flows`, send
   one message, and read the conversation back. **Verify:** `team` and `assignee` are set, not
   `null` — this is exactly what the reverted merge failed at on 2026-09-17.
@@ -27,8 +29,9 @@ artifact. Do not proceed by overwriting the stand's flows again.
 
 ## Step 1 — `stack.sh`: bring the stack up and tear it down
 
-A single script in `.github/actions/e2e-stack/`, sourcing `dast-common.sh` for the postgres
-and redis bring-up rather than repeating it.
+A single script in `.github/actions/e2e-stack/`, sourcing `dast-common.sh` for the NATS
+bring-up rather than repeating it, and rendering the chart for every container's environment
+(D17) rather than carrying its own copy of it.
 
 - `up`: network, postgres, redis, engine (wait `/readyz`), the three SQL settings and the
   AgentBot token, botflow (wait `/redbot/`), ui (wait `/`).
