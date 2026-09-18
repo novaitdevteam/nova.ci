@@ -35,7 +35,7 @@ on:
         type: string
         default: ""
       reset_stand:
-        description: "prune: delete the entities earlier runs left on the stand before starting. off: keep them."
+        description: "prune (API-level, the default), deep (also runs the stand's own SQL reset), or off."
         required: false
         type: string
         default: "prune"
@@ -115,6 +115,27 @@ jobs:
       # Sizing evidence: every repository but novatalks.core resolves to a small VM,
       # and nobody has measured whether the browser workers fit. Printed before and
       # after the suite so a flaky timeout can be told apart from a starved runner.
+      # deep adds what the Engine API cannot do: it has no delete endpoint for a
+      # conversation, and an inbox delete is soft, so a contact that owns a conversation
+      # — and the chatbot setting / team / wrap-up chain behind a deleted inbox — can
+      # never be cleared through the API. The stand answers one route for that, on its
+      # own host under /stand-reset, taking no parameters: there is nothing to aim.
+      - name: Reset the stand
+        if: ${{ inputs.reset_stand == 'deep' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ]; then
+            echo "::error::reset_stand=deep but E2E_RESET_URL or E2E_RESET_TOKEN is unset"
+            exit 1
+          fi
+          # -f so a 401 or a 500 fails the job: a reset that quietly did nothing is the
+          # failure this step exists to prevent.
+          curl -fsS --max-time 300 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" "$RESET_URL"
+          echo
+
       - name: Runner capacity
         working-directory: ./
         run: |
