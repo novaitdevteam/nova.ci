@@ -255,22 +255,59 @@ printf '{"inputs":{"runner_size":"large"}}' > "$WORK/dispatch-large.json"
 printf '{"inputs":{"runner_size":"xl"}}' > "$WORK/dispatch-typo.json"
 
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
-check "novatalks.tests dispatch asking for large gets large" \
+check "novatalks.tests dispatch asking for large lands in the E2E pool" \
     refs/heads/CI-update novatalks.tests \
-    'runner_size=cx53
+    'runner_size=cx43
 runner_name=<generated>
-runner_labels=large
+runner_labels=e2e-medium
 runner_need=true' \
     "" "$WORK/dispatch-large.json"
 
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
-check "novatalks.tests with an unknown size falls back to small, never up" \
+check "novatalks.tests with an unknown size falls back to the small E2E runner, never up" \
     refs/heads/CI-update novatalks.tests \
     'runner_size=cx33
 runner_name=<generated>
-runner_labels=small
+runner_labels=e2e-small
 runner_need=true' \
     "" "$WORK/dispatch-typo.json"
+
+# Pool isolation. The two pools share Hetzner server types, so only the name tells them
+# apart — these four scenarios are what keep a long E2E suite from parking on a build
+# runner, and a build burst from starving the suite.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-1:online:false:e2e-small) \
+check "a build does not reuse an idle E2E runner" \
+    refs/tags/build-NC2-1 novatalks.ui \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-1:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-1:online:false:small) \
+check "an E2E run does not reuse an idle build runner" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-1:cx33:running dev-00-gh-runner-2:cx33:running) \
+SHIM_RUNNERS=$(runners) \
+check "a full build pool does not block an E2E run" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running) \
+SHIM_RUNNERS=$(runners) \
+check "the E2E pool waits at its own cap of 2" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_need=false
+runner_labels=e2e-small'
 
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
 check "runner_size is ignored outside novatalks.tests" \

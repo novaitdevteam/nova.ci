@@ -52,7 +52,15 @@ One tag push provisions one runner size for the whole run, so a `full-test` tag 
 
 Each size class has its own cap, measured from Hetzner server state rather than GitHub registrations, so in-flight creations count and offline ghost registrations do not. **`medium` is 4; `small` and `large` are 2** (`MAX_MEDIUM_RUNNERS` / `MAX_PER_SIZE` override either). `medium` is the scan pool: a `novatalks.core` trunk push builds two targets at once, and each fans out into `trivy-scan`, `sast-scan`, `dast-scan` and `api-scan` in parallel rather than in a chain — a fan-out is worth nothing without somewhere to fan out to. `small` and `large` have no such fan-out (one feature build; one long `int-test` job), so a third VM there would idle. `medium` and `large` are independent pools, so unit-test and integration-test runs never contend. Trunk and `scan*` builds do share the `medium` pool with unit-test runs — that is the cost of the DAST sizing branch, and the reason it is kept as narrow as it is. All pools also share the global `MAX_TOTAL_RUNNERS` cap.
 
-**All other repositories always use `small`, regardless of tag** — with one exception: the `novatalks.tests` E2E form has a `runner_size` input (`small` default, `medium`, `large`), read from the dispatch payload. It is a measuring tool — four Playwright workers load a `small` runner to 2.3 of its 4 cores, so routine runs stay `small`. An unknown value, or a push or pull request that carries no inputs, resolves to `small`, never to a bigger VM.
+**All other repositories always use `small`, regardless of tag** — with one exception, `novatalks.tests`, which has a pool of its own.
+
+## The E2E pool
+
+`novatalks.tests` resolves to `e2e-small` (cx33) or `e2e-medium` (cx43, when its form asks for `medium` or `large`), and its VMs are named `dev-00-gh-runner-e2e-*`. Counts, caps, the reuse filter and the create lock are all scoped to one pool, so the two never borrow from each other: a build cannot pick up an idle E2E runner, an E2E run cannot pick up a build one, a full build pool does not block a suite, and the E2E pool has its own cap of 2.
+
+The reason is duration rather than size. The `@e2e` regression takes 1.2 h; sharing the build pool would park it on one of the two `small` runners for that long and queue every other repository's build behind it. The name still begins with `dev-00-gh-runner-`, so the leak watchdog and any project-wide total keep seeing these VMs.
+
+The size input remains a measuring tool: four Playwright workers load a 4-core runner to 2.3, and the regression took the same 1.2 h on 4 and on 8 cores. An unknown value, or a push or pull request that carries no inputs, resolves to the small size, never up.
 
 ---
 

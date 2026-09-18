@@ -73,14 +73,33 @@ else
     REQUIRED_SIZE="small"
 fi
 
-# Size ordering, declared once: index in this list is the priority, and the matching
-# Hetzner server type is looked up from the same case below. The jq reuse filter reads
-# the same list, so "which runner is big enough" has a single definition.
-SIZE_ORDER='["small","medium","large"]'
+# Two pools, counted and capped separately, because they carry different work with
+# different shapes. Builds are minutes long and bursty; an E2E run holds its VM for the
+# length of a suite — the @e2e regression measured 1.2 h on 2026-09-18. Sharing one pool
+# means a regression parks on one of the two small runners for over an hour and every
+# other repository's build queues behind it. The pools never borrow from each other:
+# their VM names differ, so each counts only its own, and the reuse filter below matches
+# labels within one pool only — a build can never pick up an idle E2E runner, or the
+# other way round.
+if [ "$REPO" = "novatalks.tests" ]; then
+    RUNNER_POOL="e2e"
+    # Still under dev-00-gh-runner-, so the leak watchdog and the global total keep
+    # seeing these VMs; the extra segment is what separates the pools.
+    NAME_PREFIX="dev-00-gh-runner-e2e-"
+    SIZE_ORDER='["e2e-small","e2e-medium"]'
+    case "$REQUIRED_SIZE" in
+        small)         REQUIRED_SIZE="e2e-small" ;;
+        medium|large)  REQUIRED_SIZE="e2e-medium" ;;
+    esac
+else
+    RUNNER_POOL="build"
+    NAME_PREFIX="dev-00-gh-runner-"
+    SIZE_ORDER='["small","medium","large"]'
+fi
 
 case "$REQUIRED_SIZE" in
-    small) REQUIRED_TYPE=cx33 ;;
-    medium) REQUIRED_TYPE=cx43 ;;
+    small|e2e-small) REQUIRED_TYPE=cx33 ;;
+    medium|e2e-medium) REQUIRED_TYPE=cx43 ;;
     large) REQUIRED_TYPE=cx53 ;;
     *) echo "::error::Unknown runner size: $REQUIRED_SIZE" >&2; exit 1 ;;
 esac
@@ -98,10 +117,21 @@ esac
 # `small` and `large` have no such fan-out: small is one feature build at a time, and
 # large is int-test, which is one long job by construction. They stay at 2, where a
 # third VM would idle.
+#
+# The E2E pool is 2 for a different reason: two suites can run at once (one per stand,
+# and an ephemeral run needs no stand at all), while a third would only queue behind the
+# shared account the suite still uses.
 case "$REQUIRED_SIZE" in
     medium) MAX_PER_SIZE="${MAX_MEDIUM_RUNNERS:-4}" ;;
+    e2e-*)  MAX_PER_SIZE="${MAX_E2E_RUNNERS:-2}" ;;
     *)      MAX_PER_SIZE="${MAX_PER_SIZE:-2}" ;;
 esac
+
+# Counted within the pool, so an E2E run can never exhaust the build budget and a busy
+# build day can never starve the suite.
+if [ "$RUNNER_POOL" = "e2e" ]; then
+    MAX_TOTAL_RUNNERS="${MAX_E2E_RUNNERS:-2}"
+fi
 
 DELAY=$((RANDOM % 10))
 
@@ -144,24 +174,28 @@ done
 # keep working on one response object.
 HETZNER_RESPONSE=$(echo "$HETZNER_PAGES" | jq -s '{servers: (map(.servers // []) | add)}')
 
-TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
+TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r \
+    --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
     ] | length
 ')
 
-echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
+echo "Total $RUNNER_POOL-pool Hetzner servers (${NAME_PREFIX}*, any status/size): $TOTAL_ALL"
 
 # Count per-size directly from Hetzner server state (starting/initializing/running of
 # the required server_type), not from GitHub-registered runners. This covers VMs that
 # were just created but haven't registered as a GitHub runner yet, and excludes offline
 # "ghost" GitHub registrations left over from failed creates that have no backing VM.
 TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
-    --arg required_type "$REQUIRED_TYPE" '
+    --arg required_type "$REQUIRED_TYPE" \
+    --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
         | select(.server_type.name == $required_type)
         | select(.status == "starting" or .status == "initializing" or .status == "running")
     ] | length
@@ -213,9 +247,11 @@ while true; do
         echo "::error::Unexpected GitHub API response shape (page $GH_PAGE, no .runners array): ${RESPONSE:0:300}"
         exit 1
     fi
-    PAGE_RUNNERS=$(echo "$RESPONSE" | jq '
+    PAGE_RUNNERS=$(echo "$RESPONSE" | jq \
+        --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
         [.runners[]?
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
         ]')
     RUNNERS=$(jq -n --argjson acc "$RUNNERS" --argjson page "${PAGE_RUNNERS:-[]}" '$acc + $page')
     PAGE_COUNT=$(echo "$RESPONSE" | jq -r '.runners | length')
@@ -234,10 +270,12 @@ echo "GitHub-registered dev-00-gh-runner-* runners (any status): $COUNT"
 # watchdog cleanup) or gone entirely (ghost registration). Reusing one queues the job
 # on a runner that will never pick it up, so only trust runners whose backing Hetzner
 # VM is actually running. Of those, take the largest that still meets the required size.
-ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq '
+ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq \
+    --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
         | select(.status == "running")
         | .name
     ]')
@@ -292,6 +330,8 @@ fi
 # the lock machinery itself fails OPEN (proceed without the lock, with a ::warning::):
 # an API problem must degrade to the small race window, never block all creation.
 RUNNER_LOCK_TTL_SECONDS="${RUNNER_LOCK_TTL_SECONDS:-60}"
+# Keyed by size, and the E2E sizes are their own names, so the pools cannot block
+# each other's creates.
 LOCK_NAME="runner-create-lock-$REQUIRED_SIZE"
 HC_API_BODY=$(mktemp)
 
@@ -371,7 +411,7 @@ if [ "$TOTAL_SIZE" -lt "$MAX_PER_SIZE" ]; then
         echo "Create new runner ($REQUIRED_SIZE)"
         echo "runner_size=$REQUIRED_TYPE" >> "$GITHUB_OUTPUT"
         # %3N (milliseconds) is GNU date only -- fine on the ubuntu runners this runs on.
-        echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
+        echo "runner_name=${NAME_PREFIX}$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
         echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
         echo "runner_need=true" >> "$GITHUB_OUTPUT"
     else
