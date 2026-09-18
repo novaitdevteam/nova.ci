@@ -251,6 +251,36 @@ runner_name=<generated>
 runner_labels=small
 runner_need=true'
 
+printf '{"inputs":{"runner_size":"large"}}' > "$WORK/dispatch-large.json"
+printf '{"inputs":{"runner_size":"xl"}}' > "$WORK/dispatch-typo.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "novatalks.tests dispatch asking for large gets large" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx53
+runner_name=<generated>
+runner_labels=large
+runner_need=true' \
+    "" "$WORK/dispatch-large.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "novatalks.tests with an unknown size falls back to small, never up" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    "" "$WORK/dispatch-typo.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "runner_size is ignored outside novatalks.tests" \
+    refs/heads/main novatalks.ui \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    "" "$WORK/dispatch-large.json"
+
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
 SHIM_PG_GET="{\"placement_groups\":[{\"id\":7,\"labels\":{\"epoch\":\"$(date +%s)\"}}]}" \
 check "waits while another run holds the create lock" \

@@ -57,6 +57,18 @@ if [[ "$REPO" == "novatalks.core" ]]; then
     else
         REQUIRED_SIZE="small"
     fi
+elif [[ "$REPO" == "novatalks.tests" ]]; then
+    # The E2E suite is dispatched from a form, so the size is asked for, not inferred
+    # from a tag: the form's runner_size input, read from the event payload the same way
+    # base_ref is. Only the three known sizes pass — a typo or an empty field falls back
+    # to small rather than to a bigger VM, and a push or pull request (no inputs at all)
+    # stays small as before. Exists to measure how many Playwright workers each size
+    # carries; the suite has never needed more than small in routine runs.
+    case "$(jq -r '.inputs.runner_size // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)" in
+        medium) REQUIRED_SIZE="medium" ;;
+        large)  REQUIRED_SIZE="large" ;;
+        *)      REQUIRED_SIZE="small" ;;
+    esac
 else
     REQUIRED_SIZE="small"
 fi
