@@ -149,8 +149,13 @@ engine:
   replica: 1
   probes: 'true'
   sizing: medium
+  # Campaigns need a JetStream consumer, and this flag is what makes the chart render the
+  # keys that build one — NATS_DURABLE, NATS_DELIVER_TO, NATS_SUBJECTS. Turning the feature
+  # on without it (an -e on the container, which is how this was first tried) leaves the
+  # engine building a consumer out of undefined, and it never reaches app.listen(). The
+  # server address is the one thing stack.sh overrides, like every other host and port.
   nats:
-    enabled: 'false'
+    enabled: 'true'
     tls: 'false'
 botflow:
   replica: 1
@@ -194,7 +199,8 @@ env:
   ENGINE_MAIL_IGNORE_TLS: 'true'
   ENGINE_MAIL_REQUIRE_TLS: 'false'
   ENGINE_MAIL_SECURE: 'false'
-  ENGINE_APPLICATION_CAMPAIGN_ENABLE: 'false'
+  ENGINE_APPLICATION_CAMPAIGN_ENABLE: 'true'
+  ENGINE_NATS_SERVERS: 127.0.0.1:4222
   ENGINE_AWS_S3_BUCKET: ntk-dev-e2e-test
   ENGINE_AWS_S3_PUBLIC_URL: https://ntk-dev-e2e-test.novatalks.xyz
   ENGINE_AWS_S3_REGION: eeur

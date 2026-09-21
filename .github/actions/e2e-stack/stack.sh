@@ -148,12 +148,12 @@ up() {
         -e AWS_S3_ACCESS_KEY="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET="${AWS_S3_SECRET:-}" \
         -e AWS_S3_REGION="${AWS_S3_REGION:-eeur}" -e AWS_S3_FORCE_PATH_STYLE=true \
         "$ENGINE_IMAGE" >/dev/null || fail "the engine container refused to start"
-    # Campaigns stay off here, as the chart values set them (engine.nats.enabled: 'false'):
-    # with them on, the engine awaits a JetStream consumer before it listens, and the chart
-    # renders NATS_DURABLE / NATS_DELIVER_TO / NATS_SUBJECTS only under that same flag — so
-    # forcing the feature on while the keys stay unrendered builds a consumer out of
-    # undefined and never reaches app.listen(). That is Step 1b's job, and it belongs in the
-    # values (where the chart renders the whole coherent key set) rather than as an -e here.
+    # Campaigns are on, and they are on in the values rather than as an -e here: the engine
+    # awaits a JetStream consumer before it listens, and the chart renders the keys that
+    # build one — NATS_DURABLE, NATS_DELIVER_TO, NATS_SUBJECTS — only under
+    # engine.nats.enabled. Forcing the feature past that flag builds a consumer out of
+    # undefined and never reaches app.listen(). NATS_SERVERS below is a host override, which
+    # is all this script is allowed to change about a rendered environment.
     #
     # Migrations and seeds run from the engine's own entrypoint; /readyz is the completion
     # signal, which is why nothing here runs a setup command of its own. It gets its own,
