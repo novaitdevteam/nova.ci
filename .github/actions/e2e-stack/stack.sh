@@ -83,6 +83,15 @@ render_env() { # render_env <configmap-suffix> <output file>
     log "$(wc -l < "$out" | tr -d ' ') settings for ${suffix}"
 }
 
+render_file() { # render_file <configmap-suffix> <key> <output file>
+    local suffix="$1" key="$2" out="$3"
+    docker run --rm -i "$YQ_IMAGE" \
+        "select(.kind == \"ConfigMap\" and (.metadata.name | test(\"${suffix}$\"))) | .data.\"${key}\"" \
+        < "${WORK}/rendered.yaml" > "$out"
+    [ -s "$out" ] || fail "the chart rendered no ${key} in a ${suffix} ConfigMap"
+    log "$(wc -l < "$out" | tr -d ' ') lines of ${key} from ${suffix}"
+}
+
 up() {
     mkdir -p "$WORK"
     : "${CHART_PACKAGE:=ghcr.io/novaitdevteam/novatalks.charts/novatalks-platform}"
@@ -200,12 +209,26 @@ up() {
     wait_http "dialer" "http://127.0.0.1:${DIALER_PORT}/readyz" "$DIALER"
 
     log "botflow ${BOTFLOW_IMAGE}"
+    # settings.js comes from the chart too, not from the image: the image's own leaves
+    # httpAdminRoot commented out, so Node-RED serves everything from / and every /redbot
+    # route — the admin API the flows are deployed through, and every channel webhook —
+    # is a 404. The chart mounts this same file at this same path (multinode sync is on in
+    # our values, so it is the sync ConfigMap), which is what makes the stand's flows and
+    # this stack's agree on where they live.
+    render_file "botflow-sync-config" "settings.js" "${WORK}/botflow-settings.js"
     docker run -d --name "$BOTFLOW" --network host --env-file "${WORK}/botflow.env" \
+        -v "${WORK}/botflow-settings.js:/opt/nova.botflow/config/settings.js:ro" \
         -e BF_REDIS_HOST=127.0.0.1 -e BF_REDIS_PORT=6379 -e BF_REDIS_DB=15 \
         -e NOVATALKS_ENGINE_URL="http://127.0.0.1:${ENGINE_PORT}" \
         -e NOVATALKS_BOTAGENT_WEBHOOK="$bot_hook" \
         "$BOTFLOW_IMAGE" >/dev/null || fail "the botflow container refused to start"
     wait_http "botflow" "http://127.0.0.1:${BOTFLOW_PORT}/redbot/" "$BOTFLOW"
+    # Node-RED answers on every path, so "it answered" is not evidence here the way it is on
+    # a health endpoint: a 404 on the admin root is what a botflow running the image's own
+    # settings.js looks like, and it read as up for one whole probe run.
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${BOTFLOW_PORT}/redbot/")" = "404" ]; then
+        fail "botflow answers 404 on /redbot/ — settings.js did not take, so httpAdminRoot is still '/'" "$BOTFLOW"
+    fi
 
     log "ui ${UI_IMAGE}"
     docker run -d --name "$UI" --network host --env-file "${WORK}/ui.env" \
