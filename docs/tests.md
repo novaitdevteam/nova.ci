@@ -111,6 +111,24 @@ Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 | `@e2e` (417 tests) | 4 | small | 1.2 h | 5.4 | 343 passed, 14 flaky, 28 failed |
 | `@e2e` | 4 | medium | 1.2 h | 2.7 | 326 passed, 25 flaky, 31 failed |
 
+**Run the ephemeral stack on your own machine** with
+[`e2e-stack/local.sh`](../.github/actions/e2e-stack/local.sh) — `up`, `down`, `env`. It runs
+the same `stack.sh` CI runs, reads the GHCR token and the stand's BotFlow admin out of the two
+repositories' own `.env` files without printing either, and prints the variables to export
+before `npx playwright test`.
+
+Use it before reaching for a CI run. On 2026-09-21 a laptop found four defects in twenty
+minutes that fifteen CI runs had not: `sed -i -E` is GNU-only and had been silently mangling
+nothing on a Mac; a container that died on an occupied port went unnoticed because
+`docker run -d` had already returned an id; a port guard written that same hour used `ss`,
+which does not exist on macOS, and so checked nothing; and both workflows carried a
+`FILE_DRIVER=local` fallback for a driver neither the engine nor the dialer has — a branch
+that had never been taken because the secrets were always present. A CI round trip costs
+minutes plus a runner queue and yields one log; locally you have the containers.
+
+What still needs CI: the runner pool's own behaviour (caps, reuse), a port already taken on
+the VM, and the suite under real parallel load.
+
 **Measurements against the ephemeral target**, 2026-09-21, `@smoke` with four workers on
 `e2e-medium` (run 35636742304): **5 passed, 4 flaky, 1 failed** out of ten tests, 6.3 minutes
 including about a minute of bring-up. The one hard failure is `QANT-21`, which reads a real
