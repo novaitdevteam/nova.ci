@@ -1,7 +1,8 @@
 # E2E against an ephemeral stack: Plan
 
 **Spec:** [`../specs/2026-09-18-e2e-ephemeral-stack.md`](../specs/2026-09-18-e2e-ephemeral-stack.md)
-**Status:** in progress — Step 0 answered 3 of 4 questions on 2026-09-18; Step 1 next
+**Status:** in progress — Step 0 closed 2026-09-18; Step 1 verified on a runner 2026-09-21
+(probe run 35581741198, whole stack up in ~75s on e2e-medium); Step 1b next
 **Date:** 2026-09-18
 
 Each step ends in something observable. A step whose verification cannot fail is not done —
@@ -41,6 +42,14 @@ bring-up rather than repeating it, and rendering the chart for every container's
   not come up" with no evidence.
 - **Verify:** run it on a runner by hand; `/readyz`, `/redbot/` and the UI all answer; then
   `down` leaves no container, no volume and no network behind (`docker ps -a`, `docker volume ls`).
+- **Done 2026-09-21**, probe run 35581741198: engine 38s, dialer 12s, botflow 6s, ui 4s,
+  proxy 2s — ~75s from postgres to a served origin. Four faults found by running it, each one
+  a wait that expired with nothing to read: campaigns forced on without the chart's NATS keys,
+  `PORT` where the dialer reads `APP_PORT`, `FILE_DRIVER=local` against a storage map holding
+  only `s3`, and the image's own `settings.js` leaving Node-RED on `/` instead of `/redbot`.
+  The last of those passed as green first — `wait_http` counts any answer as up, which is
+  right for a health path and wrong for a server that answers everything, so the botflow wait
+  now asserts the code and `down` asserts nothing survived it.
 
 ## Step 1b — NATS, the dialer and campaigns
 

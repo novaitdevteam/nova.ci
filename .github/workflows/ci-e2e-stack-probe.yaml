@@ -154,8 +154,7 @@ jobs:
             echo "| Container | Image |"
             echo "| --- | --- |"
             docker ps --format '| `{{.Names}}` | `{{.Image}}` |'
-          } >> "$GITHUB_STEP_SUMMARY"
-          docker ps --format '{{.Names}}\t{{.Status}}'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Take the stack down
         # Always, including on a cancelled run: a runner is reused, and a stack left behind

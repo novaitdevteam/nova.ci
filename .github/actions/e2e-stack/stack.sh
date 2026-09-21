@@ -279,7 +279,16 @@ down() {
     fi
     docker rm -f "${ALL_CONTAINERS[@]}" >/dev/null 2>&1 || true
     rm -rf "$WORK" >/dev/null 2>&1 || true
-    log "stack is down"
+    # Say so when something survived, rather than reporting a teardown that did not happen.
+    # A runner is reused: a container left holding 3000 or 5432 meets the next job as a boot
+    # failure in whatever runs there next, with nothing pointing back here.
+    local left
+    left="$(docker ps -a --filter "name=^${PREFIX}-" --filter 'name=^nova-nats$' --format '{{.Names}}' | tr '\n' ' ')"
+    if [ -n "$left" ]; then
+        printf '::error::teardown left containers behind: %s\n' "$left" >&2
+        exit 1
+    fi
+    log "stack is down, nothing left behind"
 }
 
 case "${1:-}" in
