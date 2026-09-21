@@ -152,10 +152,20 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
 
     # The stand's own addresses must not survive into a stack that exists to be independent of
     # it. A receive node left pointing at the lab would have this run creating conversations
-    # there, and an engine connector would write to the lab's database.
+    # there; an engine connector would write to its database; and probe 35587666242 found a
+    # node addressing ntk-dev-e2e-test-redis, which is the DB holding the stand's own flows.
+    #
+    # Every in-cluster service name goes to 127.0.0.1, not just the ones in a URL: the first
+    # attempt rewrote http://<name>:<port> and missed a bare host field. The ports agree
+    # already — engine 3000, botflow 1880, redis 6379 are the same here as in the cluster —
+    # so the host alone is the whole substitution. Say which names were found: a guard that
+    # stops reporting once it passes teaches nobody what it is protecting against.
+    local stand_refs
+    stand_refs="$(grep -o -E "${origin}|${project}-[a-z0-9-]+" "${WORK}/stand-flows.json" \
+        | sort | uniq -c | sort -rn | awk '{printf "%s×%s ", $1, $2}')"
+    log "rewriting stand addresses: ${stand_refs:-none found}"
     sed -e "s|${origin}|http://localhost:${PROXY_PORT}|g" \
-        -e "s|http://${project}-engine:3000|http://127.0.0.1:${ENGINE_PORT}|g" \
-        -e "s|http://${project}-botflow:1880|http://127.0.0.1:${BOTFLOW_PORT}|g" \
+        -e "s|${project}-[a-z0-9-]*|127.0.0.1|g" \
         "${WORK}/stand-flows.json" > "${WORK}/flows.json"
     local leftover
     leftover="$(grep -o -E "${origin}|${project}-[a-z0-9]+" "${WORK}/flows.json" | sort -u | tr '\n' ' ')"
