@@ -98,12 +98,17 @@ jobs:
           ref: ${{ inputs.nova_ci_ref || 'main' }}
 
       - name: Checkout the chart
+        id: chart
         uses: actions/checkout@v6
         with:
           repository: novaitdevteam/novatalks.charts
           ref: ${{ inputs.chart_ref }}
           # The chart repository is private and this workflow's own GITHUB_TOKEN cannot read it.
-          token: ${{ secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
+          # CHARTS_TOKEN first: a read-only token for novatalks.charts alone. The two
+          # fallbacks are what already exists — nova.ci's own backup token when the probe runs
+          # here, and the caller's PAT otherwise — and a 403 on this step means whichever one
+          # was picked cannot read that repository, not that the chart ref is wrong.
+          token: ${{ secrets.CHARTS_TOKEN || secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
           path: charts
 
       - name: Install Docker
