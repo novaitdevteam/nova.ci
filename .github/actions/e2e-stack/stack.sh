@@ -237,6 +237,17 @@ up() {
     wait_http "ui" "http://127.0.0.1:${UI_PORT}/" "$UI"
 
     log "front proxy"
+    # Nothing may already hold the port, and "something answers on it" is not the same thing
+    # as "our proxy is up": probe 35582573611 read nginx's own log and found
+    # `bind() to 0.0.0.0:8080 failed (98: Address in use)` — the stranger already there
+    # answered 200 on / and 404 on every route, which is indistinguishable from a working
+    # proxy from the outside, and had been passing this wait for three runs.
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${PROXY_PORT}/" || echo 000)" != "000" ]; then
+        printf '::error::something already answers on port %s — the front proxy cannot bind it\n' "$PROXY_PORT" >&2
+        (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null) | grep ":${PROXY_PORT}" >&2 || true
+        docker ps --format '    {{.Names}}  {{.Image}}  {{.Ports}}' >&2
+        exit 1
+    fi
     # The lab's Traefik route table, copied rather than invented: a route the stand has and the
     # runner lacks is a test that passes in one place and fails in the other for no product
     # reason. /redbot must come before /, and the dialer prefix before the engine's /api/.
@@ -263,6 +274,13 @@ EOF
         -v "${WORK}/proxy.conf:/etc/nginx/conf.d/default.conf:ro" \
         nginx:1.27-alpine >/dev/null || fail "the proxy container refused to start"
     wait_http "proxy" "http://127.0.0.1:${PROXY_PORT}/" "$PROXY"
+    # Answering is not routing. botflow is known to answer 200 on its own port by now, so the
+    # same path through the proxy must too — that is the one check that distinguishes our
+    # nginx, with the stand's route table, from anything else listening on this port.
+    proxy_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${PROXY_PORT}/redbot/" || echo 000)"
+    if [ "$proxy_code" != "200" ]; then
+        fail "the proxy answers ${proxy_code} on /redbot/ while botflow answers 200 on its own port — it is not routing" "$PROXY"
+    fi
 
     log "stack is up on http://localhost:${PROXY_PORT}"
 }
