@@ -1,10 +1,9 @@
 # E2E against an ephemeral stack: Plan
 
 **Spec:** [`../specs/2026-09-18-e2e-ephemeral-stack.md`](../specs/2026-09-18-e2e-ephemeral-stack.md)
-**Status:** in progress — Step 0 closed 2026-09-18; Step 1 verified on a runner 2026-09-21
-(probe run 35584025381, whole stack up in ~60s on e2e-medium, every route answering the same
-through the proxy as on its own port); Step 1b under way — campaigns are on and the engine
-boots with them
+**Status:** in progress — Steps 0-3 done. `@CI` is **green against the ephemeral target**
+(run 35605382826, 2026-09-21: one test, 55.8s, on a stack the run booted and destroyed).
+Step 1b next (campaigns end to end), then Step 4's measurements
 **Date:** 2026-09-18
 
 Each step ends in something observable. A step whose verification cannot fail is not done —
@@ -110,6 +109,19 @@ bring-up.
 - `concurrency` keys on the run id for `ephemeral`, on `env_url` for `lab` (D12).
 - **Verify:** `@CI` green on `target: ephemeral`; the same tag still green on `target: lab`;
   two ephemeral runs at once both finish (no queueing).
+- **Done 2026-09-21**, run 35605382826. Eight faults between the stack coming up and the suite
+  passing, and the three that cost the most were the ones that looked like something else:
+  - nginx drops headers containing underscores, and the Engine's credential is
+    `api_access_token`. Every API call answered 401 while the token itself was valid — proven
+    valid by a check that sent it straight at the container, past the proxy that was eating it.
+  - the seeded admin password had no uppercase, against the engine's own default policy, so
+    creating an agent answered 422 and read as a product fault rather than an input.
+  - the seeds create the AgentBot **and** a random token for it unless `AGENTBOT_INBOX_TOKEN`
+    is set, which the chart never renders. Adding the right token as a second row changed
+    nothing about which one the engine sent, so BotFlow ignored every agent-bot call in
+    silence: conversation created, bot asked, no answer, no error anywhere.
+  All three were found by rendering the chart with the lab's values beside this stack's and
+  diffing the result — not by reading logs, which had been exhausted twice by then.
 
 ## Step 4 — Measure, then decide the default
 
