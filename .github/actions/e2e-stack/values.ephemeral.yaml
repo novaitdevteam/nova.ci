@@ -44,7 +44,7 @@ global:
     enabled: 'false'
   auth:
     jwt:
-      value: fCHpDJW3oOf9Vv99
+      value: e2e-ephemeral-not-a-real-secret
   nats:
     manageClientTlsSecret: e2e-ephemeral-not-a-real-secret
   nodeBind:
