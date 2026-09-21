@@ -276,6 +276,30 @@ jobs:
           free -m | sed -n '1,2p'
           df -h --output=source,size,avail,pcent / | tail -1
 
+      # What this run is actually pointed at, before it starts. A red run otherwise leaves you
+      # guessing which target and which credentials it used, and an empty credential and a
+      # wrong one produce the same 401 — which is exactly what the first ephemeral suite run
+      # did, with the stack's own token proven working seconds earlier.
+      #
+      # Lengths, never values: these are credentials on the lab path.
+      - name: Resolved target
+        env:
+          TARGET: ${{ inputs.target }}
+          ENV_URL: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_ORIGIN || inputs.env_url }}
+          BOTFLOW_URL: ${{ inputs.target == 'ephemeral' && format('{0}/redbot', env.E2E_STACK_ORIGIN) || inputs.botflow_url }}
+          API_TOKEN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_API_TOKEN || secrets.E2E_API_TOKEN }}
+          UI_ADMIN_LOGIN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_LOGIN || secrets.E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_PASSWORD || secrets.E2E_UI_ADMIN_PASSWORD }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_BOTFLOW_PASSWORD || secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
+        run: |
+          echo "target:      ${TARGET}"
+          echo "ENV_URL:     ${ENV_URL}"
+          echo "BOTFLOW_URL: ${BOTFLOW_URL}"
+          echo "credentials (lengths only): API_TOKEN=${#API_TOKEN} UI_ADMIN_LOGIN=${#UI_ADMIN_LOGIN} UI_ADMIN_PASSWORD=${#UI_ADMIN_PASSWORD} BOTFLOW_ADMIN_PASSWORD=${#BOTFLOW_ADMIN_PASSWORD}"
+          for name in ENV_URL BOTFLOW_URL API_TOKEN UI_ADMIN_LOGIN UI_ADMIN_PASSWORD; do
+            [ -n "${!name}" ] || { echo "::error::${name} resolved to nothing for target ${TARGET}"; exit 1; }
+          done
+
       - name: Run Playwright Tests
         # Bounded at the step, not only at the job: a step timeout fails this step and lets
         # the ones after it run, so the report is still uploaded and an ephemeral stack is
