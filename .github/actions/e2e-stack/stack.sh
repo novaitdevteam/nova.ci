@@ -107,6 +107,18 @@ env_value() { # env_value <key> <env-file>
     grep -E "^$1=" "$2" 2>/dev/null | head -1 | cut -d= -f2- || true
 }
 
+# `docker run -d` succeeds as soon as the container is *created*. A container that dies a
+# second later — a port already taken, an entrypoint that exits — still returns an id, so
+# `|| fail` never fires and the script carries on to the next component, which then fails for
+# a reason that has nothing to do with its own configuration. This repository has paid for
+# that shape once already (the CloudNativePG image whose entrypoint was bash, in CLAUDE.md);
+# it cost an engine "boot failure" here that was really a redis with no port to bind.
+started() { # started <container> <human name>
+    sleep 1
+    [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ] \
+        || fail "$2 exited immediately after starting" "$1"
+}
+
 render_env() { # render_env <configmap-suffix> <output file>
     local suffix="$1" out="$2"
     docker run --rm -i "$YQ_IMAGE" \
@@ -132,10 +144,15 @@ render_env() { # render_env <configmap-suffix> <output file>
 localise_env() { # localise_env <env-file>
     local file="$1" before after
     before="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)" "$file" || true)"
-    sed -i -E \
+    # Written to a temp file rather than with `sed -i`: BSD sed reads the next argument as a
+    # backup suffix, so `sed -i -E` makes -E the suffix and the expression is parsed as
+    # something else entirely. Only GNU sed runs on the runner, but a script that cannot be
+    # run on the machine it is written on is a script that gets debugged through CI.
+    sed -E \
         -e "s#${RELEASE}-dialer:3000#${RELEASE}-dialer:${DIALER_PORT}#g" \
         -e "s#${RELEASE}-(engine|botflow|dialer|postgres|redis)(\.[a-z0-9.-]+)?(:|/|\$)#127.0.0.1\3#g" \
-        "$file"
+        "$file" > "${file}.localised"
+    mv "${file}.localised" "$file"
     after="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)" "$file" || true)"
     log "$(basename "$file"): localised $(( before - after )) cluster address(es), $after left as identifiers"
 }
@@ -281,6 +298,7 @@ up() {
         postgres:17.9-trixie \
         -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
         >/dev/null || fail "postgres refused to start"
+    started "$PG" "postgres"
     for _ in $(seq 1 30); do
         docker exec "$PG" pg_isready -U novatalks >/dev/null 2>&1 && break
         sleep 2
@@ -292,6 +310,7 @@ up() {
 
     log "redis"
     docker run -d --name "$REDIS" --network host redis:8 >/dev/null || fail "redis refused to start"
+    started "$REDIS" "redis"
 
     log "nats"
     # Shared with the DAST bring-up rather than copied: the 'campaign' stream the dialer's
@@ -330,6 +349,7 @@ up() {
         -e AWS_S3_ACCESS_KEY="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET="${AWS_S3_SECRET:-}" \
         -e AWS_S3_REGION="${AWS_S3_REGION:-eeur}" -e AWS_S3_FORCE_PATH_STYLE=true \
         "$ENGINE_IMAGE" >/dev/null || fail "the engine container refused to start"
+    started "$ENGINE" "the engine"
     # Campaigns are on, and they are on in the values rather than as an -e here: the engine
     # awaits a JetStream consumer before it listens, and the chart renders the keys that
     # build one — NATS_DURABLE, NATS_DELIVER_TO, NATS_SUBJECTS — only under
@@ -438,6 +458,7 @@ up() {
         -e DATABASE_URL="postgresql://novatalks:e2e-local@127.0.0.1:5432/dialer" \
         -e NATS_SERVERS=127.0.0.1:4222 \
         "$DIALER_IMAGE" >/dev/null || fail "the dialer container refused to start"
+    started "$DIALER" "the dialer"
     wait_http "dialer" "http://127.0.0.1:${DIALER_PORT}/readyz" "$DIALER"
 
     log "botflow ${BOTFLOW_IMAGE}"
@@ -454,6 +475,7 @@ up() {
         -e NOVATALKS_ENGINE_URL="http://127.0.0.1:${ENGINE_PORT}" \
         -e NOVATALKS_BOTAGENT_WEBHOOK="$bot_hook" \
         "$BOTFLOW_IMAGE" >/dev/null || fail "the botflow container refused to start"
+    started "$BOTFLOW" "botflow"
     wait_http "botflow" "http://127.0.0.1:${BOTFLOW_PORT}/redbot/" "$BOTFLOW"
     # Node-RED answers on every path, so "it answered" is not evidence here the way it is on
     # a health endpoint: a 404 on the admin root is what a botflow running the image's own
@@ -468,6 +490,7 @@ up() {
     docker run -d --name "$UI" --network host --env-file "${WORK}/ui.env" \
         -e VITE_APP_WEBSOCKET_URL="https://localhost:${PROXY_PORT}" \
         "$UI_IMAGE" >/dev/null || fail "the ui container refused to start"
+    started "$UI" "the ui"
     wait_http "ui" "http://127.0.0.1:${UI_PORT}/" "$UI"
 
     log "front proxy"
@@ -488,15 +511,12 @@ up() {
     # `bind() to 0.0.0.0:8080 failed (98: Address in use)` — the stranger already there
     # answered 200 on / and 404 on every route, which is indistinguishable from a working
     # proxy from the outside, and had been passing this wait for three runs.
-    # Asked of the socket, not over HTTP: an occupant that speaks a different scheme than the
-    # probe answers nothing and reads as a free port. That is not hypothetical — this proxy
-    # serves TLS now, and the stranger this guard was written for served plain http.
-    if (ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null) | grep -qE "[:.]${PROXY_PORT}[[:space:]]"; then
-        printf '::error::something is already listening on port %s — the front proxy cannot bind it\n' "$PROXY_PORT" >&2
-        (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null) | grep ":${PROXY_PORT}" >&2 || true
-        docker ps --format '    {{.Names}}  {{.Image}}  {{.Ports}}' >&2
-        exit 1
-    fi
+    # No separate port check here any more. One was written for the stranger that held 8080 on
+    # the runner, first as an HTTP probe and then against `ss` — and neither is portable: ss
+    # does not exist on a Mac, netstat takes different flags there, and with host networking
+    # the ports live in Docker's Linux VM rather than on the machine asking. `started` below
+    # catches the same failure in both places and reports it better, because it prints nginx's
+    # own line naming the port it could not bind.
     # The lab's Traefik route table, copied rather than invented: a route the stand has and the
     # runner lacks is a test that passes in one place and fails in the other for no product
     # reason. /redbot must come before /, and the dialer prefix before the engine's /api/.
@@ -532,6 +552,7 @@ EOF
         -v "${WORK}/proxy.crt:/etc/nginx/tls/proxy.crt:ro" \
         -v "${WORK}/proxy.key:/etc/nginx/tls/proxy.key:ro" \
         nginx:1.27-alpine >/dev/null || fail "the proxy container refused to start"
+    started "$PROXY" "the proxy"
     wait_http "proxy" "https://127.0.0.1:${PROXY_PORT}/" "$PROXY"
     # Answering is not routing. botflow is known to answer 200 on its own port by now, so the
     # same path through the proxy must too — that is the one check that distinguishes our

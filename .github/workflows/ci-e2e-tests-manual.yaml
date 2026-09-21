@@ -256,12 +256,17 @@ jobs:
           BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag }}
           DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag }}
           # Attachments go to the stand's own bucket, whose 30-day retention is the cleanup
-          # (spec D8). Unset means the engine falls back to FILE_DRIVER=local.
-          FILE_DRIVER: ${{ secrets.E2E_R2_ACCESS_KEY_ID && 's3' || 'local' }}
-          AWS_S3_ENDPOINT: ${{ secrets.E2E_R2_ENDPOINT }}
-          AWS_S3_BUCKET: ${{ secrets.E2E_R2_BUCKET }}
-          AWS_S3_ACCESS_KEY: ${{ secrets.E2E_R2_ACCESS_KEY_ID }}
-          AWS_S3_SECRET: ${{ secrets.E2E_R2_SECRET_ACCESS_KEY }}
+          # (spec D8).
+          # No `local` fallback: there is no such driver. Both the engine's and the dialer's
+          # storages map holds exactly one entry, s3, so FILE_DRIVER=local indexes it to
+          # undefined and calls it — the container dies in provider init. Without credentials
+          # the driver still has to be s3, pointed at somewhere that does not resolve; the app
+          # logs one startup warning and runs, and only file operations fail.
+          FILE_DRIVER: s3
+          AWS_S3_ENDPOINT: ${{ secrets.E2E_R2_ENDPOINT || 'http://s3.example.invalid' }}
+          AWS_S3_BUCKET: ${{ secrets.E2E_R2_BUCKET || 'e2e-dummy-not-a-real-bucket' }}
+          AWS_S3_ACCESS_KEY: ${{ secrets.E2E_R2_ACCESS_KEY_ID || 'e2e-dummy-not-a-real-key' }}
+          AWS_S3_SECRET: ${{ secrets.E2E_R2_SECRET_ACCESS_KEY || 'e2e-dummy-not-a-real-secret' }}
           # The flows are the stand's own (spec D7), so the bring-up reads its Node-RED with
           # the same credentials the suite uses. The URL is a parameter, not a secret.
           E2E_SOURCE_BOTFLOW_URL: ${{ inputs.source_botflow_url }}
