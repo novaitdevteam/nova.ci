@@ -50,16 +50,16 @@ fail() { # fail <message> [container]
     exit 1
 }
 
-wait_http() { # wait_http <name> <url> <container>
-    local name="$1" url="$2" container="$3" code=""
-    for _ in $(seq 1 $(( BOOT_TIMEOUT / 2 ))); do
+wait_http() { # wait_http <name> <url> <container> [timeout-seconds]
+    local name="$1" url="$2" container="$3" timeout="${4:-$BOOT_TIMEOUT}" code=""
+    for _ in $(seq 1 $(( timeout / 2 ))); do
         code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
         # Any answer at all means it is listening; a 401 or 404 is still an answer, and a
         # health path that returns one is not this script's business to judge.
         [ -n "$code" ] && [ "$code" != "000" ] && { log "$name is up (HTTP $code)"; return 0; }
         sleep 2
     done
-    fail "$name did not answer $url within ${BOOT_TIMEOUT}s" "$container"
+    fail "$name did not answer $url within ${timeout}s" "$container"
 }
 
 render_env() { # render_env <configmap-suffix> <output file>
@@ -123,8 +123,10 @@ up() {
         -e AWS_S3_REGION="${AWS_S3_REGION:-eeur}" -e AWS_S3_FORCE_PATH_STYLE=true \
         "$ENGINE_IMAGE" >/dev/null || fail "the engine container refused to start"
     # Migrations and seeds run from the engine's own entrypoint; /readyz is the completion
-    # signal, which is why nothing here runs a setup command of its own.
-    wait_http "engine" "http://127.0.0.1:${ENGINE_PORT}/readyz" "$ENGINE"
+    # signal, which is why nothing here runs a setup command of its own. It gets its own,
+    # longer budget because that work is real: 291 migrations and the full seed set against an
+    # empty database, which the first probe run was still in the middle of at 300s.
+    wait_http "engine" "http://127.0.0.1:${ENGINE_PORT}/readyz" "$ENGINE" "${E2E_ENGINE_BOOT_TIMEOUT:-900}"
 
     log "stand settings the seeds do not make"
     # Each of these has already cost a red suite: an expired trial hides login behind a promo
