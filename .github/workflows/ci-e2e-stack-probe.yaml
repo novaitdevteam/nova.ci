@@ -160,7 +160,7 @@ jobs:
           # boot nobody checked look identical in a green job.
           # `|| true`, never an `|| echo` of a second 000: curl already writes 000 when nothing
           # answered, and doubling it yields a code that matches nothing it is compared to.
-          probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || true; }
+          probe() { curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$1" || true; }
           {
             echo "### Ephemeral stack probe"
             echo ""
@@ -171,7 +171,7 @@ jobs:
             echo "| --- | --- | --- |"
             for row in /:8000 /api/v1/:3000 /auth/:3000 /redbot/:1880 /api/v1/dialer/:3002; do
               path="${row%:*}"; port="${row##*:}"
-              echo "| \`${path}\` | $(probe "http://127.0.0.1:${port}${path}") | $(probe "http://localhost:18080${path}") |"
+              echo "| \`${path}\` | $(probe "http://127.0.0.1:${port}${path}") | $(probe "https://localhost:18080${path}") |"
             done
             echo ""
             echo ""

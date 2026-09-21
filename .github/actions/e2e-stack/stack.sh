@@ -73,7 +73,9 @@ fail() { # fail <message> [container]
 # "000000", which compares equal to no code at all — that is how the port guard below read a
 # free port as occupied on probe 35583343234, with no listener in the ss output beside it.
 http_code() { # http_code <url> [timeout-seconds]
-    curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null || true
+    # -k because the front proxy's certificate is generated per run and signed by nothing.
+    # This is a health check against our own containers, not a trust decision.
+    curl -sk -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null || true
 }
 
 wait_http() { # wait_http <name> <url> <container> [timeout-seconds]
@@ -114,9 +116,10 @@ render_env() { # render_env <configmap-suffix> <output file>
     log "$(wc -l < "$out" | tr -d ' ') settings for ${suffix}"
 }
 
-# The chart renders for a cluster: every service is an in-cluster DNS name and every public
-# URL is https, because Traefik terminates TLS in front of the lab. Neither holds on a runner,
-# where the whole stack is on the host network behind one plain-http proxy. Rewriting the
+# The chart renders for a cluster, where every service is an in-cluster DNS name. That does
+# not hold on a runner, where the whole stack shares the host network. The https URLs are
+# left alone on purpose: the front proxy terminates TLS here exactly as Traefik does there,
+# so the scheme the chart renders is already the right one. Rewriting the
 # rendered files is the same move copy_flows makes on the flow document, and for the same
 # reason — a -e per key only covers the keys somebody remembered. Comparing the lab's render
 # with this one on 2026-09-21 found four that nobody had: CONTACT_CHECK_ENDPOINT,
@@ -128,13 +131,12 @@ render_env() { # render_env <configmap-suffix> <output file>
 # engine already holds here.
 localise_env() { # localise_env <env-file>
     local file="$1" before after
-    before="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)|https://localhost" "$file" || true)"
+    before="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)" "$file" || true)"
     sed -i -E \
         -e "s#${RELEASE}-dialer:3000#${RELEASE}-dialer:${DIALER_PORT}#g" \
         -e "s#${RELEASE}-(engine|botflow|dialer|postgres|redis)(\.[a-z0-9.-]+)?(:|/|\$)#127.0.0.1\3#g" \
-        -e "s#https://localhost:#http://localhost:#g" \
         "$file"
-    after="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)|https://localhost" "$file" || true)"
+    after="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)" "$file" || true)"
     log "$(basename "$file"): localised $(( before - after )) cluster address(es), $after left as identifiers"
 }
 
@@ -204,7 +206,7 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
     stand_refs="$(grep -o -E "${origin}|${project}-[a-z0-9-]+" "${WORK}/stand-flows.json" \
         | sort | uniq -c | sort -rn | awk '{printf "%s×%s ", $1, $2}' || true)"
     log "rewriting stand addresses: ${stand_refs:-none found}"
-    sed -e "s|${origin}|http://localhost:${PROXY_PORT}|g" \
+    sed -e "s|${origin}|https://localhost:${PROXY_PORT}|g" \
         -e "s|${project}-[a-z0-9-]*|127.0.0.1|g" \
         "${WORK}/stand-flows.json" > "${WORK}/flows.json"
     local leftover
@@ -464,18 +466,33 @@ up() {
 
     log "ui ${UI_IMAGE}"
     docker run -d --name "$UI" --network host --env-file "${WORK}/ui.env" \
-        -e VITE_APP_WEBSOCKET_URL="http://localhost:${PROXY_PORT}" \
+        -e VITE_APP_WEBSOCKET_URL="https://localhost:${PROXY_PORT}" \
         "$UI_IMAGE" >/dev/null || fail "the ui container refused to start"
     wait_http "ui" "http://127.0.0.1:${UI_PORT}/" "$UI"
 
     log "front proxy"
+    # TLS, self-signed, valid for the life of the run. Not decoration: the web widget's
+    # bundle is served from a CDN and builds its socket URL as wss:// + the page host, with
+    # no setting anywhere to change it — /widget/settings returns no socket address at all.
+    # Against a plain-http origin it retries the handshake forever and the widget sits on a
+    # spinner with the conversation already created (probe run 35611733629, QANT-48).
+    #
+    # Terminating TLS here is also *less* divergence, not more: the chart renders https URLs
+    # because Traefik terminates TLS in front of the lab, and this used to be rewritten away.
+    openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+        -keyout "${WORK}/proxy.key" -out "${WORK}/proxy.crt" \
+        -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+        >/dev/null 2>&1 || fail "could not generate the proxy certificate"
     # Nothing may already hold the port, and "something answers on it" is not the same thing
     # as "our proxy is up": probe 35582573611 read nginx's own log and found
     # `bind() to 0.0.0.0:8080 failed (98: Address in use)` — the stranger already there
     # answered 200 on / and 404 on every route, which is indistinguishable from a working
     # proxy from the outside, and had been passing this wait for three runs.
-    if [ "$(http_code "http://127.0.0.1:${PROXY_PORT}/" 3)" != "000" ]; then
-        printf '::error::something already answers on port %s — the front proxy cannot bind it\n' "$PROXY_PORT" >&2
+    # Asked of the socket, not over HTTP: an occupant that speaks a different scheme than the
+    # probe answers nothing and reads as a free port. That is not hypothetical — this proxy
+    # serves TLS now, and the stranger this guard was written for served plain http.
+    if (ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null) | grep -qE "[:.]${PROXY_PORT}[[:space:]]"; then
+        printf '::error::something is already listening on port %s — the front proxy cannot bind it\n' "$PROXY_PORT" >&2
         (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null) | grep ":${PROXY_PORT}" >&2 || true
         docker ps --format '    {{.Names}}  {{.Image}}  {{.Ports}}' >&2
         exit 1
@@ -485,7 +502,9 @@ up() {
     # reason. /redbot must come before /, and the dialer prefix before the engine's /api/.
     cat > "${WORK}/proxy.conf" <<EOF
 server {
-    listen ${PROXY_PORT};
+    listen ${PROXY_PORT} ssl;
+    ssl_certificate     /etc/nginx/tls/proxy.crt;
+    ssl_certificate_key /etc/nginx/tls/proxy.key;
     client_max_body_size 64m;
     # The Engine's static API credential travels in a header called api_access_token, and
     # nginx drops headers containing underscores unless told otherwise. Traefik does not, so
@@ -510,12 +529,14 @@ server {
 EOF
     docker run -d --name "$PROXY" --network host \
         -v "${WORK}/proxy.conf:/etc/nginx/conf.d/default.conf:ro" \
+        -v "${WORK}/proxy.crt:/etc/nginx/tls/proxy.crt:ro" \
+        -v "${WORK}/proxy.key:/etc/nginx/tls/proxy.key:ro" \
         nginx:1.27-alpine >/dev/null || fail "the proxy container refused to start"
-    wait_http "proxy" "http://127.0.0.1:${PROXY_PORT}/" "$PROXY"
+    wait_http "proxy" "https://127.0.0.1:${PROXY_PORT}/" "$PROXY"
     # Answering is not routing. botflow is known to answer 200 on its own port by now, so the
     # same path through the proxy must too — that is the one check that distinguishes our
     # nginx, with the stand's route table, from anything else listening on this port.
-    proxy_code="$(http_code "http://127.0.0.1:${PROXY_PORT}/redbot/")"
+    proxy_code="$(http_code "https://127.0.0.1:${PROXY_PORT}/redbot/")"
     if [ "$proxy_code" != "200" ]; then
         fail "the proxy answers ${proxy_code} on /redbot/ while botflow answers 200 on its own port — it is not routing" "$PROXY"
     fi
@@ -526,7 +547,10 @@ EOF
     # needs them and they are fixed fakes, not secrets.
     if [ -n "${GITHUB_ENV:-}" ]; then
         {
-            printf 'E2E_STACK_ORIGIN=http://localhost:%s\n' "$PROXY_PORT"
+            printf 'E2E_STACK_ORIGIN=https://localhost:%s\n' "$PROXY_PORT"
+            # Node trusts it through this; Chromium does not read it, and is told to ignore
+            # certificate errors in playwright.config.ts instead.
+            printf 'NODE_EXTRA_CA_CERTS=%s\n' "${WORK}/proxy.crt"
             printf 'E2E_STACK_BOTFLOW_LOGIN=%s\n' "$BOTFLOW_ADMIN_LOGIN"
             printf 'E2E_STACK_BOTFLOW_PASSWORD=%s\n' "$BOTFLOW_ADMIN_PASSWORD"
             printf 'E2E_STACK_UI_LOGIN=%s\n' "$admin_user"
@@ -539,14 +563,14 @@ EOF
     # passed, and the suite still got 401 on every call — because nginx drops underscored
     # headers and api_access_token never reached the engine. A check that avoids the proxy
     # cannot see the proxy's own faults.
-    token_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    token_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
         -H "api_access_token: ${api_token}" \
-        "http://127.0.0.1:${PROXY_PORT}/api/v1/accounts/1/wrupup-codes" 2>/dev/null || true)"
+        "https://127.0.0.1:${PROXY_PORT}/api/v1/accounts/1/wrupup-codes" 2>/dev/null || true)"
     [ "$token_code" = "200" ] \
         || fail "the API token answers ${token_code} through the proxy — the suite authenticates every call this way" "$PROXY"
     log "the API token authenticates through the proxy (HTTP ${token_code})"
 
-    log "stack is up on http://localhost:${PROXY_PORT}"
+    log "stack is up on https://localhost:${PROXY_PORT}"
 }
 
 down() {

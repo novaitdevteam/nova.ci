@@ -196,8 +196,8 @@ env:
   ENGINE_ENCRYPTION_SECRET: e2e-ephemeral-not-a-real-secret
   ENGINE_NODE_ENV: production
   ENGINE_LOG_LEVEL: debug
-  ENGINE_FRONTEND_URL: http://localhost:18080
-  ENGINE_STORE_URL: http://localhost:18080
+  ENGINE_FRONTEND_URL: https://localhost:18080
+  ENGINE_STORE_URL: https://localhost:18080
   ENGINE_AUTH_ACTIVE_PROVIDERS: email,ldap
   # A duration, not a credential — the name ends in TOKEN_EXPIRES_IN and the placeholder
   # landed here because of it. The lab runs 7d; a run lasts under two hours, so anything
@@ -222,8 +222,8 @@ env:
   ENGINE_AWS_S3_PUBLIC_URL: https://ntk-dev-e2e-test.novatalks.xyz
   ENGINE_AWS_S3_REGION: eeur
   ENGINE_AWS_S3_FORCE_PATH_STYLE: 'true'
-  UI_VITE_APP_INFO_PANEL_TECH_SUPPORT_URL: http://localhost:18080/app/accounts/1/profile/settings
-  UI_VITE_APP_WEBSOCKET_URL: http://localhost:18080
+  UI_VITE_APP_INFO_PANEL_TECH_SUPPORT_URL: https://localhost:18080/app/accounts/1/profile/settings
+  UI_VITE_APP_WEBSOCKET_URL: https://localhost:18080
   UI_VITE_APP_VAPID_PUBLIC_KEY: e2e-ephemeral-not-a-real-secret
   UI_VITE_APP_CONVERSATION_LIST_LIMIT: '50'
   UI_VITE_APP_PINNED_MESSAGES_LIMIT: '150'
@@ -247,6 +247,6 @@ env:
   BF_MESSAGE_ID_EX_TIME: '604800'
   BF_WHATSAPP_MAX_UNREAD_CHATS: '3'
   BF_WHATSAPP_MAX_UNREAD_CHATS_DELAY: '60000'
-  BF_TELEGRAM_CHANNEL_1_WEBHOOK: http://localhost:18080/redbot/telegram/1
-  BF_VIBER_CHANNEL_1_WEBHOOK: http://localhost:18080/redbot/viber/1
-  BF_FB_MESSENGER_CHANNEL_1_WEBHOOK: http://localhost:18080/redbot/messenger/channel-messenger/1
+  BF_TELEGRAM_CHANNEL_1_WEBHOOK: https://localhost:18080/redbot/telegram/1
+  BF_VIBER_CHANNEL_1_WEBHOOK: https://localhost:18080/redbot/viber/1
+  BF_FB_MESSENGER_CHANNEL_1_WEBHOOK: https://localhost:18080/redbot/messenger/channel-messenger/1
