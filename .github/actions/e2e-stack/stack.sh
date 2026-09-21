@@ -51,12 +51,19 @@ fail() { # fail <message> [container]
 }
 
 wait_http() { # wait_http <name> <url> <container> [timeout-seconds]
-    local name="$1" url="$2" container="$3" timeout="${4:-$BOOT_TIMEOUT}" code=""
-    for _ in $(seq 1 $(( timeout / 2 ))); do
+    local name="$1" url="$2" container="$3" timeout="${4:-$BOOT_TIMEOUT}" code="" i=0
+    for i in $(seq 1 $(( timeout / 2 ))); do
         code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
         # Any answer at all means it is listening; a 401 or 404 is still an answer, and a
         # health path that returns one is not this script's business to judge.
-        [ -n "$code" ] && [ "$code" != "000" ] && { log "$name is up (HTTP $code)"; return 0; }
+        [ -n "$code" ] && [ "$code" != "000" ] && { log "$name is up (HTTP $code) after $(( i * 2 ))s"; return 0; }
+        # A silent wait and a hang look identical in a job log — that is how the first probe
+        # run read as "stuck" while the engine was busy migrating. Every 30s, say how long it
+        # has been waiting and what the container itself last said; a container that has
+        # stopped saying anything new is the actual signal of a hang.
+        if [ $(( i % 15 )) -eq 0 ]; then
+            log "$name: waiting $(( i * 2 ))s — last line: $(docker logs --tail 1 "$container" 2>&1 | tr -d '\r' | cut -c1-140)"
+        fi
         sleep 2
     done
     fail "$name did not answer $url within ${timeout}s" "$container"
