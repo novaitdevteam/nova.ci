@@ -96,9 +96,15 @@ up() {
     render_env "ui-config"          "${WORK}/ui.env"
 
     log "postgres"
+    # Durability off, deliberately: this database is created, migrated, used by one suite and
+    # destroyed with the runner, so an fsync per commit buys nothing and costs a lot — the
+    # engine's 291 migrations were still running at 900s on a Hetzner disk. A crash here means
+    # the run is over anyway; there is nothing to recover to.
     docker run -d --name "$PG" --network host \
         -e POSTGRES_USER=novatalks -e POSTGRES_PASSWORD=e2e-local -e POSTGRES_DB=novatalks \
-        postgres:17.9-trixie >/dev/null || fail "postgres refused to start"
+        postgres:17.9-trixie \
+        -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
+        >/dev/null || fail "postgres refused to start"
     for _ in $(seq 1 30); do
         docker exec "$PG" pg_isready -U novatalks >/dev/null 2>&1 && break
         sleep 2
