@@ -26,6 +26,11 @@ set -euo pipefail
 STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "${STACK_DIR}/../dast/dast-common.sh"
+# The per-repository boot table, sourced rather than copied for the same reason every DAST
+# caller reaches it through one file: what an image needs before it will answer is knowledge
+# that goes stale in every copy but the one being maintained.
+# shellcheck source=/dev/null
+. "${STACK_DIR}/../dast/targets.sh"
 
 PREFIX="${E2E_STACK_PREFIX:-e2e}"
 PROXY_PORT="${E2E_PROXY_PORT:-8080}"
@@ -174,15 +179,21 @@ up() {
         limit 1" >/dev/null || fail "could not seed the AgentBot token" "$PG"
 
     log "dialer ${DIALER_IMAGE}"
-    docker run -d --name "$DIALER" --network host \
-        -e NODE_ENV=production -e PORT="${DIALER_PORT}" -e HEALTH_ENABLED=true \
+    # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
+    # api-scan arm of the target table, which is the one place that knows it. NATS_DELIVER_TO
+    # is the line that matters: without it the dialer connects, finds the stream, and dies
+    # building a push consumer with no deliver_subject. A live pentest run paid for that once.
+    dast_resolve_target novatalks.dialer api
+    printf '%s\n' "$DT_EXTRA_ENV" > "${WORK}/dialer.env"
+    # APP_PORT, not PORT: app.config.ts validates APP_PORT with a Joi default of 3006, so PORT
+    # sets nothing and the health poll would wait out its budget against a port nobody serves.
+    docker run -d --name "$DIALER" --network host --env-file "${WORK}/dialer.env" \
+        -e NODE_ENV=production -e APP_PORT="${DIALER_PORT}" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=dialer \
         -e DATABASE_URL="postgresql://novatalks:e2e-local@127.0.0.1:5432/dialer" \
-        -e NATS_SERVERS=127.0.0.1:4222 -e NATS_SUBJECTS=campaign \
+        -e NATS_SERVERS=127.0.0.1:4222 \
         -e FILE_DRIVER=local \
-        -e AWS_S3_ACCESS_KEY_ID=e2e-dummy-not-a-real-key -e AWS_S3_SECRET_ACCESS_KEY=e2e-dummy-not-a-real-key \
-        -e AWS_S3_ENDPOINT=http://s3.example.invalid -e AWS_S3_REGION=eeur -e AWS_S3_BUCKET=e2e-dummy \
         "$DIALER_IMAGE" >/dev/null || fail "the dialer container refused to start"
     wait_http "dialer" "http://127.0.0.1:${DIALER_PORT}/readyz" "$DIALER"
 
