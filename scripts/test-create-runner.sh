@@ -337,6 +337,28 @@ runner_name=<generated>
 runner_labels=e2e-small
 runner_need=true'
 
+# Below the cap an E2E run takes a VM of its own rather than queueing on a label somebody
+# else may take first. The build pool keeps reusing (the scenarios near the top of this file
+# cover that): its jobs are minutes long, so a short wait for a warm runner beats a boot,
+# while a suite that guesses wrong waits for the length of another suite.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-1:online:false:e2e-small) \
+check "an idle E2E runner is not reused while the pool is below its cap" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+# At the cap there is nothing to create, so an idle runner is exactly what to wait for.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running \
+    dev-00-gh-runner-e2e-3:cx33:running dev-00-gh-runner-e2e-4:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-1:online:false:e2e-small) \
+check "at the cap an idle E2E runner is reused rather than queued behind a new one" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_need=false
+runner_labels=e2e-small'
+
 SHIM_SERVERS=$(servers dev-00-gh-runner-1:cx33:running dev-00-gh-runner-2:cx33:running) \
 SHIM_RUNNERS=$(runners) \
 check "a full build pool does not block an E2E run" \

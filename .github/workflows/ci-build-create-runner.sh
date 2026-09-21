@@ -313,11 +313,32 @@ BEST_MATCH=$(echo "$RUNNERS" | jq -r \
     | last // empty
 ')
 
-if [ -n "$BEST_MATCH" ]; then
+# Reuse is a snapshot, and what it returns is a *label*, not a reservation. Two runs
+# dispatched seconds apart both see the same idle runner — it is not busy yet, because
+# neither job has started — both decide no VM is needed, and both queue on one machine. The
+# same happens when the runner disappears between this check and the assignment. Nothing
+# retries: the job simply waits. On 2026-09-21 a suite sat queued for 50 minutes that way
+# while the pool had room for three more VMs.
+#
+# For the build pool that trade is still worth it: jobs are minutes long, so a job that waits
+# a little for a warm runner costs less than a two-minute boot. For the E2E pool it is not.
+# A suite holds its runner for up to an hour, so the wait is an hour, not a minute — and the
+# boot it saves is the same two minutes either way. Below the cap, an E2E run gets its own
+# VM; at the cap there is nothing to create and an idle runner is exactly what to wait for.
+REUSE_OK=yes
+if [ "$RUNNER_POOL" = "e2e" ] && [ "$TOTAL_ALL" -lt "$MAX_TOTAL_RUNNERS" ]; then
+    REUSE_OK=no
+fi
+
+if [ -n "$BEST_MATCH" ] && [ "$REUSE_OK" = "yes" ]; then
     echo "Using existing runner: $BEST_MATCH"
     echo "runner_need=false" >> "$GITHUB_OUTPUT"
     echo "runner_labels=$BEST_MATCH" >> "$GITHUB_OUTPUT"
     exit 0
+fi
+
+if [ -n "$BEST_MATCH" ]; then
+    echo "Idle runner $BEST_MATCH exists, but the E2E pool is below its cap ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → creating a dedicated one rather than queueing behind a label"
 fi
 
 if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
