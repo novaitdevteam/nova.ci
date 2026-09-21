@@ -193,7 +193,10 @@ env:
   ENGINE_FRONTEND_URL: http://localhost:18080
   ENGINE_STORE_URL: http://localhost:18080
   ENGINE_AUTH_ACTIVE_PROVIDERS: email,ldap
-  ENGINE_AUTH_JWT_TOKEN_EXPIRES_IN: e2e-ephemeral-not-a-real-secret
+  # A duration, not a credential — the name ends in TOKEN_EXPIRES_IN and the placeholder
+  # landed here because of it. The lab runs 7d; a run lasts under two hours, so anything
+  # sane works, but a non-duration string does not.
+  ENGINE_AUTH_JWT_TOKEN_EXPIRES_IN: 7d
   ENGINE_AUTH_LOGOUT_TIMEOUT: '54000000'
   ENGINE_AUTH_AGENT_INACTIVE_TIMEOUT: '300000'
   ENGINE_REDIS_DB: '1'

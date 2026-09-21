@@ -51,6 +51,9 @@ YQ_IMAGE="mikefarah/yq:4.44.3"
 BOTFLOW_ADMIN_LOGIN="${BOTFLOW_ADMIN_LOGIN:-support@novatalks.ai}"
 BOTFLOW_ADMIN_PASSWORD="${BOTFLOW_ADMIN_PASSWORD:-e2e-ephemeral-not-a-real-secret}"
 
+# The helm release name, which is what every rendered in-cluster hostname is built from.
+RELEASE="${E2E_HELM_RELEASE:-e2e}"
+
 PG="${PREFIX}-postgres"; REDIS="${PREFIX}-redis"
 ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow"
 UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"
@@ -109,6 +112,30 @@ render_env() { # render_env <configmap-suffix> <output file>
         < "${WORK}/rendered.yaml" > "$out"
     [ -s "$out" ] || fail "the chart rendered no ${suffix} ConfigMap — wrong chart_ref or values?"
     log "$(wc -l < "$out" | tr -d ' ') settings for ${suffix}"
+}
+
+# The chart renders for a cluster: every service is an in-cluster DNS name and every public
+# URL is https, because Traefik terminates TLS in front of the lab. Neither holds on a runner,
+# where the whole stack is on the host network behind one plain-http proxy. Rewriting the
+# rendered files is the same move copy_flows makes on the flow document, and for the same
+# reason — a -e per key only covers the keys somebody remembered. Comparing the lab's render
+# with this one on 2026-09-21 found four that nobody had: CONTACT_CHECK_ENDPOINT,
+# NOVATALKS_BOTFLOW_HOST, DIALER_SERVICE_URL and BF_CONFIG_BOTFLOW_URL.
+#
+# Only a name in host position is touched — followed by a colon, a slash or the end of the
+# value — so NATS_NAME=e2e-engine-listener, which is an identifier and not an address, is
+# left alone. The dialer moves port as well as host: the chart gives it 3000, which the
+# engine already holds here.
+localise_env() { # localise_env <env-file>
+    local file="$1" before after
+    before="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)|https://localhost" "$file" || true)"
+    sed -i -E \
+        -e "s#${RELEASE}-dialer:3000#${RELEASE}-dialer:${DIALER_PORT}#g" \
+        -e "s#${RELEASE}-(engine|botflow|dialer|postgres|redis)(\.[a-z0-9.-]+)?(:|/|\$)#127.0.0.1\3#g" \
+        -e "s#https://localhost:#http://localhost:#g" \
+        "$file"
+    after="$(grep -cE "${RELEASE}-(engine|botflow|dialer|postgres|redis)|https://localhost" "$file" || true)"
+    log "$(basename "$file"): localised $(( before - after )) cluster address(es), $after left as identifiers"
 }
 
 render_file() { # render_file <configmap-suffix> <key> <output file>
@@ -232,12 +259,15 @@ up() {
     # the way an image tag pins code, and the stand's own release names the exact one (the lab
     # ran novatalks-platform-5.4.7). Rendering needs no access to the chart's source.
     log "rendering ${CHART_PACKAGE}:${CHART_VERSION}"
-    helm template e2e "oci://${CHART_PACKAGE}" --version "$CHART_VERSION" \
+    helm template "$RELEASE" "oci://${CHART_PACKAGE}" --version "$CHART_VERSION" \
         -f "${STACK_DIR}/values.ephemeral.yaml" > "${WORK}/rendered.yaml" \
         || fail "helm template failed — chart ${CHART_VERSION} and values.ephemeral.yaml have diverged"
     render_env "engine-config"      "${WORK}/engine.env"
     render_env "botflow-config-env" "${WORK}/botflow.env"
     render_env "ui-config"          "${WORK}/ui.env"
+    localise_env "${WORK}/engine.env"
+    localise_env "${WORK}/botflow.env"
+    localise_env "${WORK}/ui.env"
 
     log "postgres"
     # Durability off, deliberately: this database is created, migrated, used by one suite and
@@ -342,16 +372,7 @@ up() {
         limit 1 returning 1" 2>&1)" || fail "could not seed the API token: ${inserted}" "$PG"
     [ "$inserted" = "1" ] \
         || fail "no users row for ${admin_user}, so every API call the suite makes answers 401 (psql said: ${inserted:-nothing})" "$PG"
-    # And prove the engine accepts it, rather than leaving that to the first API call a test
-    # makes: a row in access_tokens and a token the engine authenticates are two different
-    # facts, and the 401 in between is indistinguishable from a token that never reached the
-    # suite at all. Not "== 200": a wrong path would be a 404 and this is a check on auth.
-    token_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-        -H "api_access_token: ${api_token}" \
-        "http://127.0.0.1:${ENGINE_PORT}/api/v1/accounts/1/wrupup-codes" 2>/dev/null || true)"
-    [ "$token_code" != "401" ] \
-        || fail "the engine rejected the seeded API token — every API call the suite makes will answer 401" "$ENGINE"
-    log "seeded an API token for ${admin_user} (engine answers ${token_code})"
+    log "seeded an API token for ${admin_user}"
 
     log "dialer ${DIALER_IMAGE}"
     # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
@@ -423,6 +444,12 @@ up() {
 server {
     listen ${PROXY_PORT};
     client_max_body_size 64m;
+    # The Engine's static API credential travels in a header called api_access_token, and
+    # nginx drops headers containing underscores unless told otherwise. Traefik does not, so
+    # the lab never saw this: every API call the suite made through this proxy arrived at the
+    # engine with no token and was answered 401, while the same token sent straight at the
+    # container answered 200.
+    underscores_in_headers on;
     location /redbot { proxy_pass http://127.0.0.1:${BOTFLOW_PORT}; ${PROXY_HEADERS:-} }
     location /api/v1/dialer/ { proxy_pass http://127.0.0.1:${DIALER_PORT}; }
     location /api/ { proxy_pass http://127.0.0.1:${ENGINE_PORT}; }
@@ -464,6 +491,18 @@ EOF
             printf 'E2E_STACK_API_TOKEN=%s\n' "$api_token"
         } >> "$GITHUB_ENV"
     fi
+    # The API token, checked on the path the suite actually uses. Sending it straight at the
+    # container proved only that the token is good: the first version of this check did that,
+    # passed, and the suite still got 401 on every call — because nginx drops underscored
+    # headers and api_access_token never reached the engine. A check that avoids the proxy
+    # cannot see the proxy's own faults.
+    token_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -H "api_access_token: ${api_token}" \
+        "http://127.0.0.1:${PROXY_PORT}/api/v1/accounts/1/wrupup-codes" 2>/dev/null || true)"
+    [ "$token_code" = "200" ] \
+        || fail "the API token answers ${token_code} through the proxy — the suite authenticates every call this way" "$PROXY"
+    log "the API token authenticates through the proxy (HTTP ${token_code})"
+
     log "stack is up on http://localhost:${PROXY_PORT}"
 }
 
