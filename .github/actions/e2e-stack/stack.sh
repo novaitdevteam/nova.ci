@@ -48,8 +48,11 @@ YQ_IMAGE="mikefarah/yq:4.44.3"
 # values.ephemeral.yaml. Not a secret in any useful sense: it admits you to a container on the
 # loopback interface of a single-tenant VM, for the length of one run. The suite is handed the
 # same pair, so a change here is a change in three places — the failure is loud and named.
-BOTFLOW_ADMIN_LOGIN="${BOTFLOW_ADMIN_LOGIN:-support@novatalks.ai}"
-BOTFLOW_ADMIN_PASSWORD="${BOTFLOW_ADMIN_PASSWORD:-e2e-ephemeral-not-a-real-secret}"
+# Named for this stack, not generically: `BOTFLOW_ADMIN_LOGIN` is what the *suite* calls the
+# stand's credentials, and anything that sources the tests repository's .env — local.sh does —
+# would otherwise hand this container somebody else's password and get a 401 it cannot explain.
+STACK_BF_LOGIN="${E2E_STACK_BF_LOGIN:-support@novatalks.ai}"
+STACK_BF_PASSWORD="${E2E_STACK_BF_PASSWORD:-e2e-ephemeral-not-a-real-secret}"
 
 # The helm release name, which is what every rendered in-cluster hostname is built from.
 RELEASE="${E2E_HELM_RELEASE:-e2e}"
@@ -256,7 +259,7 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
         || digest="$(jq -cS '.flows' "${WORK}/stand-flows.json" | sha256sum | cut -c1-12)"
     log "${nodes} nodes, digest ${digest}"
 
-    nr_token "http://127.0.0.1:${BOTFLOW_PORT}/redbot" "$BOTFLOW_ADMIN_LOGIN" "$BOTFLOW_ADMIN_PASSWORD" \
+    nr_token "http://127.0.0.1:${BOTFLOW_PORT}/redbot" "$STACK_BF_LOGIN" "$STACK_BF_PASSWORD" \
         || fail "could not authenticate to this stack's own Node-RED — adminAuth needs a bcrypt hash in the values, not a plain string" "$BOTFLOW"
     dst_token="$NR_TOKEN"
     rev="$(docker exec "$PROBE" curl -fsS -H "Authorization: Bearer ${dst_token}" \
@@ -594,8 +597,8 @@ EOF
             # Node trusts it through this; Chromium does not read it, and is told to ignore
             # certificate errors in playwright.config.ts instead.
             printf 'NODE_EXTRA_CA_CERTS=%s\n' "${WORK}/proxy.crt"
-            printf 'E2E_STACK_BOTFLOW_LOGIN=%s\n' "$BOTFLOW_ADMIN_LOGIN"
-            printf 'E2E_STACK_BOTFLOW_PASSWORD=%s\n' "$BOTFLOW_ADMIN_PASSWORD"
+            printf 'E2E_STACK_BOTFLOW_LOGIN=%s\n' "$STACK_BF_LOGIN"
+            printf 'E2E_STACK_BOTFLOW_PASSWORD=%s\n' "$STACK_BF_PASSWORD"
             printf 'E2E_STACK_UI_LOGIN=%s\n' "$admin_user"
             printf 'E2E_STACK_UI_PASSWORD=%s\n' "$admin_pass"
             printf 'E2E_STACK_API_TOKEN=%s\n' "$api_token"
