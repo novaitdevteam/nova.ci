@@ -213,18 +213,34 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
     local src="${E2E_SOURCE_BOTFLOW_URL:?must name the stand Node-RED admin API, e.g. https://host/redbot}"
     : "${E2E_SOURCE_BOTFLOW_LOGIN:?}" "${E2E_SOURCE_BOTFLOW_PASSWORD:?}"
     local origin="${src%/redbot}" project="${E2E_SOURCE_PROJECT:-ntk-dev-e2e-test}"
-    local src_token dst_token rev nodes digest
+    local src_token dst_token rev nodes digest cache
 
-    log "copying flows from ${src}"
-    # No fallback document, by decision: a suite that silently ran different chatbot logic is
-    # worse than one that did not run. This is also the single thing an ephemeral run still
-    # needs the lab for.
-    nr_token "$src" "$E2E_SOURCE_BOTFLOW_LOGIN" "$E2E_SOURCE_BOTFLOW_PASSWORD" \
-        || fail "could not authenticate to the stand's Node-RED at ${src} — flows are copied from it and there is no fallback"
-    src_token="$NR_TOKEN"
-    docker exec "$PROBE" curl -fsS -H "Authorization: Bearer ${src_token}" \
-        -H 'Node-RED-API-Version: v2' "${src}/flows" > "${WORK}/stand-flows.json" \
-        || fail "could not read the stand's flows from ${src}/flows"
+    # Normally copied from the stand (D7): no *silent* fallback, ever, because a suite that ran
+    # different chatbot logic without saying so is worse than one that did not run.
+    #
+    # E2E_FLOWS_FILE is the not-silent exception, and it exists because the stand being down
+    # stops every ephemeral run, local and CI — which it did on 2026-09-21. Naming a file is a
+    # deliberate act, and the run says loudly what it used and how old it is, so a red run can
+    # still be told from a flow change. It is never chosen automatically: if the stand cannot
+    # be read and no file was named, the run fails, exactly as before.
+    if [ -n "${E2E_FLOWS_FILE:-}" ]; then
+        [ -f "$E2E_FLOWS_FILE" ] || fail "E2E_FLOWS_FILE names ${E2E_FLOWS_FILE}, which does not exist"
+        cp "$E2E_FLOWS_FILE" "${WORK}/stand-flows.json"
+        printf '::warning::flows came from %s (last modified %s), not from %s — this run does not reflect the stand current flows\n' \
+            "$E2E_FLOWS_FILE" "$(date -r "$E2E_FLOWS_FILE" '+%Y-%m-%d %H:%M' 2>/dev/null || echo unknown)" "$src" >&2
+        log "flows from a named file, NOT from the stand"
+    else
+        log "copying flows from ${src}"
+        nr_token "$src" "$E2E_SOURCE_BOTFLOW_LOGIN" "$E2E_SOURCE_BOTFLOW_PASSWORD" \
+            || fail "could not authenticate to the stand's Node-RED at ${src} — flows are copied from it, and E2E_FLOWS_FILE was not set"
+        src_token="$NR_TOKEN"
+        docker exec "$PROBE" curl -fsS -H "Authorization: Bearer ${src_token}" \
+            -H 'Node-RED-API-Version: v2' "${src}/flows" > "${WORK}/stand-flows.json" \
+            || fail "could not read the stand's flows from ${src}/flows"
+        # Keep what was copied, so a later run has something it can be pointed at deliberately.
+        cache="${E2E_FLOWS_CACHE:-$HOME/.cache/nova-e2e}"
+        mkdir -p "$cache" && cp "${WORK}/stand-flows.json" "${cache}/flows-latest.json" 2>/dev/null || true
+    fi
     jq -e '.flows | length > 0' "${WORK}/stand-flows.json" >/dev/null \
         || fail "the stand returned no flows — refusing to deploy an empty document"
 
@@ -591,6 +607,21 @@ EOF
     # port: it already lives here and in the chart values, and a third copy is the one that
     # would be missed. The Node-RED credentials go with it for the same reason — the suite
     # needs them and they are fixed fakes, not secrets.
+    # Always to a file, and to GITHUB_ENV as well when there is one. Without the file a local
+    # run has no way to learn the origin or the stack's own credentials, which is most of what
+    # somebody needs in order to point the suite at it.
+    {
+        printf 'ENV_URL=https://localhost:%s\n' "$PROXY_PORT"
+        printf 'BOTFLOW_URL=https://localhost:%s/redbot\n' "$PROXY_PORT"
+        printf 'BOTFLOW_ADMIN_LOGIN=%s\n' "$STACK_BF_LOGIN"
+        printf 'BOTFLOW_ADMIN_PASSWORD=%s\n' "$STACK_BF_PASSWORD"
+        printf 'UI_ADMIN_LOGIN=%s\n' "$admin_user"
+        printf 'UI_ADMIN_PASSWORD=%s\n' "$admin_pass"
+        printf 'API_TOKEN=%s\n' "$api_token"
+        printf 'NODE_EXTRA_CA_CERTS=%s\n' "${WORK}/proxy.crt"
+    } > "${WORK}/stack.env"
+    chmod 600 "${WORK}/stack.env"
+
     if [ -n "${GITHUB_ENV:-}" ]; then
         {
             printf 'E2E_STACK_ORIGIN=https://localhost:%s\n' "$PROXY_PORT"
