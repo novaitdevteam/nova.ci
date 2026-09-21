@@ -59,7 +59,7 @@ ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow
 UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"
 # nova-nats is the name dast_bring_up_nats gives it; this reuses that helper rather than
 # copying its stream setup, so the name comes with it.
-ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" nova-nats "$REDIS" "$PG")
+ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
 
 log()  { printf '[stack] %s\n' "$1"; }
 fail() { # fail <message> [container]
@@ -72,10 +72,25 @@ fail() { # fail <message> [container]
 # is for set -e and nothing else: appending a second 000 with an `|| echo` makes the value
 # "000000", which compares equal to no code at all — that is how the port guard below read a
 # free port as occupied on probe 35583343234, with no listener in the ss output beside it.
+# Every probe runs from inside the stack's own network, through a small container kept alive
+# for the purpose, rather than with the host's curl. On a runner the two are the same thing;
+# on a Mac they are not — `--network host` puts the containers in Docker's Linux VM, whose
+# ports the host cannot reach, so the host's curl sees nothing and every wait expires against
+# a stack that is running perfectly. One path for both, deliberately: today produced three
+# separate faults that were invisible in one environment and obvious in the other.
+PROBE="${PREFIX}-probe"
+PROBE_IMAGE="curlimages/curl:8.11.1"
+
+probe_up() {
+    docker inspect "$PROBE" >/dev/null 2>&1 && return 0
+    docker run -d --name "$PROBE" --network host --entrypoint sleep "$PROBE_IMAGE" infinity \
+        >/dev/null || fail "could not start the probe container"
+}
+
 http_code() { # http_code <url> [timeout-seconds]
     # -k because the front proxy's certificate is generated per run and signed by nothing.
     # This is a health check against our own containers, not a trust decision.
-    curl -sk -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null || true
+    docker exec "$PROBE" curl -sk -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null || true
 }
 
 wait_http() { # wait_http <name> <url> <container> [timeout-seconds]
@@ -176,8 +191,12 @@ nr_token() { # nr_token <botflow-url> <user> <password>
     # but the process list is not the place to put one either way.
     ( umask 077; jq -n --arg u "$2" --arg p "$3" \
         '{client_id:"node-red-admin",grant_type:"password",scope:"*",username:$u,password:$p}' > "$body" )
-    NR_TOKEN="$(curl -fsS -X POST "${url}/auth/token" -H 'Content-Type: application/json' \
-        -d "@${body}" 2>/dev/null | jq -r '.access_token // empty')"
+    # Through the probe, like every other request: one of the two Node-REDs this is called
+    # for is inside the stack's network. The body goes in on stdin, so the password is not in
+    # an argument list on either side.
+    NR_TOKEN="$(docker exec -i "$PROBE" curl -fsS -X POST "${url}/auth/token" \
+        -H 'Content-Type: application/json' -d @- < "$body" 2>/dev/null \
+        | jq -r '.access_token // empty')"
     rm -f "$body"
     [ -n "$NR_TOKEN" ] || return 1
     # Masked whatever its source, like every other token this repository acquires: the failure
@@ -200,8 +219,8 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
     nr_token "$src" "$E2E_SOURCE_BOTFLOW_LOGIN" "$E2E_SOURCE_BOTFLOW_PASSWORD" \
         || fail "could not authenticate to the stand's Node-RED at ${src} — flows are copied from it and there is no fallback"
     src_token="$NR_TOKEN"
-    curl -fsS -H "Authorization: Bearer ${src_token}" -H 'Node-RED-API-Version: v2' \
-        "${src}/flows" -o "${WORK}/stand-flows.json" \
+    docker exec "$PROBE" curl -fsS -H "Authorization: Bearer ${src_token}" \
+        -H 'Node-RED-API-Version: v2' "${src}/flows" > "${WORK}/stand-flows.json" \
         || fail "could not read the stand's flows from ${src}/flows"
     jq -e '.flows | length > 0' "${WORK}/stand-flows.json" >/dev/null \
         || fail "the stand returned no flows — refusing to deploy an empty document"
@@ -240,13 +259,14 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
     nr_token "http://127.0.0.1:${BOTFLOW_PORT}/redbot" "$BOTFLOW_ADMIN_LOGIN" "$BOTFLOW_ADMIN_PASSWORD" \
         || fail "could not authenticate to this stack's own Node-RED — adminAuth needs a bcrypt hash in the values, not a plain string" "$BOTFLOW"
     dst_token="$NR_TOKEN"
-    rev="$(curl -fsS -H "Authorization: Bearer ${dst_token}" -H 'Node-RED-API-Version: v2' \
-        "http://127.0.0.1:${BOTFLOW_PORT}/redbot/flows" | jq -r '.rev // empty')"
+    rev="$(docker exec "$PROBE" curl -fsS -H "Authorization: Bearer ${dst_token}" \
+        -H 'Node-RED-API-Version: v2' "http://127.0.0.1:${BOTFLOW_PORT}/redbot/flows" \
+        | jq -r '.rev // empty')"
     jq --arg rev "$rev" '{rev: $rev, flows: .flows}' "${WORK}/flows.json" > "${WORK}/deploy.json"
-    curl -fsS -X POST "http://127.0.0.1:${BOTFLOW_PORT}/redbot/flows" \
+    docker exec -i "$PROBE" curl -fsS -X POST "http://127.0.0.1:${BOTFLOW_PORT}/redbot/flows" \
         -H "Authorization: Bearer ${dst_token}" -H 'Content-Type: application/json' \
         -H 'Node-RED-API-Version: v2' -H 'Node-RED-Deployment-Type: full' \
-        -d "@${WORK}/deploy.json" -o "${WORK}/deploy-result.json" \
+        -d @- < "${WORK}/deploy.json" > "${WORK}/deploy-result.json" \
         || fail "deploying the flows failed: $(head -c 300 "${WORK}/deploy-result.json" 2>/dev/null)" "$BOTFLOW"
 
     # Slot 1's telegram route is the proof the deploy took: redbot registers a webhook when its
@@ -287,6 +307,8 @@ up() {
     localise_env "${WORK}/engine.env"
     localise_env "${WORK}/botflow.env"
     localise_env "${WORK}/ui.env"
+
+    probe_up
 
     log "postgres"
     # Durability off, deliberately: this database is created, migrated, used by one suite and
@@ -584,7 +606,7 @@ EOF
     # passed, and the suite still got 401 on every call — because nginx drops underscored
     # headers and api_access_token never reached the engine. A check that avoids the proxy
     # cannot see the proxy's own faults.
-    token_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
+    token_code="$(docker exec "$PROBE" curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
         -H "api_access_token: ${api_token}" \
         "https://127.0.0.1:${PROXY_PORT}/api/v1/accounts/1/wrupup-codes" 2>/dev/null || true)"
     [ "$token_code" = "200" ] \
