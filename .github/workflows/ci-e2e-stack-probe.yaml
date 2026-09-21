@@ -141,15 +141,32 @@ jobs:
         run: |
           # The probe's own verdict, printed rather than implied: a boot that "worked" and a
           # boot nobody checked look identical in a green job.
+          probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || echo 000; }
           {
             echo "### Ephemeral stack probe"
             echo ""
-            echo "| Endpoint | Status |"
-            echo "| --- | --- |"
-            for path in / /api/v1/ /auth/ /redbot/ /api/v1/dialer/; do
-              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://localhost:8080${path}" || echo 000)"
-              echo "| \`${path}\` | ${code} |"
+            # Both columns, because one alone cannot say where a request was lost: run
+            # 35582123718 had /redbot/ answering 200 on the container and 404 through the
+            # proxy, and a single number gives no way to tell nginx's routing from the app's.
+            echo "| Endpoint | Direct | Through the proxy |"
+            echo "| --- | --- | --- |"
+            for row in /:8000 /api/v1/:3000 /auth/:3000 /redbot/:1880 /api/v1/dialer/:3002; do
+              path="${row%:*}"; port="${row##*:}"
+              echo "| \`${path}\` | $(probe "http://127.0.0.1:${port}${path}") | $(probe "http://localhost:8080${path}") |"
             done
+            echo ""
+            echo ""
+            # Which server block nginx is actually running, and what it did with the requests
+            # above. A proxy serving its own packaged default.conf answers exactly what run
+            # 35582123718 saw — 200 on / (the welcome page) and 404 on every route — so the
+            # config has to be read back rather than assumed from the file we wrote.
+            echo "<details><summary>proxy config and access log</summary>"
+            echo ""
+            echo '```'
+            docker exec e2e-proxy nginx -T 2>&1 | sed -n '/^server {/,/^}/p' | head -30
+            docker logs --tail 20 e2e-proxy 2>&1
+            echo '```'
+            echo "</details>"
             echo ""
             echo "| Container | Image |"
             echo "| --- | --- |"
