@@ -1,0 +1,119 @@
+# Boot the ephemeral E2E stack on a runner and report what came up.
+#
+# This is the measuring instrument for the ephemeral target, not the target itself: it exists
+# so `stack.sh` can be developed against a real runner — right architecture, real images, real
+# chart — before the E2E workflow depends on it. Spec:
+# docs/superpowers/specs/2026-09-18-e2e-ephemeral-stack.md, plan Step 1.
+#
+# workflow_dispatch only. It boots a whole product stack and reads a private chart repository;
+# that is a thing somebody asks for, with an actor and a timestamp against the run.
+name: CI E2E Stack Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: "novatalks.core tag"
+        required: false
+        type: string
+        default: "2026_R3_NC2-2778_engine_f64f9736"
+      ui_tag:
+        description: "novatalks.ui tag"
+        required: false
+        type: string
+        default: "2026_R3_development_20fdf74f"
+      botflow_tag:
+        description: "nova.botflow tag"
+        required: false
+        type: string
+        default: "2026_R3_master_f9126a11"
+      dialer_tag:
+        description: "novatalks.dialer tag"
+        required: false
+        type: string
+        default: "2026_R3_master_a81e7763"
+      chart_ref:
+        description: "novatalks.charts ref to render the configuration from"
+        required: false
+        type: string
+        default: "main"
+      keep_up:
+        description: "Leave the stack running after the probe (for poking at it by hand)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  probe:
+    name: Boot the stack
+    # The E2E pool, not the build pool: this holds a runner for as long as a boot takes, and
+    # product builds must not queue behind it.
+    runs-on: e2e-medium
+    timeout-minutes: 45
+    steps:
+      - name: Checkout nova.ci
+        uses: actions/checkout@v6
+
+      - name: Checkout the chart
+        uses: actions/checkout@v6
+        with:
+          repository: novaitdevteam/novatalks.charts
+          ref: ${{ inputs.chart_ref }}
+          # The chart repository is private and this workflow's own GITHUB_TOKEN cannot read it.
+          token: ${{ secrets.BACKUP_GH_TOKEN }}
+          path: charts
+
+      - name: Install Docker
+        uses: ./.github/actions/install-docker
+
+      - name: Install helm
+        run: |
+          if command -v helm >/dev/null 2>&1; then helm version --short; exit 0; fi
+          curl -fsSL --retry 5 --retry-all-errors https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz \
+            -o /tmp/helm.tgz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Bring the stack up
+        env:
+          CHART_DIR: ${{ github.workspace }}/charts/novatalks_v5/examples/dev-e2e-tests
+          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag }}
+          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag }}
+          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag }}
+          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag }}
+          # Attachments go to the stand's own bucket, whose 30-day retention is the cleanup
+          # (spec D8). Unset here means the engine falls back to FILE_DRIVER=local.
+          FILE_DRIVER: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID && 's3' || 'local' }}
+          AWS_S3_ENDPOINT: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
+          AWS_S3_ACCESS_KEY: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
+          AWS_S3_SECRET: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+        run: ./.github/actions/e2e-stack/stack.sh up
+
+      - name: Report what answers
+        run: |
+          # The probe's own verdict, printed rather than implied: a boot that "worked" and a
+          # boot nobody checked look identical in a green job.
+          {
+            echo "### Ephemeral stack probe"
+            echo ""
+            echo "| Endpoint | Status |"
+            echo "| --- | --- |"
+            for path in / /api/v1/ /auth/ /redbot/ /api/v1/dialer/; do
+              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://localhost:8080${path}" || echo 000)"
+              echo "| \`${path}\` | ${code} |"
+            done
+            echo ""
+            echo "| Container | Image |"
+            echo "| --- | --- |"
+            docker ps --format '| `{{.Names}}` | `{{.Image}}` |'
+          } >> "$GITHUB_STEP_SUMMARY"
+          docker ps --format '{{.Names}}\t{{.Status}}'
+
+      - name: Take the stack down
+        # Always, including on a cancelled run: a runner is reused, and a stack left behind
+        # would meet the next job as a set of occupied ports.
+        if: ${{ always() && !inputs.keep_up }}
+        env:
+          E2E_STACK_FAILED: ${{ job.status == 'success' && '0' || '1' }}
+        run: ./.github/actions/e2e-stack/stack.sh down
