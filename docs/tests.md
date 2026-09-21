@@ -61,7 +61,9 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | `suite_timeout_minutes` | 120, which leaves room for the slowest legitimate run — the `@e2e` regression takes about 75 minutes. Lower it for a smoke run |
 
 **A run is bounded twice, and on purpose.** The suite step carries
-`suite_timeout_minutes`, the job carries that plus 30. The step is what normally fires: it
+`suite_timeout_minutes` (120); the job carries a literal 150, because GitHub Actions
+expressions have no arithmetic — `${{ inputs.x + 30 }}` does not fail that line, it fails the
+whole file to parse. The step is what normally fires: it
 fails that step alone, so the report is still uploaded and an ephemeral stack is still torn
 down, where a job timeout cancels everything and leaves much less to read. Playwright has its
 own `globalTimeout` on CI, set slightly under the step, so the usual outcome is a report that

@@ -109,9 +109,13 @@ jobs:
     name: Run Playwright Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     # The backstop for everything the step timeout below does not cover — a checkout that
-    # hangs, an npm install that never returns, a teardown that stalls. Deliberately larger,
-    # so the step is what normally fires and the job timeout is what catches the rest.
-    timeout-minutes: ${{ inputs.suite_timeout_minutes + 30 }}
+    # hangs, an npm install that never returns, a teardown that stalls. A literal, not
+    # suite_timeout_minutes plus a margin: GitHub Actions expressions have no arithmetic at
+    # all, and `${{ inputs.x + 30 }}` does not fail at that line — it fails the whole file to
+    # parse, which took every push run in novatalks.tests down with it until it was caught.
+    # Keep it above suite_timeout_minutes, so the step is what normally fires; raising that
+    # input past 150 means raising this too.
+    timeout-minutes: 150
     outputs:
       TESTS_REF: ${{ steps.prep.outputs.TESTS_REF }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
