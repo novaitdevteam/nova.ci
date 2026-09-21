@@ -92,12 +92,20 @@ secrets:
   redis:
     pass: ''
   botflow:
+    # Node-RED's adminAuth compares with bcrypt, so these have to be real hashes or every
+    # login fails and /redbot/auth/token answers 401 for the life of the container — which
+    # is the suite's very first call in global-setup.ts, and how the flows get deployed.
+    # Both are hashes of the same fixed, obviously-fake password used everywhere in this
+    # file: e2e-ephemeral-not-a-real-secret. Publishing them is not a leak in any useful
+    # sense — the container they admit you to lives for one run, on the loopback interface
+    # of a single-tenant VM, and is deleted with it. The plaintext stays visible on purpose:
+    # a hash whose password nobody can see reads like a real credential to the next person.
     admin:
       username: support@novatalks.ai
-      password: e2e-ephemeral-not-a-real-secret
+      password: $2b$08$./y7M9udtdtTvGOsIKbEWuwXAo8g0XiJixZWc1YlmyJ23ZO2mG1Uq
     user:
       username: presales@novait.com.ua
-      password: e2e-ephemeral-not-a-real-secret
+      password: $2b$08$bfcoWLYzPmr6YdkW6jvZzOG4MWFNKRSPKLRf8Y8aBDOv/KwRC9Ioa
     tokens: {}
   engine:
     env:

@@ -44,6 +44,13 @@ WORK="${RUNNER_TEMP:-/tmp}/e2e-stack"
 # tool image here, so a moved tag cannot change what this stack boots with.
 YQ_IMAGE="mikefarah/yq:4.44.3"
 
+# This stack's own Node-RED admin, which has to match the bcrypt hashes in
+# values.ephemeral.yaml. Not a secret in any useful sense: it admits you to a container on the
+# loopback interface of a single-tenant VM, for the length of one run. The suite is handed the
+# same pair, so a change here is a change in three places — the failure is loud and named.
+BOTFLOW_ADMIN_LOGIN="${BOTFLOW_ADMIN_LOGIN:-support@novatalks.ai}"
+BOTFLOW_ADMIN_PASSWORD="${BOTFLOW_ADMIN_PASSWORD:-e2e-ephemeral-not-a-real-secret}"
+
 PG="${PREFIX}-postgres"; REDIS="${PREFIX}-redis"
 ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow"
 UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"
@@ -101,6 +108,90 @@ render_file() { # render_file <configmap-suffix> <key> <output file>
         < "${WORK}/rendered.yaml" > "$out"
     [ -s "$out" ] || fail "the chart rendered no ${key} in a ${suffix} ConfigMap"
     log "$(wc -l < "$out" | tr -d ' ') lines of ${key} from ${suffix}"
+}
+
+# Sets NR_TOKEN rather than printing it: the mask has to be written to stdout for the runner to
+# act on it, so a function that printed both would hand its caller the mask line as well.
+NR_TOKEN=""
+nr_token() { # nr_token <botflow-url> <user> <password>
+    local url="$1" body="${WORK}/nr-auth.json"
+    NR_TOKEN=""
+    # The password goes through a file, never through curl's argv: a runner is single-tenant
+    # but the process list is not the place to put one either way.
+    ( umask 077; jq -n --arg u "$2" --arg p "$3" \
+        '{client_id:"node-red-admin",grant_type:"password",scope:"*",username:$u,password:$p}' > "$body" )
+    NR_TOKEN="$(curl -fsS -X POST "${url}/auth/token" -H 'Content-Type: application/json' \
+        -d "@${body}" 2>/dev/null | jq -r '.access_token // empty')"
+    rm -f "$body"
+    [ -n "$NR_TOKEN" ] || return 1
+    # Masked whatever its source, like every other token this repository acquires: the failure
+    # paths here print curl output and container logs, and nova.ci is public.
+    printf '::add-mask::%s\n' "$NR_TOKEN"
+}
+
+copy_flows() { # the stand's own flow document, rewritten for this stack (spec D7)
+    # No apostrophe in that message on purpose: bash reopens quoting inside ${var:?word}, so a
+    # single quote there silently swallows the rest of the file.
+    local src="${E2E_SOURCE_BOTFLOW_URL:?must name the stand Node-RED admin API, e.g. https://host/redbot}"
+    : "${E2E_SOURCE_BOTFLOW_LOGIN:?}" "${E2E_SOURCE_BOTFLOW_PASSWORD:?}"
+    local origin="${src%/redbot}" project="${E2E_SOURCE_PROJECT:-ntk-dev-e2e-test}"
+    local src_token dst_token rev nodes digest
+
+    log "copying flows from ${src}"
+    # No fallback document, by decision: a suite that silently ran different chatbot logic is
+    # worse than one that did not run. This is also the single thing an ephemeral run still
+    # needs the lab for.
+    nr_token "$src" "$E2E_SOURCE_BOTFLOW_LOGIN" "$E2E_SOURCE_BOTFLOW_PASSWORD" \
+        || fail "could not authenticate to the stand's Node-RED at ${src} — flows are copied from it and there is no fallback"
+    src_token="$NR_TOKEN"
+    curl -fsS -H "Authorization: Bearer ${src_token}" -H 'Node-RED-API-Version: v2' \
+        "${src}/flows" -o "${WORK}/stand-flows.json" \
+        || fail "could not read the stand's flows from ${src}/flows"
+    jq -e '.flows | length > 0' "${WORK}/stand-flows.json" >/dev/null \
+        || fail "the stand returned no flows — refusing to deploy an empty document"
+
+    # The stand's own addresses must not survive into a stack that exists to be independent of
+    # it. A receive node left pointing at the lab would have this run creating conversations
+    # there, and an engine connector would write to the lab's database.
+    sed -e "s|${origin}|http://localhost:${PROXY_PORT}|g" \
+        -e "s|http://${project}-engine:3000|http://127.0.0.1:${ENGINE_PORT}|g" \
+        -e "s|http://${project}-botflow:1880|http://127.0.0.1:${BOTFLOW_PORT}|g" \
+        "${WORK}/stand-flows.json" > "${WORK}/flows.json"
+    local leftover
+    leftover="$(grep -o -E "${origin}|${project}-[a-z0-9]+" "${WORK}/flows.json" | sort -u | tr '\n' ' ')"
+    [ -z "$leftover" ] || fail "the copied flows still address the stand: ${leftover}"
+
+    # What was copied, so a red run can be told from a flow change. The digest is of the
+    # document as it left the stand, not as rewritten, so it is comparable between runs.
+    nodes="$(jq '.flows | length' "${WORK}/stand-flows.json")"
+    digest="$(jq -cS '.flows' "${WORK}/stand-flows.json" | shasum -a 256 2>/dev/null | cut -c1-12)" \
+        || digest="$(jq -cS '.flows' "${WORK}/stand-flows.json" | sha256sum | cut -c1-12)"
+    log "${nodes} nodes, digest ${digest}"
+
+    nr_token "http://127.0.0.1:${BOTFLOW_PORT}/redbot" "$BOTFLOW_ADMIN_LOGIN" "$BOTFLOW_ADMIN_PASSWORD" \
+        || fail "could not authenticate to this stack's own Node-RED — adminAuth needs a bcrypt hash in the values, not a plain string" "$BOTFLOW"
+    dst_token="$NR_TOKEN"
+    rev="$(curl -fsS -H "Authorization: Bearer ${dst_token}" -H 'Node-RED-API-Version: v2' \
+        "http://127.0.0.1:${BOTFLOW_PORT}/redbot/flows" | jq -r '.rev // empty')"
+    jq --arg rev "$rev" '{rev: $rev, flows: .flows}' "${WORK}/flows.json" > "${WORK}/deploy.json"
+    curl -fsS -X POST "http://127.0.0.1:${BOTFLOW_PORT}/redbot/flows" \
+        -H "Authorization: Bearer ${dst_token}" -H 'Content-Type: application/json' \
+        -H 'Node-RED-API-Version: v2' -H 'Node-RED-Deployment-Type: full' \
+        -d "@${WORK}/deploy.json" -o "${WORK}/deploy-result.json" \
+        || fail "deploying the flows failed: $(head -c 300 "${WORK}/deploy-result.json" 2>/dev/null)" "$BOTFLOW"
+
+    # Slot 1's telegram route is the proof the deploy took: redbot registers a webhook when its
+    # config node starts, and an unregistered route answers 404 where a registered one answers
+    # 200. The rest of the slots are the suite's own reconcile to make, per worker.
+    local route="http://127.0.0.1:${BOTFLOW_PORT}/redbot/telegram/1" code=""
+    for _ in $(seq 1 30); do
+        code="$(http_code "$route")"
+        [ -n "$code" ] && [ "$code" != "404" ] && [ "$code" != "000" ] && break
+        sleep 2
+    done
+    [ "$code" != "404" ] && [ "$code" != "000" ] \
+        || fail "the channel routes never came up after the deploy (/telegram/1 answers ${code})" "$BOTFLOW"
+    log "flows deployed, /telegram/1 answers ${code}"
 }
 
 up() {
@@ -245,6 +336,8 @@ up() {
     if [ "$(http_code "http://127.0.0.1:${BOTFLOW_PORT}/redbot/")" = "404" ]; then
         fail "botflow answers 404 on /redbot/ — settings.js did not take, so httpAdminRoot is still '/'" "$BOTFLOW"
     fi
+
+    copy_flows
 
     log "ui ${UI_IMAGE}"
     docker run -d --name "$UI" --network host --env-file "${WORK}/ui.env" \

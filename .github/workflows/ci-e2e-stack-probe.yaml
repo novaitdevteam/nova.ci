@@ -46,6 +46,12 @@ on:
         required: false
         type: string
         default: "5.4.7"
+      source_botflow_url:
+        # The stand's Node-RED, which the flows are copied from (spec D7). A URL, not a
+        # secret — public, and one form must be able to point at another stand.
+        required: false
+        type: string
+        default: "https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot"
       keep_up:
         required: false
         type: boolean
@@ -77,6 +83,11 @@ on:
         required: false
         type: string
         default: "5.4.7"
+      source_botflow_url:
+        description: "Node-RED admin API of the stand whose flows this stack copies"
+        required: false
+        type: string
+        default: "https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot"
       keep_up:
         description: "Leave the stack running after the probe (for poking at it by hand)"
         required: false
@@ -135,6 +146,12 @@ jobs:
           AWS_S3_ENDPOINT: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
           AWS_S3_ACCESS_KEY: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
           AWS_S3_SECRET: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
+          # The flows come from the stand itself (D7), so the bring-up needs to read its
+          # Node-RED. The URL is an input; only the credentials are secrets, and they are the
+          # same E2E_BOTFLOW_ADMIN_* pair the suite already uses.
+          E2E_SOURCE_BOTFLOW_URL: ${{ inputs.source_botflow_url || 'https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot' }}
+          E2E_SOURCE_BOTFLOW_LOGIN: ${{ secrets.E2E_BOTFLOW_ADMIN_LOGIN }}
+          E2E_SOURCE_BOTFLOW_PASSWORD: ${{ secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
         run: ./.github/actions/e2e-stack/stack.sh up
 
       - name: Report what answers
