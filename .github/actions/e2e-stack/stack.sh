@@ -73,12 +73,17 @@ render_env() { # render_env <configmap-suffix> <output file>
 
 up() {
     mkdir -p "$WORK"
-    : "${CHART_DIR:?CHART_DIR must point at the checked-out chart}"
+    : "${CHART_PACKAGE:=ghcr.io/novaitdevteam/novatalks.charts/novatalks-platform}"
+    : "${CHART_VERSION:?CHART_VERSION must name a published chart version, e.g. 5.4.7}"
     : "${ENGINE_IMAGE:?}" "${UI_IMAGE:?}" "${BOTFLOW_IMAGE:?}" "${DIALER_IMAGE:?}"
 
-    log "rendering the chart from ${CHART_DIR}"
-    helm template e2e "$CHART_DIR" -f "${STACK_DIR}/values.ephemeral.yaml" > "${WORK}/rendered.yaml" \
-        || fail "helm template failed — the chart and values.ephemeral.yaml have diverged"
+    # The chart is a published OCI package, not a git checkout: a version pins configuration
+    # the way an image tag pins code, and the stand's own release names the exact one (the lab
+    # ran novatalks-platform-5.4.7). Rendering needs no access to the chart's source.
+    log "rendering ${CHART_PACKAGE}:${CHART_VERSION}"
+    helm template e2e "oci://${CHART_PACKAGE}" --version "$CHART_VERSION" \
+        -f "${STACK_DIR}/values.ephemeral.yaml" > "${WORK}/rendered.yaml" \
+        || fail "helm template failed — chart ${CHART_VERSION} and values.ephemeral.yaml have diverged"
     render_env "engine-config"      "${WORK}/engine.env"
     render_env "botflow-config-env" "${WORK}/botflow.env"
     render_env "ui-config"          "${WORK}/ui.env"

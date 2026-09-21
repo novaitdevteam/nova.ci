@@ -42,10 +42,10 @@ on:
         required: false
         type: string
         default: "2026_R3_master_a81e7763"
-      chart_ref:
+      chart_version:
         required: false
         type: string
-        default: "main"
+        default: "5.4.7"
       keep_up:
         required: false
         type: boolean
@@ -72,11 +72,11 @@ on:
         required: false
         type: string
         default: "2026_R3_master_a81e7763"
-      chart_ref:
-        description: "novatalks.charts ref to render the configuration from"
+      chart_version:
+        description: "Published chart version to render the configuration from"
         required: false
         type: string
-        default: "main"
+        default: "5.4.7"
       keep_up:
         description: "Leave the stack running after the probe (for poking at it by hand)"
         required: false
@@ -97,20 +97,6 @@ jobs:
           repository: novaitdevteam/nova.ci
           ref: ${{ inputs.nova_ci_ref || 'main' }}
 
-      - name: Checkout the chart
-        id: chart
-        uses: actions/checkout@v6
-        with:
-          repository: novaitdevteam/novatalks.charts
-          ref: ${{ inputs.chart_ref }}
-          # The chart repository is private and this workflow's own GITHUB_TOKEN cannot read it.
-          # CHARTS_TOKEN first: a read-only token for novatalks.charts alone. The two
-          # fallbacks are what already exists — nova.ci's own backup token when the probe runs
-          # here, and the caller's PAT otherwise — and a 403 on this step means whichever one
-          # was picked cannot read that repository, not that the chart ref is wrong.
-          token: ${{ secrets.CHARTS_TOKEN || secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
-          path: charts
-
       - name: Install Docker
         uses: ./.github/actions/install-docker
 
@@ -123,9 +109,22 @@ jobs:
           sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version --short
 
+      - name: Log in to the chart registry
+        # The chart package is private today. This is the one credential the probe needs, and
+        # it only has to read packages — if the package is ever made public, like the product
+        # images already are, this step can go.
+        env:
+          REGISTRY_TOKEN: ${{ secrets.CHARTS_TOKEN || secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_TOKEN" ]; then
+            echo "::error::no token available to read the chart package"
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
       - name: Bring the stack up
         env:
-          CHART_DIR: ${{ github.workspace }}/charts/novatalks_v5/examples/dev-e2e-tests
+          CHART_VERSION: ${{ inputs.chart_version }}
           ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag }}
           UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag }}
           BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag }}
