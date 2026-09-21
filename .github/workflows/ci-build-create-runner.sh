@@ -128,19 +128,26 @@ esac
 # large is int-test, which is one long job by construction. They stay at 2, where a
 # third VM would idle.
 #
-# The E2E pool is 2 for a different reason: two suites can run at once (one per stand,
-# and an ephemeral run needs no stand at all), while a third would only queue behind the
-# shared account the suite still uses.
+# The E2E pool is 4. It was 2, on the reasoning that a third suite would only queue behind
+# the shared account the stand gives every run — true while every run needed the stand, and
+# no longer true: an ephemeral run brings its own stack up on its own VM and shares nothing
+# with any other run, so nothing serialises them but this number. Lab runs are still one at
+# a time, held there by the concurrency group on env_url rather than by the cap.
+#
+# 4 rather than more because that is what the contention actually was on 2026-09-21: two
+# suites and a stuck run were enough to queue everything for an hour, and a VM that idles
+# still costs. The pool counts and caps itself — MAX_TOTAL_RUNNERS becomes this number for
+# the E2E pool below — so raising it cannot take runners away from product builds.
 case "$REQUIRED_SIZE" in
     medium) MAX_PER_SIZE="${MAX_MEDIUM_RUNNERS:-4}" ;;
-    e2e-*)  MAX_PER_SIZE="${MAX_E2E_RUNNERS:-2}" ;;
+    e2e-*)  MAX_PER_SIZE="${MAX_E2E_RUNNERS:-4}" ;;
     *)      MAX_PER_SIZE="${MAX_PER_SIZE:-2}" ;;
 esac
 
 # Counted within the pool, so an E2E run can never exhaust the build budget and a busy
 # build day can never starve the suite.
 if [ "$RUNNER_POOL" = "e2e" ]; then
-    MAX_TOTAL_RUNNERS="${MAX_E2E_RUNNERS:-2}"
+    MAX_TOTAL_RUNNERS="${MAX_E2E_RUNNERS:-4}"
 fi
 
 DELAY=$((RANDOM % 10))

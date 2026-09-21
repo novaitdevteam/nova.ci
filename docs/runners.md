@@ -56,7 +56,7 @@ Each size class has its own cap, measured from Hetzner server state rather than 
 
 ## The E2E pool
 
-`novatalks.tests` resolves to `e2e-small` (cx33) or `e2e-medium` (cx43, when its form asks for `medium` or `large`), and its VMs are named `dev-00-gh-runner-e2e-*`. Counts, caps, the reuse filter and the create lock are all scoped to one pool, so the two never borrow from each other: a build cannot pick up an idle E2E runner, an E2E run cannot pick up a build one, a full build pool does not block a suite, and the E2E pool has its own cap of 2.
+`novatalks.tests` resolves to `e2e-small` (cx33) or `e2e-medium` (cx43, when its form asks for `medium` or `large`), and its VMs are named `dev-00-gh-runner-e2e-*`. Counts, caps, the reuse filter and the create lock are all scoped to one pool, so the two never borrow from each other: a build cannot pick up an idle E2E runner, an E2E run cannot pick up a build one, a full build pool does not block a suite, and the E2E pool has its own cap, 4 since 2026-09-21. It was 2 while every run needed the stand and a third would only queue behind its shared account; an ephemeral run brings its own stack and shares nothing, so the cap was all that serialised them. Raising it takes nothing from product builds, because the pool counts and caps itself.
 
 The reason is duration rather than size. The `@e2e` regression takes 1.2 h; sharing the build pool would park it on one of the two `small` runners for that long and queue every other repository's build behind it. The name still begins with `dev-00-gh-runner-`, so the leak watchdog and any project-wide total keep seeing these VMs.
 

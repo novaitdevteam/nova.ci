@@ -346,12 +346,25 @@ runner_name=<generated>
 runner_labels=e2e-small
 runner_need=true'
 
-SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running) \
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running \
+    dev-00-gh-runner-e2e-3:cx33:running dev-00-gh-runner-e2e-4:cx33:running) \
 SHIM_RUNNERS=$(runners) \
-check "the E2E pool waits at its own cap of 2" \
+check "the E2E pool waits at its own cap of 4" \
     refs/heads/CI-update novatalks.tests \
     'runner_need=false
 runner_labels=e2e-small'
+
+# The cap moved from 2 to 4 on 2026-09-21; three busy VMs must still create a fourth, or
+# the raise is a number nobody gets to use.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running \
+    dev-00-gh-runner-e2e-3:cx33:running) \
+SHIM_RUNNERS=$(runners) \
+check "three busy E2E runners still leave room for a fourth" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
 
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
 check "runner_size is ignored outside novatalks.tests" \
