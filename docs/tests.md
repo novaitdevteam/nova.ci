@@ -43,7 +43,29 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 
 ## End-to-end tests (novatalks.tests)
 
-[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand — today the e2e lab at `novatalks-e2e-tests.k3s.dev.novait.com.ua` — then publishes the HTML report to R2 and notifies.
+[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand, then publishes the HTML report to R2 and notifies.
+
+**Two targets, chosen per run by the `target` input.** Both stay; neither replaces the other.
+
+| | `lab` (the default) | `ephemeral` |
+| --- | --- | --- |
+| What it is | the shared stand at `novatalks-e2e-tests.k3s.dev.novait.com.ua` | the whole product started on the runner for this run, then destroyed |
+| Comes from | whatever is deployed there | four image tags and a chart version, all form inputs |
+| Runs at a time | one — the `concurrency` group keys on `env_url` | as many as the pool allows; the group keys on the run id |
+| State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
+| Campaigns | cannot run: the engine awaits NATS at boot and the lab has none | run, because the stack brings its own NATS and dialer |
+| Costs | nothing to start | about a minute of bring-up, on an `e2e-medium` runner |
+
+Use `lab` when a human wants to open the thing afterwards and look. Use `ephemeral` to test a
+particular build, to run two suites at once, or to get a failure somebody else can reproduce —
+the stand moves under you, and a run there cannot be repeated twice the same way.
+
+The ephemeral stack is [`e2e-stack/stack.sh`](../.github/actions/e2e-stack/stack.sh): postgres,
+redis, NATS, the engine, the dialer, BotFlow, the UI and one nginx serving the single origin
+`http://localhost:18080`. Its configuration is rendered from the published chart rather than
+kept here, its flows are copied from the stand at boot, and it is torn down whatever the suite
+did — with every container's log when the suite went red. First green run against it:
+2026-09-21, `@CI` in 55.8s on a stack that took about a minute to come up.
 
 It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigger** → **Run workflow**; the caller creates the runner and the switcher forwards the form:
 
