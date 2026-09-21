@@ -305,12 +305,20 @@ up() {
     # nothing answers, and the suite waits for an offer that cannot come.
     bot_token="$(env_value NOVATALKS_BOTAGENT_TOKEN "${WORK}/botflow.env")"
     engine_token="$(env_value NOVATALKS_ENGINE_TOKEN "${WORK}/botflow.env")"
+    # The engine calls the dialer with this and the dialer accepts it because it is in its
+    # API_ACCESS_TOKENS — the env-token path targets.sh documents for the DAST api-scan. Both
+    # sides are given the same generated value, which avoids the ordering problem the stand
+    # has: there the dialer's own bootstrap seeds a random token and the engine has to be
+    # upgraded a second time to learn it. Nothing is written to the dialer's database.
+    dialer_token="$(openssl rand -hex 24)"
+    printf '::add-mask::%s\n' "$dialer_token"
     [ -n "$bot_token" ] && [ -n "$engine_token" ] \
         || fail "the chart rendered no NOVATALKS_BOTAGENT_TOKEN / NOVATALKS_ENGINE_TOKEN for BotFlow"
 
     log "engine ${ENGINE_IMAGE}"
     docker run -d --name "$ENGINE" --network host --env-file "${WORK}/engine.env" \
         -e AGENTBOT_INBOX_TOKEN="$bot_token" \
+        -e DIALER_SERVICE_TOKEN="$dialer_token" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=novatalks \
         -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
@@ -422,6 +430,7 @@ up() {
     # container on probe run 35580442650. The default is already s3 and the dummies above feed it.
     docker run -d --name "$DIALER" --network host --env-file "${WORK}/dialer.env" \
         -e NODE_ENV=production -e APP_PORT="${DIALER_PORT}" \
+        -e API_ACCESS_TOKENS="$dialer_token" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=dialer \
         -e DATABASE_URL="postgresql://novatalks:e2e-local@127.0.0.1:5432/dialer" \
