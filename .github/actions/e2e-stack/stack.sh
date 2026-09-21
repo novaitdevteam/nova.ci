@@ -362,6 +362,16 @@ up() {
     admin_user="${admin_user:-support@novatalks.ai}"
     admin_pass="$(env_value DEFAULT_USER_PASSWORD "${WORK}/engine.env")"
     [ -n "$admin_pass" ] || fail "the chart rendered no DEFAULT_USER_PASSWORD — the suite could not log in"
+    # The suite creates agents with this same password, and the engine's default policy wants
+    # a length of 8 with an upper, a lower, a digit and a special. A password that seeds fine
+    # and is refused at POST /agents reads as a product fault in a test, three steps from the
+    # value that caused it — so check it here, where the value is.
+    printf '%s' "$admin_pass" | grep -q '[A-Z]' \
+        && printf '%s' "$admin_pass" | grep -q '[a-z]' \
+        && printf '%s' "$admin_pass" | grep -q '[0-9]' \
+        && printf '%s' "$admin_pass" | grep -q '[^A-Za-z0-9]' \
+        && [ "${#admin_pass}" -ge 8 ] \
+        || fail "DEFAULT_USER_PASSWORD does not satisfy the engine's default password policy (8+, upper, lower, digit, special) — every agent the suite creates will be refused with 422"
     api_token="$(openssl rand -hex 24)"
     # Masked before it reaches a psql command line or an environment file: the failure paths
     # around here print container logs, and nova.ci is public.

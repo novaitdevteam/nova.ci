@@ -109,7 +109,13 @@ secrets:
     tokens: {}
   engine:
     env:
-      DEFAULT_USER_PASSWORD: e2e-ephemeral-not-a-real-secret
+      # Obviously fake, and compliant with the engine's DEFAULT_PASSWORD_POLICY: at least 8
+      # characters with an upper, a lower, a digit and a special. The suite hands this same
+      # password to every agent it creates (ui/fixtures/models/user.ts), and the plain
+      # placeholder used everywhere else in this file has no uppercase — so POST
+      # /accounts/1/agents answered 422 password_policy_violation and the test blamed the
+      # product for an input. Same shape as the @local admin address in CLAUDE.md.
+      DEFAULT_USER_PASSWORD: E2e-Ephemeral-Not-A-Real-Secret-1!
     firebaseData: {}
   objectStorage:
     Endpoint: https://s3.example.invalid
