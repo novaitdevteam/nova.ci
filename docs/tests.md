@@ -58,6 +58,20 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | `runner_size` | `small`. `medium`/`large` exist for measuring — see the table below for why routine runs stay on `small` |
 | `reset_stand` | `prune` — the run deletes what earlier runs left, through the Engine API, before it starts. `deep` also calls the stand's own SQL reset for the residue the API cannot touch. `off` keeps everything, for investigating a failure |
 | `report_base_url` | no link in the notification; otherwise the public base of the report bucket |
+| `suite_timeout_minutes` | 120, which leaves room for the slowest legitimate run — the `@e2e` regression takes about 75 minutes. Lower it for a smoke run |
+
+**A run is bounded twice, and on purpose.** The suite step carries
+`suite_timeout_minutes`, the job carries that plus 30. The step is what normally fires: it
+fails that step alone, so the report is still uploaded and an ephemeral stack is still torn
+down, where a job timeout cancels everything and leaves much less to read. Playwright has its
+own `globalTimeout` on CI, set slightly under the step, so the usual outcome is a report that
+says where the run stopped.
+
+Without them the default is GitHub's six hours. The E2E pool holds two runners, so one hung
+run halves it: run 35583263280 sat in the suite step for 90 minutes and every E2E run queued
+behind it. The gap that produced it is worth knowing — `globalSetup` (the Node-RED token, the
+prune, the slot reconcile) is covered by no per-test timeout at all, so a request there that
+never returns hangs a run with nothing else to stop it.
 
 The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 

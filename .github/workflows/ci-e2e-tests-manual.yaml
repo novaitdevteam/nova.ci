@@ -87,6 +87,16 @@ on:
         required: false
         type: string
         default: ""
+      suite_timeout_minutes:
+        # A hung suite parks one of the two E2E runners, and with no timeout at all it does
+        # that for GitHub's default of six hours: run 35583263280 sat in Run Playwright Tests
+        # for 90 minutes and queued every E2E run behind it. The @e2e regression measured
+        # 1.2 h on 2026-09-18, so 120 leaves room for the slowest legitimate run; a smoke run
+        # deserves a much smaller number and can be given one.
+        description: "Bound on the suite itself. The @e2e regression takes about 75 minutes."
+        required: false
+        type: number
+        default: 120
 
 # One shared stand: two runs would create and delete each other's entities. An ephemeral
 # stack shares nothing, so it keys on the run id instead and never queues (spec D12).
@@ -98,6 +108,10 @@ jobs:
   build-tests:
     name: Run Playwright Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
+    # The backstop for everything the step timeout below does not cover — a checkout that
+    # hangs, an npm install that never returns, a teardown that stalls. Deliberately larger,
+    # so the step is what normally fires and the job timeout is what catches the rest.
+    timeout-minutes: ${{ inputs.suite_timeout_minutes + 30 }}
     outputs:
       TESTS_REF: ${{ steps.prep.outputs.TESTS_REF }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
@@ -259,6 +273,10 @@ jobs:
           df -h --output=source,size,avail,pcent / | tail -1
 
       - name: Run Playwright Tests
+        # Bounded at the step, not only at the job: a step timeout fails this step and lets
+        # the ones after it run, so the report is still uploaded and an ephemeral stack is
+        # still torn down. A job timeout cancels everything and leaves far less to read.
+        timeout-minutes: ${{ inputs.suite_timeout_minutes }}
         run: |
           # ' + ' separates alternatives in both inputs, so "@smoke + @regression"
           # becomes one --grep and "@campaigns + @db" one --grep-invert.
