@@ -1,7 +1,7 @@
 # E2E against an ephemeral stack: Plan
 
 **Spec:** [`../specs/2026-09-18-e2e-ephemeral-stack.md`](../specs/2026-09-18-e2e-ephemeral-stack.md)
-**Status:** not started
+**Status:** in progress — Step 0 answered 3 of 4 questions on 2026-09-18; Step 1 next
 **Date:** 2026-09-18
 
 Each step ends in something observable. A step whose verification cannot fail is not done —
@@ -33,8 +33,10 @@ A single script in `.github/actions/e2e-stack/`, sourcing `dast-common.sh` for t
 bring-up rather than repeating it, and rendering the chart for every container's environment
 (D17) rather than carrying its own copy of it.
 
-- `up`: network, postgres, redis, engine (wait `/readyz`), the three SQL settings and the
-  AgentBot token, botflow (wait `/redbot/`), ui (wait `/`).
+- `up`: network, postgres, redis, nats, engine (wait `/readyz`), the three SQL settings and
+  the AgentBot token, dialer (wait `/readyz`), botflow (wait `/redbot/`), ui, proxy (wait `/`).
+- Environments come from `helm template` of the chart at `chart_ref` (D17), one `--env-file`
+  per container, with only hosts, ports, the three UI URLs and the S3 settings overridden.
 - `down`: always runs, prints `docker logs` for every container when the suite failed.
 - Fails loudly with the container's own log on any wait that expires — never "the image did
   not come up" with no evidence.
@@ -74,9 +76,10 @@ bring-up.
 - `ephemeral` resolves `ENV_URL` and `BOTFLOW_URL` to the published localhost ports and
   ignores nothing silently: `reset_stand` with `target: ephemeral` fails the step with a
   message, per D14.
-- `runner_size` resolves to `medium` for `target: ephemeral` (D11) — one more arm in
-  `ci-build-create-runner.sh`, with its scenario in `scripts/test-create-runner.sh` in the
-  same change, per the repository's own rule.
+- `runner_size` resolves to `e2e-medium` for `target: ephemeral` (D11). The pool itself
+  already exists — `novatalks.tests` was split out of the build pool on 2026-09-18 — so this
+  is one arm mapping the target to the size, with its scenario in
+  `scripts/test-create-runner.sh` in the same change, per the repository's own rule.
 - `concurrency` keys on the run id for `ephemeral`, on `env_url` for `lab` (D12).
 - **Verify:** `@CI` green on `target: ephemeral`; the same tag still green on `target: lab`;
   two ephemeral runs at once both finish (no queueing).

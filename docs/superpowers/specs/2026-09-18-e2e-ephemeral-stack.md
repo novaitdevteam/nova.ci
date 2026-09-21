@@ -1,6 +1,6 @@
 # E2E against an ephemeral stack: Spec
 
-**Status:** proposed — plan at [`../plans/2026-09-18-e2e-ephemeral-stack.md`](../plans/2026-09-18-e2e-ephemeral-stack.md)
+**Status:** agreed 2026-09-21 — plan at [`../plans/2026-09-18-e2e-ephemeral-stack.md`](../plans/2026-09-18-e2e-ephemeral-stack.md)
 **Date:** 2026-09-18
 
 ## Problem
@@ -33,6 +33,14 @@ Not a migration. **Both targets stay**, selected per run, the same shape
 | --- | --- | --- |
 | `lab` (default) | today's behaviour: the suite against `dev-e2e-test` | manual runs, investigating a failure someone can look at |
 | `ephemeral` | the stack boots on the runner, the suite runs against it, everything is torn down | routine CI, parallel runs, reproducing a failure |
+
+## Agreed on 2026-09-21
+
+Both targets stay. The ephemeral one boots the whole product on an `e2e-medium` runner from
+four image tags and a chart ref, seeds itself, runs the suite, and is torn down. Three of the
+four opening questions were answered by measurement before anything was built (D15–D17); the
+fourth — whether the canonical BotFlow chatbot transfers a conversation to a team — is the
+first thing Step 1 finds out, and the one that can still change the shape of D7.
 
 ## Decisions
 
