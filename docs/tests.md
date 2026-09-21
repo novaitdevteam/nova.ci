@@ -111,19 +111,21 @@ Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 | `@e2e` (417 tests) | 4 | small | 1.2 h | 5.4 | 343 passed, 14 flaky, 28 failed |
 | `@e2e` | 4 | medium | 1.2 h | 2.7 | 326 passed, 25 flaky, 31 failed |
 
-**First measurements against the ephemeral target**, 2026-09-21, `@smoke` with four workers
-on `e2e-medium` (run 35611733629): 4 passed, 3 flaky, 2 failed, 8.5 minutes including about a
-minute of bring-up. The same tag against the lab an hour later (run 35615371703) was **9
-failed, 0 passed** — so the comparison Step 4 of the plan wants cannot be completed yet, not
-because the ephemeral target was not measured but because the reference was not in a state to
-measure against.
+**Measurements against the ephemeral target**, 2026-09-21, `@smoke` with four workers on
+`e2e-medium` (run 35636742304): **5 passed, 4 flaky, 1 failed** out of ten tests, 6.3 minutes
+including about a minute of bring-up. The one hard failure is `QANT-21`, which reads a real
+IMAP mailbox — an external dependency no ephemeral stack makes hermetic.
 
-What the numbers do say: `QANT-44` (the chatbot path, the one today's token work was about)
-passes first try, as do websockets, labels and permissions. Three tests needed a retry —
-`QANT-45`, `QANT-46`, `QANT-47` — which is the shared-account cleanup race described below and
-not a property of the target. Two failed outright: `QANT-21`, which reads a real IMAP mailbox
-and no ephemeral stack makes hermetic, and `QANT-48`, whose widget page is served by BotFlow
-from a slot tab and is the one open lead that may genuinely be ephemeral-specific.
+An earlier run the same day (35611733629) had 2 failures in 9 tests over 8.5 minutes. The
+difference is TLS: the web widget's bundle builds its socket URL as `wss://` and cannot be
+told otherwise, so against a plain-http origin it never connected and `QANT-48` timed out on
+a conversation it had already created. The tenth test is the campaigns one, which became
+runnable the same day. The same tag against the lab (run 35615371703) was **9 failed, 0 passed**, so the
+comparison Step 4 of the plan wants cannot be completed yet — not because the ephemeral
+target went unmeasured, but because the reference was not in a state to measure against.
+
+The four retries are `QANT-44`, `QANT-45`, `QANT-46` and `QANT-47`: the shared-account
+cleanup race described below, not a property of the target.
 
 Two conclusions, both measured rather than preferred. **A bigger VM buys nothing**: doubling the cores halved the load and moved the regression's wall time by zero, because that time is spent waiting on the application and on fixed timeouts (30 s per click, 60 s per `expect`, 360 s per test), not on CPU. And **more workers cost stability faster than they buy time**: 4 → 8 workers on the smoke suite saved 1.5 minutes and turned five passing tests into one, because the suite shares one account and its `afterEach` cleanups delete entities belonging to whichever worker is running alongside. Four workers on `small` is the working setting until that isolation is fixed; the per-worker channel slots, generated on demand against the stand, are the other ceiling.
 
