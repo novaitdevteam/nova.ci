@@ -92,6 +92,16 @@ wait_http() { # wait_http <name> <url> <container> [timeout-seconds]
     fail "$name did not answer $url within ${timeout}s" "$container"
 }
 
+# Reads one key out of a rendered env file, empty when it is not there. A plain
+# `grep ... | cut` cannot be used inline: this script runs under `set -euo pipefail`, where a
+# grep that matches nothing exits 1, pipefail carries that to the pipeline and set -e ends the
+# run — with no message, because nothing called fail. That has now happened three times in one
+# day (the flow leftover check, and DEFAULT_ADMIN_USER, which the chart does not render at
+# all), so it lives in one place with the `|| true` that makes it safe.
+env_value() { # env_value <key> <env-file>
+    grep -E "^$1=" "$2" 2>/dev/null | head -1 | cut -d= -f2- || true
+}
+
 render_env() { # render_env <configmap-suffix> <output file>
     local suffix="$1" out="$2"
     docker run --rm -i "$YQ_IMAGE" \
@@ -299,7 +309,7 @@ up() {
         where id = 1" >/dev/null || fail "could not apply the stand settings" "$PG"
     # BotFlow presents this token on every call; with no agent_bots row carrying it the engine
     # answers 401 a minute forever.
-    bot_token="$(grep -E '^NOVATALKS_BOTAGENT_TOKEN=' "${WORK}/botflow.env" | cut -d= -f2-)"
+    bot_token="$(env_value NOVATALKS_BOTAGENT_TOKEN "${WORK}/botflow.env")"
     bot_hook="http://127.0.0.1:${BOTFLOW_PORT}/redbot/novatalks-botagent/1"
     docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -c "
         update agent_bots set outgoing_url = '${bot_hook}' where account_id = 1;
@@ -312,9 +322,10 @@ up() {
     # api_access_token header (macros, skills and calendars helpers, and the prune). The seeds
     # create the admin but no token of its own, exactly as they create the AgentBot without
     # one — so generate a token per run and insert it against that user.
-    admin_user="$(grep -E '^DEFAULT_ADMIN_USER=' "${WORK}/engine.env" | cut -d= -f2-)"
+    admin_user="$(env_value DEFAULT_ADMIN_USER "${WORK}/engine.env")"
     admin_user="${admin_user:-support@novatalks.ai}"
-    admin_pass="$(grep -E '^DEFAULT_USER_PASSWORD=' "${WORK}/engine.env" | cut -d= -f2-)"
+    admin_pass="$(env_value DEFAULT_USER_PASSWORD "${WORK}/engine.env")"
+    [ -n "$admin_pass" ] || fail "the chart rendered no DEFAULT_USER_PASSWORD — the suite could not log in"
     api_token="$(openssl rand -hex 24)"
     # Masked before it reaches a psql command line or an environment file: the failure paths
     # around here print container logs, and nova.ci is public.
