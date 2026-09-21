@@ -187,13 +187,15 @@ up() {
     printf '%s\n' "$DT_EXTRA_ENV" > "${WORK}/dialer.env"
     # APP_PORT, not PORT: app.config.ts validates APP_PORT with a Joi default of 3006, so PORT
     # sets nothing and the health poll would wait out its budget against a port nobody serves.
+    # And no FILE_DRIVER: multer-config.service.ts's storages map holds one entry, s3, so
+    # FILE_DRIVER=local indexes it to undefined and calls it — the TypeError that killed this
+    # container on probe run 35580442650. The default is already s3 and the dummies above feed it.
     docker run -d --name "$DIALER" --network host --env-file "${WORK}/dialer.env" \
         -e NODE_ENV=production -e APP_PORT="${DIALER_PORT}" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=dialer \
         -e DATABASE_URL="postgresql://novatalks:e2e-local@127.0.0.1:5432/dialer" \
         -e NATS_SERVERS=127.0.0.1:4222 \
-        -e FILE_DRIVER=local \
         "$DIALER_IMAGE" >/dev/null || fail "the dialer container refused to start"
     wait_http "dialer" "http://127.0.0.1:${DIALER_PORT}/readyz" "$DIALER"
 
