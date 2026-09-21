@@ -234,8 +234,12 @@ env:
   UI_VITE_APP_DELETE_CONTACT: 'false'
   UI_VITE_APP_MESSAGE_DYNAMIC_TIME: 'false'
   UI_NODE_TLS_REJECT_UNAUTHORIZED: '0'
-  BF_NOVATALKS_BOTAGENT_TOKEN: e2e-ephemeral-not-a-real-secret
-  BF_NOVATALKS_ENGINE_TOKEN: e2e-ephemeral-not-a-real-secret
+  # Two different tokens, as on the lab, and deliberately not the same string: BotFlow
+  # presents the first as the agent bot and the second from the NovaTalks connector, and
+  # while both held the identical placeholder the connector authenticated against the agent
+  # bot's row by coincidence. A coincidence that works is worse than a fault that shows.
+  BF_NOVATALKS_BOTAGENT_TOKEN: e2e-ephemeral-botagent-not-a-real-secret
+  BF_NOVATALKS_ENGINE_TOKEN: e2e-ephemeral-engine-not-a-real-secret
   BF_NODE_RED_CREDENTIAL_SECRET: e2e-ephemeral-not-a-real-secret
   BF_CONFIG_STORAGE_TYPE: redis
   BF_MULTINODE_SYNC: 'true'

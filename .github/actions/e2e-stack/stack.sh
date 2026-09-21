@@ -297,8 +297,20 @@ up() {
     # "no stream matches subject".
     dast_bring_up_nats fail "${WORK}/nats-stream.log"
 
+    # Read before the engine starts, because the seeder needs one of them. The seeds create
+    # the AgentBot *and* a token for it, from AGENTBOT_INBOX_TOKEN or a random value when
+    # that is unset — and the chart never renders it, so on a fresh database the engine ends
+    # up signing its calls to BotFlow with a token BotFlow has never heard of. BotFlow then
+    # ignores every agent-bot call in silence: the conversation is created, the bot is asked,
+    # nothing answers, and the suite waits for an offer that cannot come.
+    bot_token="$(env_value NOVATALKS_BOTAGENT_TOKEN "${WORK}/botflow.env")"
+    engine_token="$(env_value NOVATALKS_ENGINE_TOKEN "${WORK}/botflow.env")"
+    [ -n "$bot_token" ] && [ -n "$engine_token" ] \
+        || fail "the chart rendered no NOVATALKS_BOTAGENT_TOKEN / NOVATALKS_ENGINE_TOKEN for BotFlow"
+
     log "engine ${ENGINE_IMAGE}"
     docker run -d --name "$ENGINE" --network host --env-file "${WORK}/engine.env" \
+        -e AGENTBOT_INBOX_TOKEN="$bot_token" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=novatalks \
         -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
@@ -339,19 +351,21 @@ up() {
         where id = 1" >/dev/null || fail "could not apply the stand settings" "$PG"
     # BotFlow presents this token on every call; with no agent_bots row carrying it the engine
     # answers 401 a minute forever.
-    bot_token="$(env_value NOVATALKS_BOTAGENT_TOKEN "${WORK}/botflow.env")"
     bot_hook="http://127.0.0.1:${BOTFLOW_PORT}/redbot/novatalks-botagent/1"
-    # `insert ... select` writes nothing at all when the select matches nothing, and says so
-    # only in its row count — which went to /dev/null. `returning 1` and a check on the output
-    # is what turns "the seeds changed shape" into a named failure here rather than a 401 in
-    # the middle of a test twenty minutes later.
+    # An update, not an insert: the seeds already made one token for this bot, and a second
+    # row would leave the engine signing with one value while BotFlow expects the other —
+    # which is what silently stopped every chatbot reply before AGENTBOT_INBOX_TOKEN was
+    # passed above. Updating in place cannot produce that ambiguity even if the seeder
+    # changes shape again. `returning 1` because an UPDATE that matches nothing says so only
+    # in a row count, and that count used to go to /dev/null.
     inserted="$(docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
         update agent_bots set outgoing_url = '${bot_hook}' where account_id = 1;
-        insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
-        select 'AgentBot', id, '${bot_token}', now(), now() from agent_bots where account_id = 1
-        limit 1 returning 1" 2>&1)" || fail "could not seed the AgentBot token: ${inserted}" "$PG"
+        update access_tokens set token = '${bot_token}', updated_at = now()
+        where owner_type = 'AgentBot'
+          and owner_id in (select id from agent_bots where account_id = 1)
+        returning 1" 2>&1)" || fail "could not set the AgentBot token: ${inserted}" "$PG"
     [ "$inserted" = "1" ] \
-        || fail "no agent_bots row for account 1, so BotFlow will get 401 on every call (psql said: ${inserted:-nothing})" "$PG"
+        || fail "expected exactly one AgentBot token row for account 1, psql returned: ${inserted:-nothing}" "$PG"
 
     # The suite authenticates two ways, and neither works with the stand's credentials here:
     # it logs into the UI as the seeded admin, and it calls the Engine API with a static
@@ -382,7 +396,17 @@ up() {
         limit 1 returning 1" 2>&1)" || fail "could not seed the API token: ${inserted}" "$PG"
     [ "$inserted" = "1" ] \
         || fail "no users row for ${admin_user}, so every API call the suite makes answers 401 (psql said: ${inserted:-nothing})" "$PG"
-    log "seeded an API token for ${admin_user}"
+    # The NovaTalks connector in BotFlow presents its own token on every call into the engine
+    # — find_or_create, messages, everything the channel flows do. The seeds create no row for
+    # it, and it only appeared to work while it held the same string as the agent bot's.
+    inserted="$(docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
+        insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
+        select 'User', id, '${engine_token}', now(), now() from users where email = '${admin_user}'
+        limit 1 returning 1" 2>&1)" || fail "could not seed the BotFlow connector token: ${inserted}" "$PG"
+    [ "$inserted" = "1" ] \
+        || fail "no users row for ${admin_user}, so every call BotFlow makes into the engine answers 401" "$PG"
+
+    log "seeded an API token for ${admin_user}, and BotFlow's own connector token"
 
     log "dialer ${DIALER_IMAGE}"
     # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
