@@ -58,10 +58,18 @@ fail() { # fail <message> [container]
     exit 1
 }
 
+# curl writes 000 itself when there is no response, and exits non-zero saying so. The `|| true`
+# is for set -e and nothing else: appending a second 000 with an `|| echo` makes the value
+# "000000", which compares equal to no code at all — that is how the port guard below read a
+# free port as occupied on probe 35583343234, with no listener in the ss output beside it.
+http_code() { # http_code <url> [timeout-seconds]
+    curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null || true
+}
+
 wait_http() { # wait_http <name> <url> <container> [timeout-seconds]
     local name="$1" url="$2" container="$3" timeout="${4:-$BOOT_TIMEOUT}" code="" i=0
     for i in $(seq 1 $(( timeout / 2 ))); do
-        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
+        code="$(http_code "$url")"
         # Any answer at all means it is listening; a 401 or 404 is still an answer, and a
         # health path that returns one is not this script's business to judge.
         [ -n "$code" ] && [ "$code" != "000" ] && { log "$name is up (HTTP $code) after $(( i * 2 ))s"; return 0; }
@@ -234,7 +242,7 @@ up() {
     # Node-RED answers on every path, so "it answered" is not evidence here the way it is on
     # a health endpoint: a 404 on the admin root is what a botflow running the image's own
     # settings.js looks like, and it read as up for one whole probe run.
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${BOTFLOW_PORT}/redbot/")" = "404" ]; then
+    if [ "$(http_code "http://127.0.0.1:${BOTFLOW_PORT}/redbot/")" = "404" ]; then
         fail "botflow answers 404 on /redbot/ — settings.js did not take, so httpAdminRoot is still '/'" "$BOTFLOW"
     fi
 
@@ -250,7 +258,7 @@ up() {
     # `bind() to 0.0.0.0:8080 failed (98: Address in use)` — the stranger already there
     # answered 200 on / and 404 on every route, which is indistinguishable from a working
     # proxy from the outside, and had been passing this wait for three runs.
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${PROXY_PORT}/" || echo 000)" != "000" ]; then
+    if [ "$(http_code "http://127.0.0.1:${PROXY_PORT}/" 3)" != "000" ]; then
         printf '::error::something already answers on port %s — the front proxy cannot bind it\n' "$PROXY_PORT" >&2
         (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null) | grep ":${PROXY_PORT}" >&2 || true
         docker ps --format '    {{.Names}}  {{.Image}}  {{.Ports}}' >&2
@@ -285,7 +293,7 @@ EOF
     # Answering is not routing. botflow is known to answer 200 on its own port by now, so the
     # same path through the proxy must too — that is the one check that distinguishes our
     # nginx, with the stand's route table, from anything else listening on this port.
-    proxy_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${PROXY_PORT}/redbot/" || echo 000)"
+    proxy_code="$(http_code "http://127.0.0.1:${PROXY_PORT}/redbot/")"
     if [ "$proxy_code" != "200" ]; then
         fail "the proxy answers ${proxy_code} on /redbot/ while botflow answers 200 on its own port — it is not routing" "$PROXY"
     fi
