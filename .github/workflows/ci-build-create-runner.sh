@@ -69,6 +69,16 @@ elif [[ "$REPO" == "novatalks.tests" ]]; then
         large)  REQUIRED_SIZE="large" ;;
         *)      REQUIRED_SIZE="small" ;;
     esac
+    # An ephemeral run boots the whole product on this VM before a browser starts — engine,
+    # postgres, botflow, ui, redis, dialer and NATS measured at about 3.5 CPU and 7 GB, plus
+    # roughly 2 GB for four Chromium workers (spec D11). A 4-vCPU VM is at its limit before
+    # the suite begins, so the target raises the floor rather than trusting the form: the
+    # size is a consequence of what the run does, and a small one here is a suite that dies
+    # on memory pressure and reads as flaky.
+    if [ "$(jq -r '.inputs.target // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)" = "ephemeral" ] \
+       && [ "$REQUIRED_SIZE" = "small" ]; then
+        REQUIRED_SIZE="medium"
+    fi
 else
     REQUIRED_SIZE="small"
 fi

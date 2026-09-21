@@ -404,6 +404,17 @@ EOF
         fail "the proxy answers ${proxy_code} on /redbot/ while botflow answers 200 on its own port — it is not routing" "$PROXY"
     fi
 
+    # Hand the run the address to point the suite at, rather than have the workflow repeat the
+    # port: it already lives here and in the chart values, and a third copy is the one that
+    # would be missed. The Node-RED credentials go with it for the same reason — the suite
+    # needs them and they are fixed fakes, not secrets.
+    if [ -n "${GITHUB_ENV:-}" ]; then
+        {
+            printf 'E2E_STACK_ORIGIN=http://localhost:%s\n' "$PROXY_PORT"
+            printf 'E2E_STACK_BOTFLOW_LOGIN=%s\n' "$BOTFLOW_ADMIN_LOGIN"
+            printf 'E2E_STACK_BOTFLOW_PASSWORD=%s\n' "$BOTFLOW_ADMIN_PASSWORD"
+        } >> "$GITHUB_ENV"
+    fi
     log "stack is up on http://localhost:${PROXY_PORT}"
 }
 

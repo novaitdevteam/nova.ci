@@ -272,6 +272,50 @@ runner_labels=e2e-small
 runner_need=true' \
     "" "$WORK/dispatch-typo.json"
 
+# target: ephemeral boots the whole product on the VM before a browser starts, so it raises
+# the floor to medium whatever the form asked for — but never lowers a size somebody chose
+# deliberately, which is what the third scenario holds.
+printf '{"inputs":{"runner_size":"small","target":"ephemeral"}}' > "$WORK/dispatch-ephemeral.json"
+printf '{"inputs":{"target":"ephemeral"}}' > "$WORK/dispatch-ephemeral-nosize.json"
+printf '{"inputs":{"runner_size":"large","target":"ephemeral"}}' > "$WORK/dispatch-ephemeral-large.json"
+printf '{"inputs":{"runner_size":"small","target":"lab"}}' > "$WORK/dispatch-lab-small.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "an ephemeral E2E run is raised to the medium E2E runner even when the form said small" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-ephemeral.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "an ephemeral E2E run with no size at all is medium, not the small default" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-ephemeral-nosize.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "an ephemeral E2E run that asked for large still gets the E2E pool, not a build size" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-ephemeral-large.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "target: lab is untouched by the ephemeral floor" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true' \
+    "" "$WORK/dispatch-lab-small.json"
+
 # Pool isolation. The two pools share Hetzner server types, so only the name tells them
 # apart — these four scenarios are what keep a long E2E suite from parking on a build
 # runner, and a build burst from starving the suite.
