@@ -311,11 +311,17 @@ up() {
     # answers 401 a minute forever.
     bot_token="$(env_value NOVATALKS_BOTAGENT_TOKEN "${WORK}/botflow.env")"
     bot_hook="http://127.0.0.1:${BOTFLOW_PORT}/redbot/novatalks-botagent/1"
-    docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -c "
+    # `insert ... select` writes nothing at all when the select matches nothing, and says so
+    # only in its row count — which went to /dev/null. `returning 1` and a check on the output
+    # is what turns "the seeds changed shape" into a named failure here rather than a 401 in
+    # the middle of a test twenty minutes later.
+    inserted="$(docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
         update agent_bots set outgoing_url = '${bot_hook}' where account_id = 1;
         insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
         select 'AgentBot', id, '${bot_token}', now(), now() from agent_bots where account_id = 1
-        limit 1" >/dev/null || fail "could not seed the AgentBot token" "$PG"
+        limit 1 returning 1" 2>&1)" || fail "could not seed the AgentBot token: ${inserted}" "$PG"
+    [ "$inserted" = "1" ] \
+        || fail "no agent_bots row for account 1, so BotFlow will get 401 on every call (psql said: ${inserted:-nothing})" "$PG"
 
     # The suite authenticates two ways, and neither works with the stand's credentials here:
     # it logs into the UI as the seeded admin, and it calls the Engine API with a static
@@ -330,10 +336,22 @@ up() {
     # Masked before it reaches a psql command line or an environment file: the failure paths
     # around here print container logs, and nova.ci is public.
     printf '::add-mask::%s\n' "$api_token"
-    docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -c "
+    inserted="$(docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
         insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
         select 'User', id, '${api_token}', now(), now() from users where email = '${admin_user}'
-        limit 1" >/dev/null || fail "could not seed the API token for ${admin_user}" "$PG"
+        limit 1 returning 1" 2>&1)" || fail "could not seed the API token: ${inserted}" "$PG"
+    [ "$inserted" = "1" ] \
+        || fail "no users row for ${admin_user}, so every API call the suite makes answers 401 (psql said: ${inserted:-nothing})" "$PG"
+    # And prove the engine accepts it, rather than leaving that to the first API call a test
+    # makes: a row in access_tokens and a token the engine authenticates are two different
+    # facts, and the 401 in between is indistinguishable from a token that never reached the
+    # suite at all. Not "== 200": a wrong path would be a 404 and this is a check on auth.
+    token_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -H "api_access_token: ${api_token}" \
+        "http://127.0.0.1:${ENGINE_PORT}/api/v1/accounts/1/wrupup-codes" 2>/dev/null || true)"
+    [ "$token_code" != "401" ] \
+        || fail "the engine rejected the seeded API token — every API call the suite makes will answer 401" "$ENGINE"
+    log "seeded an API token for ${admin_user} (engine answers ${token_code})"
 
     log "dialer ${DIALER_IMAGE}"
     # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
