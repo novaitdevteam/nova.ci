@@ -307,6 +307,23 @@ up() {
         select 'AgentBot', id, '${bot_token}', now(), now() from agent_bots where account_id = 1
         limit 1" >/dev/null || fail "could not seed the AgentBot token" "$PG"
 
+    # The suite authenticates two ways, and neither works with the stand's credentials here:
+    # it logs into the UI as the seeded admin, and it calls the Engine API with a static
+    # api_access_token header (macros, skills and calendars helpers, and the prune). The seeds
+    # create the admin but no token of its own, exactly as they create the AgentBot without
+    # one — so generate a token per run and insert it against that user.
+    admin_user="$(grep -E '^DEFAULT_ADMIN_USER=' "${WORK}/engine.env" | cut -d= -f2-)"
+    admin_user="${admin_user:-support@novatalks.ai}"
+    admin_pass="$(grep -E '^DEFAULT_USER_PASSWORD=' "${WORK}/engine.env" | cut -d= -f2-)"
+    api_token="$(openssl rand -hex 24)"
+    # Masked before it reaches a psql command line or an environment file: the failure paths
+    # around here print container logs, and nova.ci is public.
+    printf '::add-mask::%s\n' "$api_token"
+    docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -c "
+        insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
+        select 'User', id, '${api_token}', now(), now() from users where email = '${admin_user}'
+        limit 1" >/dev/null || fail "could not seed the API token for ${admin_user}" "$PG"
+
     log "dialer ${DIALER_IMAGE}"
     # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
     # api-scan arm of the target table, which is the one place that knows it. NATS_DELIVER_TO
@@ -413,6 +430,9 @@ EOF
             printf 'E2E_STACK_ORIGIN=http://localhost:%s\n' "$PROXY_PORT"
             printf 'E2E_STACK_BOTFLOW_LOGIN=%s\n' "$BOTFLOW_ADMIN_LOGIN"
             printf 'E2E_STACK_BOTFLOW_PASSWORD=%s\n' "$BOTFLOW_ADMIN_PASSWORD"
+            printf 'E2E_STACK_UI_LOGIN=%s\n' "$admin_user"
+            printf 'E2E_STACK_UI_PASSWORD=%s\n' "$admin_pass"
+            printf 'E2E_STACK_API_TOKEN=%s\n' "$api_token"
         } >> "$GITHUB_ENV"
     fi
     log "stack is up on http://localhost:${PROXY_PORT}"

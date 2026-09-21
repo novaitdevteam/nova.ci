@@ -293,9 +293,9 @@ jobs:
           BOTFLOW_URL: ${{ inputs.target == 'ephemeral' && format('{0}/redbot', env.E2E_STACK_ORIGIN) || inputs.botflow_url }}
           BOTFLOW_ADMIN_LOGIN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_BOTFLOW_LOGIN || secrets.E2E_BOTFLOW_ADMIN_LOGIN }}
           BOTFLOW_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_BOTFLOW_PASSWORD || secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
-          UI_ADMIN_LOGIN: ${{ secrets.E2E_UI_ADMIN_LOGIN }}
-          UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
-          API_TOKEN: ${{ secrets.E2E_API_TOKEN }}
+          UI_ADMIN_LOGIN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_LOGIN || secrets.E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_PASSWORD || secrets.E2E_UI_ADMIN_PASSWORD }}
+          API_TOKEN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_API_TOKEN || secrets.E2E_API_TOKEN }}
           # QANT-21 waits for the invitation mail, so the suite needs a mailbox it can
           # read over IMAP. Secrets, unlike the URLs above: a real account's password.
           IMAP_USER: ${{ secrets.E2E_IMAP_USER }}
