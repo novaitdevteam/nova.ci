@@ -161,14 +161,17 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
     # so the host alone is the whole substitution. Say which names were found: a guard that
     # stops reporting once it passes teaches nobody what it is protecting against.
     local stand_refs
+    # `|| true` on both greps: this file runs under `set -euo pipefail`, where grep finding
+    # nothing exits 1, fails the whole pipeline and kills the script — so the leftover check
+    # below died silently on exactly the run where it had nothing to report (35587962578).
     stand_refs="$(grep -o -E "${origin}|${project}-[a-z0-9-]+" "${WORK}/stand-flows.json" \
-        | sort | uniq -c | sort -rn | awk '{printf "%s×%s ", $1, $2}')"
+        | sort | uniq -c | sort -rn | awk '{printf "%s×%s ", $1, $2}' || true)"
     log "rewriting stand addresses: ${stand_refs:-none found}"
     sed -e "s|${origin}|http://localhost:${PROXY_PORT}|g" \
         -e "s|${project}-[a-z0-9-]*|127.0.0.1|g" \
         "${WORK}/stand-flows.json" > "${WORK}/flows.json"
     local leftover
-    leftover="$(grep -o -E "${origin}|${project}-[a-z0-9]+" "${WORK}/flows.json" | sort -u | tr '\n' ' ')"
+    leftover="$(grep -o -E "${origin}|${project}-[a-z0-9]+" "${WORK}/flows.json" | sort -u | tr '\n' ' ' || true)"
     [ -z "$leftover" ] || fail "the copied flows still address the stand: ${leftover}"
 
     # What was copied, so a red run can be told from a flow change. The digest is of the
