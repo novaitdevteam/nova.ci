@@ -129,16 +129,28 @@ up() {
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=novatalks \
         -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
         -e NATS_SERVERS=127.0.0.1:4222 \
-        -e APPLICATION_CAMPAIGN_ENABLE=true \
         -e FILE_DRIVER="${FILE_DRIVER:-s3}" \
         -e AWS_S3_ENDPOINT="${AWS_S3_ENDPOINT:-}" -e AWS_S3_BUCKET="${AWS_S3_BUCKET:-}" \
         -e AWS_S3_ACCESS_KEY="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET="${AWS_S3_SECRET:-}" \
         -e AWS_S3_REGION="${AWS_S3_REGION:-eeur}" -e AWS_S3_FORCE_PATH_STYLE=true \
         "$ENGINE_IMAGE" >/dev/null || fail "the engine container refused to start"
+    # Campaigns stay off here, as the chart values set them (engine.nats.enabled: 'false'):
+    # with them on, the engine awaits a JetStream consumer before it listens, and the chart
+    # renders NATS_DURABLE / NATS_DELIVER_TO / NATS_SUBJECTS only under that same flag — so
+    # forcing the feature on while the keys stay unrendered builds a consumer out of
+    # undefined and never reaches app.listen(). That is Step 1b's job, and it belongs in the
+    # values (where the chart renders the whole coherent key set) rather than as an -e here.
+    #
     # Migrations and seeds run from the engine's own entrypoint; /readyz is the completion
     # signal, which is why nothing here runs a setup command of its own. It gets its own,
     # longer budget because that work is real: 291 migrations and the full seed set against an
     # empty database, which the first probe run was still in the middle of at 300s.
+    #
+    # An engine that prints nothing after the seeder's last line is not a slow engine: main.ts
+    # creates the app with bufferLogs and only installs the real logger after the microservice
+    # is listening, and its uncaughtException handler logs into that same buffer — so a
+    # bootstrap that throws keeps the process alive and silent. Silence here means a failure
+    # that was swallowed, never progress.
     wait_http "engine" "http://127.0.0.1:${ENGINE_PORT}/readyz" "$ENGINE" "${E2E_ENGINE_BOOT_TIMEOUT:-900}"
 
     log "stand settings the seeds do not make"

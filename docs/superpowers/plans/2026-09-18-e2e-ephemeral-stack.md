@@ -49,9 +49,15 @@ bring-up.
 
 - `dast_bring_up_nats` from `dast-common.sh` (never a second copy): the broker, the health
   poll and the `campaign` stream.
-- Engine with `APPLICATION_CAMPAIGN_ENABLE=true`, started **after** NATS — it awaits the
-  connection before it listens, which is exactly how the lab's engine sat `0/1` for nine
-  minutes when this was tried there.
+- Engine with campaigns on, started **after** NATS — it awaits the connection before it
+  listens, which is exactly how the lab's engine sat `0/1` for nine minutes when this was
+  tried there. Switch it on in `values.ephemeral.yaml` (`engine.nats.enabled: 'true'` plus
+  `ENGINE_NATS_SERVERS`), never as an `-e` on the container: the chart renders
+  `NATS_DURABLE` / `NATS_DELIVER_TO` / `NATS_SUBJECTS` only under that flag, and the feature
+  without those keys builds a JetStream consumer out of `undefined` and never listens. Step 1
+  hit exactly that on 2026-09-21, and saw it as a 900s silence rather than an error, because
+  `main.ts` buffers its logs until after the microservice is up and its `uncaughtException`
+  handler logs into that same buffer.
 - Dialer from its `targets.sh` arm: `HEALTH_ENABLED=true` or `/readyz` 404s forever,
   `NATS_SUBJECTS`, its own database, `AWS_S3_*` dummies; its entrypoint runs `db:setup`.
 - **Verify:** the engine reports the campaign feature to the UI (the sidebar item is a link,
