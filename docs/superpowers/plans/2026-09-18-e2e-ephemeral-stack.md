@@ -2,7 +2,9 @@
 
 **Spec:** [`../specs/2026-09-18-e2e-ephemeral-stack.md`](../specs/2026-09-18-e2e-ephemeral-stack.md)
 **Status:** in progress — Step 0 closed 2026-09-18; Step 1 verified on a runner 2026-09-21
-(probe run 35581741198, whole stack up in ~75s on e2e-medium); Step 1b next
+(probe run 35584025381, whole stack up in ~60s on e2e-medium, every route answering the same
+through the proxy as on its own port); Step 1b under way — campaigns are on and the engine
+boots with them
 **Date:** 2026-09-18
 
 Each step ends in something observable. A step whose verification cannot fail is not done —
@@ -42,14 +44,22 @@ bring-up rather than repeating it, and rendering the chart for every container's
   not come up" with no evidence.
 - **Verify:** run it on a runner by hand; `/readyz`, `/redbot/` and the UI all answer; then
   `down` leaves no container, no volume and no network behind (`docker ps -a`, `docker volume ls`).
-- **Done 2026-09-21**, probe run 35581741198: engine 38s, dialer 12s, botflow 6s, ui 4s,
-  proxy 2s — ~75s from postgres to a served origin. Four faults found by running it, each one
-  a wait that expired with nothing to read: campaigns forced on without the chart's NATS keys,
-  `PORT` where the dialer reads `APP_PORT`, `FILE_DRIVER=local` against a storage map holding
-  only `s3`, and the image's own `settings.js` leaving Node-RED on `/` instead of `/redbot`.
-  The last of those passed as green first — `wait_http` counts any answer as up, which is
-  right for a health path and wrong for a server that answers everything, so the botflow wait
-  now asserts the code and `down` asserts nothing survived it.
+- **Done 2026-09-21**, probe run 35584025381: engine 38s, dialer 10s, botflow 6s, ui 4s,
+  proxy 2s — about a minute from postgres to a served origin, with every path answering the
+  same through the proxy as on its own port.
+- Six faults, found only by running it, and four of them looked identical from outside — a
+  wait that expired with nothing to read: campaigns forced on past the flag that renders the
+  chart's NATS keys; `PORT` where the dialer reads `APP_PORT`; `FILE_DRIVER=local` against a
+  storage map holding only `s3`; and the image's own `settings.js`, which leaves Node-RED on
+  `/` rather than `/redbot`.
+- The other two are the ones worth keeping in mind, because both **passed as green**: botflow
+  answering 404 on its admin root, and an nginx already on the runner's 8080 answering the
+  proxy's health poll for three runs. `wait_http` counting any answer as up is right for a
+  health path and wrong for a server that answers everything or a port somebody else holds.
+  Hence the origin on 18080, the port guard, and two assertions — botflow's admin root is not
+  404, and `/redbot/` through the proxy matches what botflow serves directly.
+- A third of the same kind was in the guard itself: `curl -w '%{http_code}' || echo 000`
+  writes `000000` on a free port. One `http_code` helper now, `|| true` for `set -e` only.
 
 ## Step 1b — NATS, the dialer and campaigns
 
