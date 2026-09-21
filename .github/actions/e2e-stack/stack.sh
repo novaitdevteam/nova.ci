@@ -33,7 +33,10 @@ STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${STACK_DIR}/../dast/targets.sh"
 
 PREFIX="${E2E_STACK_PREFIX:-e2e}"
-PROXY_PORT="${E2E_PROXY_PORT:-8080}"
+# 18080, not 8080: the E2E runner image already runs an nginx bound to 0.0.0.0:8080, found by
+# the port guard below on probe 35582984980 after three runs had quietly reported that nginx
+# as our own front proxy. Nothing else on the VM contends for this one.
+PROXY_PORT="${E2E_PROXY_PORT:-18080}"
 ENGINE_PORT=3000; DIALER_PORT=3002; BOTFLOW_PORT=1880; UI_PORT=8000
 BOOT_TIMEOUT="${E2E_BOOT_TIMEOUT:-300}"
 WORK="${RUNNER_TEMP:-/tmp}/e2e-stack"
@@ -94,6 +97,11 @@ render_file() { # render_file <configmap-suffix> <key> <output file>
 
 up() {
     mkdir -p "$WORK"
+    # The origin is written in two places — here and in the chart values, which build every
+    # URL the UI, the engine and the channel webhooks hand out. They have to agree, and a
+    # mismatch would surface as a webhook posted to a port nobody serves, far from its cause.
+    grep -q "localhost:${PROXY_PORT}" "${STACK_DIR}/values.ephemeral.yaml" \
+        || fail "values.ephemeral.yaml does not name localhost:${PROXY_PORT} — the origin and the proxy port have drifted apart"
     : "${CHART_PACKAGE:=ghcr.io/novaitdevteam/novatalks.charts/novatalks-platform}"
     : "${CHART_VERSION:?CHART_VERSION must name a published chart version, e.g. 5.4.7}"
     : "${ENGINE_IMAGE:?}" "${UI_IMAGE:?}" "${BOTFLOW_IMAGE:?}" "${DIALER_IMAGE:?}"

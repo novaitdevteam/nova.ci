@@ -152,7 +152,7 @@ jobs:
             echo "| --- | --- | --- |"
             for row in /:8000 /api/v1/:3000 /auth/:3000 /redbot/:1880 /api/v1/dialer/:3002; do
               path="${row%:*}"; port="${row##*:}"
-              echo "| \`${path}\` | $(probe "http://127.0.0.1:${port}${path}") | $(probe "http://localhost:8080${path}") |"
+              echo "| \`${path}\` | $(probe "http://127.0.0.1:${port}${path}") | $(probe "http://localhost:18080${path}") |"
             done
             echo ""
             echo ""
