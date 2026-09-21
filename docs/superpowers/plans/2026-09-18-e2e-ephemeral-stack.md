@@ -19,13 +19,12 @@ canonical BotFlow flow cannot transfer a conversation.
   so the stack renders the chart instead of curating a list (D17). What is left to verify is
   which values must differ on a runner. **Verify:** the rendered engine env boots the container
   to `/readyz` 200 with only hosts, ports and `FILE_DRIVER` overridden.
-- Boot BotFlow with the canonical `BotAgent_Sys_ChatBot` from `novatalks.botflow.flows`, send
-  one message, and read the conversation back. **Verify:** `team` and `assignee` are set, not
-  `null` — this is exactly what the reverted merge failed at on 2026-09-17.
+- ~~Whether the canonical flow transfers a conversation~~ **closed by decision**: it does not,
+  so the stack copies the stand's live flows at boot instead (D7). Nothing to measure.
 - **Verify overall:** a written note of the four answers, in the spec's open-questions table.
 
-If BotFlow parity fails here, stop and decide: adapt the canonical flow, or carry a QA flow
-artifact. Do not proceed by overwriting the stand's flows again.
+Step 0 is therefore closed. The flow-parity risk it existed to catch is gone by construction:
+the ephemeral stack runs the stand's own flows.
 
 ## Step 1 — `stack.sh`: bring the stack up and tear it down
 
@@ -61,8 +60,11 @@ bring-up.
 
 ## Step 2 — Flows for an ephemeral BotFlow
 
-- Assemble the flow document: canonical sys chatbot + N slots from the existing
-  `slot-template.json`, with the webhook base pointing at the engine's container name.
+- Copy the live document from the stand's Node-RED admin API, rewrite the webhook base to the
+  engine's container name, then run the existing slot reconcile for N workers against the
+  ephemeral BotFlow.
+- Log the node count and a hash of what was copied, so a red run can be told from a flow change.
+- A stand that cannot be read at boot fails the run loudly; there is no fallback document.
 - Deploy it through the Node-RED admin API, then wait for every `/telegram|viber|messenger/<n>`
   route to answer.
 - **Verify:** with `WORKERS=4`, all 12 routes answer; a message posted to `/telegram/1` creates
