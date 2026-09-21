@@ -5,11 +5,51 @@
 # chart — before the E2E workflow depends on it. Spec:
 # docs/superpowers/specs/2026-09-18-e2e-ephemeral-stack.md, plan Step 1.
 #
-# workflow_dispatch only. It boots a whole product stack and reads a private chart repository;
-# that is a thing somebody asks for, with an actor and a timestamp against the run.
+# Dispatched, never automatic: it boots a whole product stack and reads a private chart
+# repository — a thing somebody asks for, with an actor and a timestamp against the run.
+#
+# It carries workflow_call as well as workflow_dispatch for one practical reason: a
+# workflow_dispatch form is only offered for files that exist on the default branch, so while
+# this is still being developed on a branch, the way to run it is for the tests repository's
+# caller to call it at that ref — the same temporary arrangement the E2E workflow itself uses.
 name: CI E2E Stack Probe
 
 on:
+  workflow_call:
+    inputs:
+      runner_labels:
+        required: false
+        type: string
+      nova_ci_ref:
+        # Which nova.ci ref holds stack.sh. A caller on another repository checks this
+        # workflow out by name, so it cannot infer the branch it is itself running from.
+        required: false
+        type: string
+        default: "main"
+      engine_tag:
+        required: false
+        type: string
+        default: "2026_R3_NC2-2778_engine_f64f9736"
+      ui_tag:
+        required: false
+        type: string
+        default: "2026_R3_development_20fdf74f"
+      botflow_tag:
+        required: false
+        type: string
+        default: "2026_R3_master_f9126a11"
+      dialer_tag:
+        required: false
+        type: string
+        default: "2026_R3_master_a81e7763"
+      chart_ref:
+        required: false
+        type: string
+        default: "main"
+      keep_up:
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       engine_tag:
@@ -48,11 +88,14 @@ jobs:
     name: Boot the stack
     # The E2E pool, not the build pool: this holds a runner for as long as a boot takes, and
     # product builds must not queue behind it.
-    runs-on: e2e-medium
+    runs-on: ${{ inputs.runner_labels || 'e2e-medium' }}
     timeout-minutes: 45
     steps:
       - name: Checkout nova.ci
         uses: actions/checkout@v6
+        with:
+          repository: novaitdevteam/nova.ci
+          ref: ${{ inputs.nova_ci_ref || 'main' }}
 
       - name: Checkout the chart
         uses: actions/checkout@v6
@@ -60,7 +103,7 @@ jobs:
           repository: novaitdevteam/novatalks.charts
           ref: ${{ inputs.chart_ref }}
           # The chart repository is private and this workflow's own GITHUB_TOKEN cannot read it.
-          token: ${{ secrets.BACKUP_GH_TOKEN }}
+          token: ${{ secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
           path: charts
 
       - name: Install Docker
