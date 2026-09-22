@@ -368,7 +368,10 @@ jobs:
           UI_ADMIN_LOGIN: ${{ secrets.E2E_UI_ADMIN_LOGIN }}
           UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
         run: |
-          body="$(jq -cn --arg u "$UI_ADMIN_LOGIN" --arg p "$UI_ADMIN_PASSWORD" '{username:$u,password:$p}')"
+          # Escaped in bash rather than with jq: nothing else in this workflow needs jq, and a
+          # credential check that fails because a tool is missing is a check nobody trusts.
+          esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }
+          body="{\"username\":\"$(esc "$UI_ADMIN_LOGIN")\",\"password\":\"$(esc "$UI_ADMIN_PASSWORD")\"}"
           code="$(curl -sS --max-time 60 -o /tmp/signin.json -w '%{http_code}' \
                     -X POST "${ENV_URL}/auth/sign_in" -H 'Content-Type: application/json' -d "$body")" \
             || { echo "::error::could not reach ${ENV_URL}/auth/sign_in"; exit 1; }
