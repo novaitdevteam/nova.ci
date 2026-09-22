@@ -282,6 +282,11 @@ jobs:
         if: ${{ inputs.target == 'ephemeral' && inputs.reset_stand != 'off' }}
         env:
           RESET_STAND: ${{ inputs.reset_stand }}
+          # The same number that bounds the step, so Playwright stops first and still writes
+          # a report. They used to disagree — the config's own 110 minutes cut a run off at
+          # 264 of 418 tests while the step was allowed 120, and the 154 that never ran were
+          # reported as a suite result rather than as a budget.
+          SUITE_TIMEOUT_MINUTES: ${{ inputs.suite_timeout_minutes }}
         run: |
           echo "::error::reset_stand=${RESET_STAND} has no meaning for target: ephemeral — the stack is created for this run. Set reset_stand to off."
           exit 1

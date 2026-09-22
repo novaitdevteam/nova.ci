@@ -93,6 +93,7 @@ case "${1:-up}" in
             -v "${TESTS_REPO}:/work" -v "${work}:${work}:ro" -w /work \
             --env-file "${work}/stack.env" \
             -e RESET_STAND=off -e WORKERS="${WORKERS:-1}" -e CI=true \
+            -e SUITE_TIMEOUT_MINUTES="${SUITE_TIMEOUT_MINUTES:-110}" \
             -e TELEGRAM_URL=/telegram/ -e VIBER_URL=/viber/ -e META_URL=/messenger/channel-messenger/ \
             -e MAILGUN_API_KEY -e MAILGUN_DOMAIN -e TEST_EMAIL_ADDRESS \
             -e IMAP_USER -e IMAP_PASSWORD -e IMAP_HOST -e IMAP_PORT \
