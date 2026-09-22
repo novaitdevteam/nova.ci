@@ -73,7 +73,7 @@ on:
         type: string
         default: ""
       reset_stand:
-        description: "prune (API-level, the default), deep (also runs the stand's own SQL reset), or off."
+        description: "prune (API-level, the default), deep (also the stand's SQL reset), drop (both databases recreated — minutes, and the stand is unusable meanwhile), or off."
         required: false
         type: string
         default: "prune"
@@ -192,6 +192,45 @@ jobs:
           # failure this step exists to prevent.
           curl -fsS --max-time 300 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" "$RESET_URL"
           echo
+
+      # The destructive one: both databases recreated, the Engine and the Dialer restarted,
+      # the Dialer's newly bootstrapped token carried into the Engine's config map, and the
+      # account normalised — all inside the stand, because none of it is reachable from a
+      # runner with no route into the cluster. Minutes, not seconds, and the stand answers
+      # nothing useful while it runs, which is why it is a separate choice and never a default.
+      #
+      # The body names the stand. A token can be pasted from a secret by a job that meant to
+      # prune; a name cannot be supplied by accident, and the service refuses anything else.
+      - name: Drop and rebuild the stand
+        if: ${{ inputs.reset_stand == 'drop' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+          STAND_NAME: ${{ secrets.E2E_STAND_NAME }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ] || [ -z "$STAND_NAME" ]; then
+            echo "::error::reset_stand=drop needs E2E_RESET_URL, E2E_RESET_TOKEN and E2E_STAND_NAME"
+            exit 1
+          fi
+          case "$RESET_URL" in
+            */prune) DROP_URL="${RESET_URL%/prune}/drop" ;;
+            *) echo "::error::E2E_RESET_URL does not end in /prune, so the drop route cannot be derived from it"; exit 1 ;;
+          esac
+          # Generous, because this waits for two rollouts and the Engine's migrations on an
+          # empty schema. A drop that is cut off halfway leaves a stand nobody can use, so
+          # the timeout is longer than the work rather than shorter than the patience.
+          code="$(curl -sS --max-time 1200 -o /tmp/drop.out -w '%{http_code}' \
+                    -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                    --data "{\"stand\":\"${STAND_NAME}\"}" "$DROP_URL")" \
+            || { echo "::error::could not reach the reset service at the drop route"; exit 1; }
+          cat /tmp/drop.out; echo
+          case "$code" in
+            2*) ;;
+            501) echo "::error::this stand's reset service has no drop configured — it predates the route, or its deployment is missing STAND_NAME / the deployment and config map names"; exit 1 ;;
+            409) echo "::error::the service refused the name in E2E_STAND_NAME; it is not the stand this deployment resets"; exit 1 ;;
+            *)  echo "::error::the drop route answered ${code}"; exit 1 ;;
+          esac
 
       # Everything below until "Runner capacity" runs for target: ephemeral only.
       #
