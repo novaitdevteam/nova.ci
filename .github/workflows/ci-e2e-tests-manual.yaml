@@ -348,6 +348,36 @@ jobs:
             [ -n "${!name}" ] || { echo "::error::${name} resolved to nothing for target ${TARGET}"; exit 1; }
           done
 
+      # One login, before the suite, because the fifth wrong one costs everybody the stand.
+      #
+      # The engine locks a user after five failed attempts, and a locked user is refused on
+      # *every* credential it owns — including the `api_access_token` the suite uses for
+      # everything else. On 2026-09-22 a stale `E2E_UI_ADMIN_PASSWORD` spent those five during
+      # run 35719049544; the next run died at its first API call (`login_account_locked`) and
+      # the stand stayed unusable until somebody cleared `failed_attempts` by hand. One attempt
+      # here turns that into a red step with a sentence in it.
+      #
+      # `username`, not `email` — the field the engine's sign-in takes, and sending the wrong
+      # one answers 401 without ever reaching the password, which looks exactly like a bad
+      # credential while proving nothing. A 403 counts as a pass: the engine only reaches
+      # "already logged on this device type" after it has accepted the password.
+      - name: Check the admin credentials before spending attempts on them
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          ENV_URL: ${{ inputs.env_url }}
+          UI_ADMIN_LOGIN: ${{ secrets.E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
+        run: |
+          body="$(jq -cn --arg u "$UI_ADMIN_LOGIN" --arg p "$UI_ADMIN_PASSWORD" '{username:$u,password:$p}')"
+          code="$(curl -sS --max-time 60 -o /tmp/signin.json -w '%{http_code}' \
+                    -X POST "${ENV_URL}/auth/sign_in" -H 'Content-Type: application/json' -d "$body")" \
+            || { echo "::error::could not reach ${ENV_URL}/auth/sign_in"; exit 1; }
+          case "$code" in
+            2*|403) echo "admin credentials accepted (${code})" ;;
+            401) echo "::error::E2E_UI_ADMIN_PASSWORD is not the password this stand holds for ${UI_ADMIN_LOGIN}. Stopping after one attempt: five would lock the account and take every api_access_token call down with it. The stand's own value is DEFAULT_USER_PASSWORD in the engine's config map — but note it only seeds a user that does not exist yet, so a stand seeded earlier can hold something else."; exit 1 ;;
+            *)   echo "::error::sign-in answered ${code}: $(head -c 300 /tmp/signin.json)"; exit 1 ;;
+          esac
+
       - name: Run Playwright Tests
         # Bounded at the step, not only at the job: a step timeout fails this step and lets
         # the ones after it run, so the report is still uploaded and an ephemeral stack is
