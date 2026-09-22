@@ -146,22 +146,39 @@ The goal restated, because it moved: **the same build must give the same result 
 target**, and locally. Green is the consequence, not the test. Everything below is ordered by
 how much it moves that, and each says what would close it.
 
-### 1. Why four or five of ten smoke specs only pass on a retry
+### 1. Why four or five of ten smoke specs only pass on a retry — answered, 2026-09-22
 
-The standing explanation — the suite shares one account and one worker's `afterEach` deletes
-another's entities — predicts that one worker is stable. First evidence against it: `QANT-45`
-failed twice at `WORKERS=1` on a stack nothing else was touching. If that holds, the cause is
-somewhere else entirely and the explanation everyone repeats is wrong.
-**Closes when:** the same tag runs clean twice at the worker count we intend to use.
-**Blocked by:** nothing. Local, minutes per attempt.
+Two causes, and the standing explanation was backwards about one of them.
 
-### 2. The campaigns specs fail on the page, on both targets
+At `WORKERS=1` the run is **deterministic**: two full `@smoke` runs, byte-identical outcomes
+(8 passed, 2 failed, zero flaky, 12.5 and 12.7 minutes). So the retries at four workers are
+worker-count-dependent, and the shared-account race explains those.
 
-Same failure shape on lab and ephemeral, so it is not a target difference. Unattributed: the
-module is on (the sidebar link renders and navigates), and nobody has yet opened the dialer
-settings page by hand to see whether it works at all.
-**Closes when:** someone drives that page manually and says whether it is the test or the page.
-**Blocked by:** nothing.
+`QANT-45` is not one of them. It failed all three attempts at one worker, twice, and the cause
+is `accounts.limits.enableAutomaticAgentAssignment`, which the engine seeds `false`. With it
+off, `action.service.ts` only ever adds a team conversation to the queue; the first message of
+a spec still alerts, because the chatbot's transfer forces an assignment, and the second sits
+`open/inqueue` with the agent `online/Idle` beside it. Flipping that one field made it pass
+first try. It is now the fourth of the four account settings both targets apply — `stack.sh`
+here, `normalize.sql` in `novatalks.tests`.
+
+The same field explains why four workers looked *more* stable than one: another worker's
+traffic is the event that drains the queue. Concurrency was hiding this, not causing it.
+**Left:** re-measure the four-worker run now that `QANT-45` and the campaigns page are fixed,
+and decide the worker count from what is left.
+
+### 2. The campaigns specs fail on the page, on both targets — fixed, 2026-09-22
+
+Not the test and not the page: the dialer's environment comes from the api-scan arm of the
+DAST target table, which carries no `ENGINE_URL` and no `AGENT_BOT_TOKEN`. `API_ACCESS_TOKENS`
+only admits the token the engine presents for its own calls; a request from a logged-in user
+arrives with *that user's* engine token, so the dialer asks the engine to vouch for it — and
+with no `ENGINE_URL`, axios threw `Invalid URL`, which the middleware turned into a 400 and the
+engine proxied back. The page rendered its header and no rows. All five `QANT-333` specs now
+pass in 6.7–10.8 s each, where they had been failing three attempts at 1.1 minutes apiece.
+
+Checking that endpoint with an `api_access_token` answers 200 and proves nothing — that call
+never takes the branch that was broken, which is why the backend looked healthy throughout.
 
 ### 3. `QANT-21` reads a real mailbox
 

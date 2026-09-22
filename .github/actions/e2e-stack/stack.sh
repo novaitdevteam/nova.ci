@@ -429,10 +429,21 @@ up() {
     # Each of these has already cost a red suite: an expired trial hides login behind a promo
     # banner, a non-English locale fails every asserted string, and a one-agent licence fails
     # the second test that creates one.
+    #
+    # enableAutomaticAgentAssignment is the fourth, and it is the engine's own seed default
+    # (`seeds.service.ts`: false). With it off, a conversation handed to a team is only ever
+    # added to the queue — `action.service.ts` takes the else arm — and the queue is drained
+    # by nothing a single-agent run produces. The first message of a spec still alerts,
+    # because the chatbot's transfer forces an assignment; the second sits `open/inqueue`
+    # with the agent `online/Idle` beside it and the spec fails on an alert that never rings.
+    # QANT-45 failed all three attempts, twice, on exactly that, and passed first try with
+    # this one field flipped. It also explains why four workers looked *more* stable than one:
+    # another worker's traffic is the event that drains the queue.
     docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -c "
         update accounts set active_until = now() + interval '5 years',
                             locale = 'en',
-                            limits = jsonb_set(limits::jsonb, '{users}', '100'),
+                            limits = jsonb_set(jsonb_set(limits::jsonb, '{users}', '100'),
+                                               '{enableAutomaticAgentAssignment}', 'true'),
                             updated_at = now()
         where id = 1" >/dev/null || fail "could not apply the stand settings" "$PG"
     # BotFlow presents this token on every call; with no agent_bots row carrying it the engine
