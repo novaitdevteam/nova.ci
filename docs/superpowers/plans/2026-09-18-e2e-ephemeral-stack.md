@@ -196,23 +196,62 @@ pass in 6.7–10.8 s each, where they had been failing three attempts at 1.1 min
 Checking that endpoint with an `api_access_token` answers 200 and proves nothing — that call
 never takes the branch that was broken, which is why the backend looked healthy throughout.
 
-### 3. `QANT-21` reads a real mailbox
+### 3. Mail — wider than one spec, and two different problems under one label
 
-Fails on both targets and on neither's account. It cannot be made deterministic by anything in
-this repository, so it does not belong in the set used to compare targets.
-**Closes when:** it is tagged out of the comparable set, or made hermetic with a local mail
-server. The first is a decision, the second is work.
+`QANT-21` was never alone. The full regression put eleven specs here, and they fail for two
+unrelated reasons that must not be treated as one.
 
-### 4. The full `@e2e` regression has never run on the ephemeral target
+**The temp-mail portal answers `403 Forbidden`** to `createInbox` — `QANT-21`, `QANT-135`,
+`QANT-136`. A third-party service; no credential of ours is involved.
 
-Only `@CI` and `@smoke` have. 1.2 h on the lab, unknown here — and unknown is the point.
-**Closes when:** it has run once and the result is written down beside the lab's.
+**The `@email` class cannot pass more than one spec per database**, on either target. Each spec
+creates an inbox that reads the one real mailbox, the engine keeps that address unique, and an
+inbox delete is *soft* — the `channel_email` row survives and holds the address forever. Proved
+rather than inferred: clearing the orphaned rows let `QANT-02` pass (34.3 s), and `QANT-03`,
+`-04` and `-05` then failed `409 Email must be unique` on the row `QANT-02` had just left. This
+is the same freeze `tools/stand-reset/prune.sql` documents in its own header; the deep prune is
+the only known cure and it runs between runs, not between specs.
 
-### 5. Lab parity is implemented and unverified
+`MAILGUN_API_KEY` and `MAILGUN_DOMAIN` do exist, in `nova.ci/.env`, and are now handed to the
+local run. The workflow passes the four IMAP variables and neither Mailgun one — worth fixing
+only after the class above is decided, since the credential is not what is failing.
 
-`POST /normalize` and the workflow step that calls it exist; the image is not redeployed and
-nothing has run against the lab since.
-**Blocked by:** the lab, currently with QA.
+**Closes when:** the `@email` class is either tagged out of the comparable set, given a mailbox
+per spec, or given a between-spec reset; and the portal specs are decided separately.
+
+### 4. The full `@e2e` regression — first measurement, 2026-09-22
+
+**351 passed, 27 failed, 8 flaky, 10 skipped, 22 did not run — 53.8 minutes at three workers**,
+against a locally-run ephemeral stack. The lab's reference is 1.2 h, so the ephemeral target is
+not the slower of the two.
+
+The 27, triaged:
+
+| count | class | verdict |
+| --- | --- | --- |
+| 8 | `@email` | structural, item 3 — one spec per database, either target |
+| 8 | `MessageCounter` (`QANT-09/14/18/23/53/62/66/69`) | the spec clicks the second row of a list that holds one after the first is resolved. A/B'd against `enableAutomaticAgentAssignment`: identical failure with it off, so not ours |
+| 3 | temp-mail portal `403` | item 3, third-party |
+| 1 | `QANT-99` | **fixed** — `removeCallInboxes` did not skip soft-deleted inboxes |
+| 4 | `QANT-105`, `QANT-130`, `QANT-06`, `QANT-72` | unattributed; need the page driven by hand |
+
+One caveat on the run itself: the stack had been reused all day rather than brought up fresh,
+which is how the orphaned `channel_email` rows accumulated. A clean-stack repeat is worth one
+more hour before these numbers are quoted as the target's baseline.
+
+**Closes when:** the same tag has run once on a stack brought up for it, and the remaining four
+are attributed.
+
+### 5. Lab parity — the image is built, applying it is one command
+
+`ghcr.io/novaitdevteam/e2e-stand-reset:3` is built and pushed (linux/amd64, verified to carry
+`normalize.sql` and the route), and `deploy.yaml` is bumped to it. Until it is applied, every
+lab run dies at the normalise step: run 35719049544 did, with nothing but `curl: (22)` to go
+on, which is now a message naming the cause.
+
+    kubectl -n dev-e2e-test apply -f tools/stand-reset/deploy.yaml
+
+**Blocked by:** cluster access — no kubeconfig on the machine this was prepared from.
 
 ### 6. Merge
 
