@@ -164,8 +164,24 @@ here, `normalize.sql` in `novatalks.tests`.
 
 The same field explains why four workers looked *more* stable than one: another worker's
 traffic is the event that drains the queue. Concurrency was hiding this, not causing it.
-**Left:** re-measure the four-worker run now that `QANT-45` and the campaigns page are fixed,
-and decide the worker count from what is left.
+**Closed.** Two consecutive `@smoke` runs at one worker, after the fixes below, are
+byte-identical: 9 passed, 1 failed (`QANT-21`, the external mailbox, item 3), zero flaky, 5.4
+and 5.3 minutes, every per-test time within a second of the other run's.
+
+Two more causes were found on the way there, and both were the same shape — a step waiting on a
+clock instead of on the state it needed:
+
+- The toast assertion read `.nth(0)`. Resolving a conversation raises two toasts at once, so the
+  step waited out the wrong one. Fixed in the component, not at the 141 call sites.
+- `QANT-45`'s decline step slept a fixed 10 s before posting the second message, against a
+  20 s `wrapup_timeout` set by its own fixture. An agent still in after-call work is offered
+  nothing, so the alert never rang. It now waits for the ACW timer to disappear — the signal
+  `QANT-48` already asserts. Three runs, 57-60 s, no retries.
+
+The second one is worth remembering as a method note: fixing the toast race made the step
+*faster*, which is what pushed the 10 s sleep over the boundary and turned a passing spec red.
+A fixed sleep near a product timeout does not fail where it is written; it fails wherever
+something upstream changes speed.
 
 ### 2. The campaigns specs fail on the page, on both targets — fixed, 2026-09-22
 
