@@ -48,13 +48,19 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 **Two targets, chosen per run by the `target` input.** Both stay; neither replaces the other.
 The point of having two is that the same build gives the same result on either, so each starts
 from a **defined** account state rather than whatever the last run left: a five-year trial,
-`locale = 'en'`, and a hundred-agent limit. The ephemeral target writes them at boot
+`locale = 'en'`, a hundred-agent limit, and automatic agent assignment on. The ephemeral target writes them at boot
 (`e2e-stack/stack.sh`); the lab gets them from `POST /normalize` on its own reset service,
 called on every lab run. Keep the two lists identical — they answer the same question, and two
 copies that drift apart put the targets back out of step silently. That is not hypothetical:
 on 2026-09-21 the lab sat on `locale = 'pl'` after an interrupted run and every smoke spec
 asserting English text failed there, while the ephemeral stack passed for no better reason
 than that it rewrites the row each time.
+
+The fourth setting, `limits.enableAutomaticAgentAssignment`, is the one the engine's own seeds
+leave `false`, and with it off a conversation handed to a team only ever joins the queue —
+nothing a single-agent run produces drains it. The first message of a spec still rings, because
+the chatbot's transfer forces an assignment, so the run looks healthy right up to the second
+one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 
 | | `lab` (the default) | `ephemeral` |
 | --- | --- | --- |
@@ -151,8 +157,17 @@ runnable the same day. The same tag against the lab (run 35615371703) was **9 fa
 comparison Step 4 of the plan wants cannot be completed yet — not because the ephemeral
 target went unmeasured, but because the reference was not in a state to measure against.
 
-The four retries are `QANT-44`, `QANT-45`, `QANT-46` and `QANT-47`: the shared-account
-cleanup race described below, not a property of the target.
+**Measurements after the four fixes below**, 2026-09-22, `@smoke` at one worker against a
+locally-run ephemeral stack: **9 passed, 1 failed, zero flaky**, 5.4 and 5.3 minutes across two
+consecutive runs whose per-test times match within a second. The one failure is still
+`QANT-21`. Two runs at four workers on the same build had produced four and five retries.
+
+What those retries were is worth stating precisely, because the standing explanation was only
+half right. The shared-account cleanup race described below is real and does account for
+retries at four workers. It did **not** account for `QANT-45`, which failed all three attempts
+at one worker on a stack nothing else was touching: that was the account setting above, plus a
+fixed 10-second sleep in the spec racing a 20-second `wrapup_timeout`. Four workers had been
+*hiding* it — another worker's traffic was the event that drained the queue.
 
 Two conclusions, both measured rather than preferred. **A bigger VM buys nothing**: doubling the cores halved the load and moved the regression's wall time by zero, because that time is spent waiting on the application and on fixed timeouts (30 s per click, 60 s per `expect`, 360 s per test), not on CPU. And **more workers cost stability faster than they buy time**: 4 → 8 workers on the smoke suite saved 1.5 minutes and turned five passing tests into one, because the suite shares one account and its `afterEach` cleanups delete entities belonging to whichever worker is running alongside. Four workers on `small` is the working setting until that isolation is fixed; the per-worker channel slots, generated on demand against the stand, are the other ceiling.
 
