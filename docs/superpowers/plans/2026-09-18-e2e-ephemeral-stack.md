@@ -140,129 +140,72 @@ bring-up.
 - **Verify:** harness green; a reader who has never seen this can tell which target a red run
   used from its log alone.
 
-## What is left, in order — 2026-09-22
+## Where this stands, and what is left — 2026-09-22, end of day
 
-The goal restated, because it moved: **the same build must give the same result on either
-target**, and locally. Green is the consequence, not the test. Everything below is ordered by
-how much it moves that, and each says what would close it.
+The goal moved once more and is now a number: **80% of the suite passing on the lab and on
+the ephemeral stack — locally first, then in CI.** Parity is no longer the open question; the
+pass rate is.
 
-### 1. Why four or five of ten smoke specs only pass on a retry — answered, 2026-09-22
+### Taken
 
-Two causes, and the standing explanation was backwards about one of them.
+**`@smoke` gives the same answer on both targets.** Lab 9 passed / 1 failed in 6.0 minutes;
+ephemeral 9 passed / 1 failed in 5.3 and 5.4 minutes across two consecutive runs whose
+per-test times match within a second. The one failure was the same spec on both, and it is
+fixed since.
 
-At `WORKERS=1` the run is **deterministic**: two full `@smoke` runs, byte-identical outcomes
-(8 passed, 2 failed, zero flaky, 12.5 and 12.7 minutes). So the retries at four workers are
-worker-count-dependent, and the shared-account race explains those.
+**The full regression on the ephemeral stack, locally: 380 of 418 — 90.9%.** It was 230 of 418
+that morning, with 154 tests never reaching a verdict at all. Two hours and eighteen minutes at
+four workers.
 
-`QANT-45` is not one of them. It failed all three attempts at one worker, twice, and the cause
-is `accounts.limits.enableAutomaticAgentAssignment`, which the engine seeds `false`. With it
-off, `action.service.ts` only ever adds a team conversation to the queue; the first message of
-a spec still alerts, because the chatbot's transfer forces an assignment, and the second sits
-`open/inqueue` with the agent `online/Idle` beside it. Flipping that one field made it pass
-first try. It is now the fourth of the four account settings both targets apply — `stack.sh`
-here, `normalize.sql` in `novatalks.tests`.
+**The lab is serviceable again.** The reset service went through `:3` (the `/normalize` route
+it had been missing, which was killing every lab run at its first step), `:4` (clearing the
+channel rows an inbox leaves behind) and `:5` (`/drop`, with a service account scoped to two
+deployments and one config map). A credential check now runs before the suite: one attempt
+instead of the five that lock the account and take every `api_access_token` call down with it.
 
-The same field explains why four workers looked *more* stable than one: another worker's
-traffic is the event that drains the queue. Concurrency was hiding this, not causing it.
-**Closed.** Two consecutive `@smoke` runs at one worker, after the fixes below, are
-byte-identical: 9 passed, 1 failed (`QANT-21`, the external mailbox, item 3), zero flaky, 5.4
-and 5.3 minutes, every per-test time within a second of the other run's.
+Causes found and closed, each of which had been read as flakiness: the Dialer with no
+`ENGINE_URL` (the whole campaigns class), a proxy certificate neither the Engine nor BotFlow
+trusted (every outgoing bot message marked `failed`), `enableAutomaticAgentAssignment` off in
+the Engine's own seeds, two toasts racing for `.nth(0)`, a fixed 10-second sleep against a
+20-second wrapup timeout, a click by list position after the list had changed length,
+`removeInbox` not skipping soft-deleted rows, a temp-mail provider refusing undici's TLS
+fingerprint, and an email inbox whose address *and* name could each be spent exactly once per
+database.
 
-Two more causes were found on the way there, and both were the same shape — a step waiting on a
-clock instead of on the state it needed:
+### 1. Close the triangle
 
-- The toast assertion read `.nth(0)`. Resolving a conversation raises two toasts at once, so the
-  step waited out the wrong one. Fixed in the component, not at the 141 call sites.
-- `QANT-45`'s decline step slept a fixed 10 s before posting the second message, against a
-  20 s `wrapup_timeout` set by its own fixture. An agent still in after-call work is offered
-  nothing, so the alert never rang. It now waits for the ACW timer to disappear — the signal
-  `QANT-48` already asserts. Three runs, 57-60 s, no retries.
+The lab's own full-regression number is running. After it: **the full `@e2e` on the ephemeral
+stack in CI**, which has never happened — local success says little about a runner.
+**Closes when:** all three numbers are written down side by side.
 
-The second one is worth remembering as a method note: fixing the toast race made the step
-*faster*, which is what pushed the 10 s sleep over the boundary and turned a passing spec red.
-A fixed sleep near a product timeout does not fail where it is written; it fails wherever
-something upstream changes speed.
+### 2. The remaining failures, by class
 
-### 2. The campaigns specs fail on the page, on both targets — fixed, 2026-09-22
+Nineteen at the last local measurement, and the largest group is already broken open.
 
-Not the test and not the page: the dialer's environment comes from the api-scan arm of the
-DAST target table, which carries no `ENGINE_URL` and no `AGENT_BOT_TOKEN`. `API_ACCESS_TOKENS`
-only admits the token the engine presents for its own calls; a request from a logged-in user
-arrives with *that user's* engine token, so the dialer asks the engine to vouch for it — and
-with no `ENGINE_URL`, axios threw `Invalid URL`, which the middleware turned into a 400 and the
-engine proxied back. The page rendered its header and no rows. All five `QANT-333` specs now
-pass in 6.7–10.8 s each, where they had been failing three attempts at 1.1 minutes apiece.
-
-Checking that endpoint with an `api_access_token` answers 200 and proves nothing — that call
-never takes the branch that was broken, which is why the backend looked healthy throughout.
-
-### 3. Mail — wider than one spec, and two different problems under one label
-
-`QANT-21` was never alone. The full regression put eleven specs here, and they fail for two
-unrelated reasons that must not be treated as one.
-
-**The temp-mail portal answers `403 Forbidden`** to `createInbox` — `QANT-21`, `QANT-135`,
-`QANT-136`. A third-party service; no credential of ours is involved.
-
-**The `@email` class cannot pass more than one spec per database**, on either target. Each spec
-creates an inbox that reads the one real mailbox, the engine keeps that address unique, and an
-inbox delete is *soft* — the `channel_email` row survives and holds the address forever. Proved
-rather than inferred: clearing the orphaned rows let `QANT-02` pass (34.3 s), and `QANT-03`,
-`-04` and `-05` then failed `409 Email must be unique` on the row `QANT-02` had just left. This
-is the same freeze `tools/stand-reset/prune.sql` documents in its own header; the deep prune is
-the only known cure and it runs between runs, not between specs.
-
-`MAILGUN_API_KEY` and `MAILGUN_DOMAIN` do exist, in `nova.ci/.env`, and are now handed to the
-local run. The workflow passes the four IMAP variables and neither Mailgun one — worth fixing
-only after the class above is decided, since the credential is not what is failing.
-
-**Closes when:** the `@email` class is either tagged out of the comparable set, given a mailbox
-per spec, or given a between-spec reset; and the portal specs are decided separately.
-
-### 4. The full `@e2e` regression — first measurement, 2026-09-22
-
-**351 passed, 27 failed, 8 flaky, 10 skipped, 22 did not run — 53.8 minutes at three workers**,
-against a locally-run ephemeral stack. The lab's reference is 1.2 h, so the ephemeral target is
-not the slower of the two.
-
-The 27, triaged:
-
-| count | class | verdict |
+| count | class | state |
 | --- | --- | --- |
-| 8 | `@email` | structural, item 3 — one spec per database, either target |
-| 8 | `MessageCounter` (`QANT-09/14/18/23/53/62/66/69`) | the spec clicks the second row of a list that holds one after the first is resolved. A/B'd against `enableAutomaticAgentAssignment`: identical failure with it off, so not ours |
-| 3 | temp-mail portal `403` | item 3, third-party |
-| 1 | `QANT-99` | **fixed** — `removeCallInboxes` did not skip soft-deleted inboxes |
-| 4 | `QANT-105`, `QANT-130`, `QANT-06`, `QANT-72` | unattributed; need the page driven by hand |
+| 7 | `@email` | address and name now unique; QANT-02/03/05 pass, QANT-04 fails on its own counter |
+| 3 | `QANT-21`, `QANT-135`, `QANT-136` | the mailbox is created and no mail arrives — the stand sends none |
+| 2 | web widget counters | same family as the ten already fixed |
+| 7 | `QANT-105`, `130`, `117`, `06`, `74`, `85` | unattributed; these need the pages driven by hand |
 
-One caveat on the run itself: the stack had been reused all day rather than brought up fresh,
-which is how the orphaned `channel_email` rows accumulated. A clean-stack repeat is worth one
-more hour before these numbers are quoted as the target's baseline.
+**Closes when:** each class is either fixed or written down as a decision, and the pass rate is
+above 80% on both targets.
 
-**Closes when:** the same tag has run once on a stack brought up for it, and the remaining four
-are attributed.
+### 3. Two ceilings we are already against
 
-### 5. Lab parity — the image is built, applying it is one command
+The job around the suite is a literal `timeout-minutes: 150` — GitHub Actions expressions have
+no arithmetic, so it cannot follow `suite_timeout_minutes`, and a full run takes 2.3 h at four
+workers. And four workers is the ceiling itself: the flow set defines four channel slots.
+Running the full regression in CI regularly means raising one of the two, deliberately.
 
-`ghcr.io/novaitdevteam/e2e-stand-reset:3` is built and pushed (linux/amd64, verified to carry
-`normalize.sql` and the route), and `deploy.yaml` is bumped to it. Until it is applied, every
-lab run dies at the normalise step: run 35719049544 did, with nothing but `curl: (22)` to go
-on, which is now a message naming the cause.
+### 4. `/drop` has never been fired
 
-    kubectl -n dev-e2e-test apply -f tools/stand-reset/deploy.yaml
+Built, deployed, RBAC verified from inside the pod — and never once run, because it destroys a
+shared stand for several minutes. It needs a green light and a moment when QA is not inside.
 
-**Blocked by:** cluster access — no kubeconfig on the machine this was prepared from.
+### 5. Merge
 
-### 6. Merge
-
-nova.ci `e2e-dev` → `main`, then the four temporary bindings in `novatalks.tests` come out and
-that branch follows. Deliberately last: the bindings point at `e2e-dev` and break the moment it
-is gone, and there is no reason to merge before 1-4 say what they say.
-
----
-
-## Sequencing note
-
-Steps 0–2 are independent of the merge of `e2e-dev` → `main`, and can run in parallel with the
-test-side isolation work: they touch different repositories. Step 3 must land after that merge,
-because the caller's temporary blocks disappear with it.
+nova.ci `e2e-dev` → `main`, then the temporary bindings in `novatalks.tests` come out and that
+branch follows. Still deliberately last: the bindings point at `e2e-dev` and break the moment
+it is gone.
