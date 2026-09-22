@@ -217,19 +217,36 @@ jobs:
             */prune) DROP_URL="${RESET_URL%/prune}/drop" ;;
             *) echo "::error::E2E_RESET_URL does not end in /prune, so the drop route cannot be derived from it"; exit 1 ;;
           esac
-          # Generous, because this waits for two rollouts and the Engine's migrations on an
-          # empty schema. A drop that is cut off halfway leaves a stand nobody can use, so
-          # the timeout is longer than the work rather than shorter than the patience.
-          code="$(curl -sS --max-time 1200 -o /tmp/drop.out -w '%{http_code}' \
+          # Start it, then poll. The work outlives any single request: the first real drop
+          # answered `curl: (56) Failure when receiving data from the peer` after about three
+          # minutes — Traefik had cut an idle connection while the rebuild carried happily on,
+          # so the run reported a failure for something that in fact succeeded.
+          code="$(curl -sS --max-time 60 -o /tmp/drop.out -w '%{http_code}' \
                     -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
                     --data "{\"stand\":\"${STAND_NAME}\"}" "$DROP_URL")" \
             || { echo "::error::could not reach the reset service at the drop route"; exit 1; }
           cat /tmp/drop.out; echo
           case "$code" in
-            2*) ;;
+            202) ;;
             501) echo "::error::this stand's reset service has no drop configured — it predates the route, or its deployment is missing STAND_NAME / the deployment and config map names"; exit 1 ;;
-            409) echo "::error::the service refused the name in E2E_STAND_NAME; it is not the stand this deployment resets"; exit 1 ;;
+            409) echo "::error::the service refused the name in E2E_STAND_NAME, or a drop is already running"; exit 1 ;;
             *)  echo "::error::the drop route answered ${code}"; exit 1 ;;
+          esac
+
+          # Twenty minutes of ten-second polls: two rollouts and the Engine's migrations on an
+          # empty schema. A drop still running when this gives up is reported as such rather
+          # than assumed finished — the stand would be half-built and every spec after it a lie.
+          for _ in $(seq 1 120); do
+            sleep 10
+            state="$(curl -sS --max-time 30 -H "Authorization: Bearer ${RESET_TOKEN}" "${DROP_URL}/status" || echo '{}')"
+            case "$state" in
+              *'"state": "ok"'*)     echo "$state"; break ;;
+              *'"state": "failed"'*) echo "$state"; echo "::error::the drop failed"; exit 1 ;;
+            esac
+          done
+          case "$state" in
+            *'"state": "ok"'*) ;;
+            *) echo "$state"; echo "::error::the drop was still running after 20 minutes"; exit 1 ;;
           esac
 
       # Everything below until "Runner capacity" runs for target: ephemeral only.
