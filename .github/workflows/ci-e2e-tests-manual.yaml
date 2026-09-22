@@ -299,10 +299,23 @@ jobs:
             */prune) NORMALIZE_URL="${RESET_URL%/prune}/normalize" ;;
             *) echo "::error::E2E_RESET_URL does not end in /prune, so the normalise route cannot be derived from it"; exit 1 ;;
           esac
-          # -f so a 401, a 404 or a 500 fails the job. A normalisation that quietly did not
-          # happen is exactly the silence this step exists to break.
-          curl -fsS --max-time 120 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" "$NORMALIZE_URL"
-          echo
+          # A 401, a 404 or a 500 fails the job: a normalisation that quietly did not happen is
+          # exactly the silence this step exists to break, and the account state the suite is
+          # written against is the whole reason the two targets can be compared at all.
+          #
+          # The code is read rather than left to `curl -f`, because 404 has one overwhelmingly
+          # likely cause and it is not worth a round of log-reading to rediscover: the deployed
+          # reset service predates the /normalize route. That cost a whole lab run on
+          # 2026-09-22 (novatalks.tests run 35719049544), which died here before a single test.
+          code="$(curl -sS --max-time 120 -o /tmp/normalize.out -w '%{http_code}' \
+                    -X POST -H "Authorization: Bearer ${RESET_TOKEN}" "$NORMALIZE_URL")" \
+            || { echo "::error::could not reach the reset service at the normalise route"; exit 1; }
+          cat /tmp/normalize.out; echo
+          case "$code" in
+            2*) ;;
+            404) echo "::error::the reset service answered 404 — it is an image built before the /normalize route existed. Rebuild and redeploy novatalks.tests' tools/stand-reset; the route is in its app.py."; exit 1 ;;
+            *)  echo "::error::the reset service answered ${code} for the normalise route"; exit 1 ;;
+          esac
 
       - name: Runner capacity
         working-directory: ./
