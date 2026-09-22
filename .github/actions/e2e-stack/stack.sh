@@ -619,9 +619,18 @@ server {
     location /widget { proxy_pass http://127.0.0.1:${ENGINE_PORT}; }
     location /api-docs { proxy_pass http://127.0.0.1:${ENGINE_PORT}; }
     location /webwidget-docs { proxy_pass http://127.0.0.1:${ENGINE_PORT}; }
+    # proxy_read_timeout, because nginx's default is 60 s and neither end of this socket sends
+    # a heartbeat: the UI's WebSocketConnector has no ping interval and the engine's
+    # EventsGateway has no pong sweep, so a logged-in page that is merely watching sends
+    # nothing for minutes at a time and nginx closes a perfectly healthy connection. The client
+    # reconnects a second later, so it reads as "the socket keeps dropping" rather than as a
+    # timeout. Traefik in front of the lab applies no such limit, which is why only this target
+    # shows it — the same shape as underscores_in_headers above.
     location /ws { proxy_pass http://127.0.0.1:${ENGINE_PORT}; proxy_http_version 1.1;
+                   proxy_read_timeout 3600s; proxy_send_timeout 3600s;
                    proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
     location /webrtc-ws { proxy_pass http://127.0.0.1:${ENGINE_PORT}; proxy_http_version 1.1;
+                          proxy_read_timeout 3600s; proxy_send_timeout 3600s;
                           proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
     location / { proxy_pass http://127.0.0.1:${UI_PORT}; }
 }
