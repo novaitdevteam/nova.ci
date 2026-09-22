@@ -140,6 +140,55 @@ bring-up.
 - **Verify:** harness green; a reader who has never seen this can tell which target a red run
   used from its log alone.
 
+## What is left, in order — 2026-09-22
+
+The goal restated, because it moved: **the same build must give the same result on either
+target**, and locally. Green is the consequence, not the test. Everything below is ordered by
+how much it moves that, and each says what would close it.
+
+### 1. Why four or five of ten smoke specs only pass on a retry
+
+The standing explanation — the suite shares one account and one worker's `afterEach` deletes
+another's entities — predicts that one worker is stable. First evidence against it: `QANT-45`
+failed twice at `WORKERS=1` on a stack nothing else was touching. If that holds, the cause is
+somewhere else entirely and the explanation everyone repeats is wrong.
+**Closes when:** the same tag runs clean twice at the worker count we intend to use.
+**Blocked by:** nothing. Local, minutes per attempt.
+
+### 2. The campaigns specs fail on the page, on both targets
+
+Same failure shape on lab and ephemeral, so it is not a target difference. Unattributed: the
+module is on (the sidebar link renders and navigates), and nobody has yet opened the dialer
+settings page by hand to see whether it works at all.
+**Closes when:** someone drives that page manually and says whether it is the test or the page.
+**Blocked by:** nothing.
+
+### 3. `QANT-21` reads a real mailbox
+
+Fails on both targets and on neither's account. It cannot be made deterministic by anything in
+this repository, so it does not belong in the set used to compare targets.
+**Closes when:** it is tagged out of the comparable set, or made hermetic with a local mail
+server. The first is a decision, the second is work.
+
+### 4. The full `@e2e` regression has never run on the ephemeral target
+
+Only `@CI` and `@smoke` have. 1.2 h on the lab, unknown here — and unknown is the point.
+**Closes when:** it has run once and the result is written down beside the lab's.
+
+### 5. Lab parity is implemented and unverified
+
+`POST /normalize` and the workflow step that calls it exist; the image is not redeployed and
+nothing has run against the lab since.
+**Blocked by:** the lab, currently with QA.
+
+### 6. Merge
+
+nova.ci `e2e-dev` → `main`, then the four temporary bindings in `novatalks.tests` come out and
+that branch follows. Deliberately last: the bindings point at `e2e-dev` and break the moment it
+is gone, and there is no reason to merge before 1-4 say what they say.
+
+---
+
 ## Sequencing note
 
 Steps 0–2 are independent of the merge of `e2e-dev` → `main`, and can run in parallel with the
