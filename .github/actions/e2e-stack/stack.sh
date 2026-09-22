@@ -329,6 +329,19 @@ up() {
 
     probe_up
 
+    # The proxy's certificate, generated here rather than next to the proxy because the engine
+    # and botflow are started long before it and both have to trust it: every channel webhook
+    # the chart renders is an https://localhost:${PROXY_PORT} URL, so the engine posts a bot's
+    # reply to the client through this proxy and Node-RED's own flows call it the same way.
+    # Without this the engine logs `Could not send webhook message ...: self-signed certificate`
+    # for every outgoing message and marks it `failed`, which reads downstream as the product
+    # losing messages. Chromium does not read NODE_EXTRA_CA_CERTS and is told to ignore
+    # certificate errors in playwright.config.ts instead. See the proxy section for why TLS.
+    openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+        -keyout "${WORK}/proxy.key" -out "${WORK}/proxy.crt" \
+        -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+        >/dev/null 2>&1 || fail "could not generate the proxy certificate"
+
     log "postgres"
     # Durability off, deliberately: this database is created, migrated, used by one suite and
     # destroyed with the runner, so an fsync per commit buys nothing and costs a lot — the
@@ -379,6 +392,8 @@ up() {
 
     log "engine ${ENGINE_IMAGE}"
     docker run -d --name "$ENGINE" --network host --env-file "${WORK}/engine.env" \
+        -v "${WORK}/proxy.crt:/etc/e2e-proxy-ca.crt:ro" \
+        -e NODE_EXTRA_CA_CERTS=/etc/e2e-proxy-ca.crt \
         -e AGENTBOT_INBOX_TOKEN="$bot_token" \
         -e DIALER_SERVICE_TOKEN="$dialer_token" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
@@ -491,9 +506,21 @@ up() {
     # And no FILE_DRIVER: multer-config.service.ts's storages map holds one entry, s3, so
     # FILE_DRIVER=local indexes it to undefined and calls it — the TypeError that killed this
     # container on probe run 35580442650. The default is already s3 and the dummies above feed it.
+    # ENGINE_URL and AGENT_BOT_TOKEN are the browser's path, and neither is in that arm because
+    # a DAST scan never needs them. API_ACCESS_TOKENS only covers the token the engine holds
+    # for its own calls; a request from a logged-in user arrives carrying *that user's* engine
+    # token, which the dialer knows nothing about, so its auth middleware asks the engine to
+    # vouch for it — `integrationService.fetchTokenInfo`, against ENGINE_URL with
+    # AGENT_BOT_TOKEN as its own credential. With ENGINE_URL unset axios throws `Invalid URL`,
+    # the middleware's catch-all turns that into a 400, and the engine proxies the 400 back:
+    # the Dialer Settings page renders its header, no rows, and every @campaigns spec fails on
+    # an input that never appeared. The engine's own 200 on the same path hides it — that call
+    # presents an api_access_token and never takes this branch.
     docker run -d --name "$DIALER" --network host --env-file "${WORK}/dialer.env" \
         -e NODE_ENV=production -e APP_PORT="${DIALER_PORT}" \
         -e API_ACCESS_TOKENS="$dialer_token" \
+        -e ENGINE_URL="http://127.0.0.1:${ENGINE_PORT}" \
+        -e AGENT_BOT_TOKEN="$api_token" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=dialer \
         -e DATABASE_URL="postgresql://novatalks:e2e-local@127.0.0.1:5432/dialer" \
@@ -512,6 +539,8 @@ up() {
     render_file "botflow-sync-config" "settings.js" "${WORK}/botflow-settings.js"
     docker run -d --name "$BOTFLOW" --network host --env-file "${WORK}/botflow.env" \
         -v "${WORK}/botflow-settings.js:/opt/nova.botflow/config/settings.js:ro" \
+        -v "${WORK}/proxy.crt:/etc/e2e-proxy-ca.crt:ro" \
+        -e NODE_EXTRA_CA_CERTS=/etc/e2e-proxy-ca.crt \
         -e BF_REDIS_HOST=127.0.0.1 -e BF_REDIS_PORT=6379 -e BF_REDIS_DB=15 \
         -e NOVATALKS_ENGINE_URL="http://127.0.0.1:${ENGINE_PORT}" \
         -e NOVATALKS_BOTAGENT_WEBHOOK="$bot_hook" \
@@ -543,10 +572,8 @@ up() {
     #
     # Terminating TLS here is also *less* divergence, not more: the chart renders https URLs
     # because Traefik terminates TLS in front of the lab, and this used to be rewritten away.
-    openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
-        -keyout "${WORK}/proxy.key" -out "${WORK}/proxy.crt" \
-        -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
-        >/dev/null 2>&1 || fail "could not generate the proxy certificate"
+    # The certificate itself is generated up with the rest of the setup, because the engine and
+    # botflow are started before this point and mount it to trust this proxy.
     # Nothing may already hold the port, and "something answers on it" is not the same thing
     # as "our proxy is up": probe 35582573611 read nginx's own log and found
     # `bind() to 0.0.0.0:8080 failed (98: Address in use)` — the stranger already there
