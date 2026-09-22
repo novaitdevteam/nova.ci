@@ -46,6 +46,15 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 [`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand, then publishes the HTML report to R2 and notifies.
 
 **Two targets, chosen per run by the `target` input.** Both stay; neither replaces the other.
+The point of having two is that the same build gives the same result on either, so each starts
+from a **defined** account state rather than whatever the last run left: a five-year trial,
+`locale = 'en'`, and a hundred-agent limit. The ephemeral target writes them at boot
+(`e2e-stack/stack.sh`); the lab gets them from `POST /normalize` on its own reset service,
+called on every lab run. Keep the two lists identical — they answer the same question, and two
+copies that drift apart put the targets back out of step silently. That is not hypothetical:
+on 2026-09-21 the lab sat on `locale = 'pl'` after an interrupted run and every smoke spec
+asserting English text failed there, while the ephemeral stack passed for no better reason
+than that it rewrites the row each time.
 
 | | `lab` (the default) | `ephemeral` |
 | --- | --- | --- |
