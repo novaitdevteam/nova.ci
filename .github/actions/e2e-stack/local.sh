@@ -4,6 +4,7 @@
 #   ./local.sh up      # start it; prints the origin to point the suite at
 #   ./local.sh down    # stop it, with each container's log if it went wrong
 #   ./local.sh env     # print the variables to export before running the suite
+#   ./local.sh test [@tag]  # run the suite against it, in a container on the same network
 #
 # WHY THIS EXISTS. On 2026-09-21 a day of CI cycles was spent on things a laptop finds in
 # seconds: `sed -i -E` is GNU-only, a container that died on a taken port went unnoticed
@@ -67,19 +68,31 @@ case "${1:-up}" in
         "${STACK_DIR}/stack.sh" down
         ;;
     env)
-        load_env
-        port="${E2E_PROXY_PORT:-18080}"
         work="${RUNNER_TEMP:-/tmp}/e2e-stack"
-        cat <<EOF
-  export ENV_URL=https://localhost:${port}
-  export BOTFLOW_URL=https://localhost:${port}/redbot
-  export NODE_EXTRA_CA_CERTS=${work}/proxy.crt
-  export RESET_STAND=off WORKERS=1
-  # the rest — the stack's own admin and tokens — are in ${work}/*.env
-EOF
+        [ -f "${work}/stack.env" ] || { echo "no ${work}/stack.env — bring the stack up first" >&2; exit 1; }
+        sed 's/^/  export /' "${work}/stack.env"
+        echo "  export RESET_STAND=off WORKERS=1"
+        ;;
+
+    test)
+        # The suite runs in a container on the stack's own network, for the same reason the
+        # probes do: the host cannot reach a --network host container on a Mac. It also keeps
+        # the run identical to CI — same image family, same addressing — so a pass here means
+        # something about a pass there.
+        work="${RUNNER_TEMP:-/tmp}/e2e-stack"
+        [ -f "${work}/stack.env" ] || { echo "no ${work}/stack.env — bring the stack up first" >&2; exit 1; }
+        shift
+        grep_arg="${1:-@CI}"
+        docker run --rm --network host \
+            -v "${TESTS_REPO}:/work" -v "${work}:${work}:ro" -w /work \
+            --env-file "${work}/stack.env" \
+            -e RESET_STAND=off -e WORKERS="${WORKERS:-1}" -e CI=true \
+            -e TELEGRAM_URL=/telegram/ -e VIBER_URL=/viber/ -e META_URL=/messenger/channel-messenger/ \
+            mcr.microsoft.com/playwright:v1.56.1-noble \
+            npx playwright test --grep "$grep_arg"
         ;;
     *)
-        echo "usage: local.sh up|down|env" >&2
+        echo "usage: local.sh up|down|env|test [@tag]" >&2
         exit 2
         ;;
 esac
