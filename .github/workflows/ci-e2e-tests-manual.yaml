@@ -208,6 +208,11 @@ jobs:
           RESET_URL: ${{ secrets.E2E_RESET_URL }}
           RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
           STAND_NAME: ${{ secrets.E2E_STAND_NAME }}
+          # The suite's own token, handed over so the rebuilt database has it. It died with
+          # the old one, and the seeds make a different token that nobody outside the stand
+          # knows: the first real drop left every spec answering `401 Unauthorized` in under
+          # a second, which reads as a broken product and is a missing row.
+          API_TOKEN: ${{ secrets.E2E_API_TOKEN }}
         run: |
           if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ] || [ -z "$STAND_NAME" ]; then
             echo "::error::reset_stand=drop needs E2E_RESET_URL, E2E_RESET_TOKEN and E2E_STAND_NAME"
@@ -223,7 +228,7 @@ jobs:
           # so the run reported a failure for something that in fact succeeded.
           code="$(curl -sS --max-time 60 -o /tmp/drop.out -w '%{http_code}' \
                     -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
-                    --data "{\"stand\":\"${STAND_NAME}\"}" "$DROP_URL")" \
+                    --data "{\"stand\":\"${STAND_NAME}\",\"api_token\":\"${API_TOKEN}\"}" "$DROP_URL")" \
             || { echo "::error::could not reach the reset service at the drop route"; exit 1; }
           cat /tmp/drop.out; echo
           case "$code" in
