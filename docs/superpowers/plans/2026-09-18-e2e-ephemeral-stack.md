@@ -204,8 +204,12 @@ Running the full regression in CI regularly means raising one of the two, delibe
 Built, deployed, RBAC verified from inside the pod — and never once run, because it destroys a
 shared stand for several minutes. It needs a green light and a moment when QA is not inside.
 
-### 5. Merge
+### 5. Merge — on an explicit say-so, never on a green number
 
 nova.ci `e2e-dev` → `main`, then the temporary bindings in `novatalks.tests` come out and that
 branch follows. Still deliberately last: the bindings point at `e2e-dev` and break the moment
 it is gone.
+
+**This one waits for the word, and nothing else releases it.** Not items 1-4 closing, not a
+pass rate crossing 80%, not a clean run on either target. Those are what make the merge
+*possible*; they do not make it *due*. Anyone picking this plan up: leave it alone until asked.
