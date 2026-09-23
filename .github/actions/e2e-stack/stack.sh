@@ -395,6 +395,12 @@ up() {
         || fail "the chart rendered no NOVATALKS_BOTAGENT_TOKEN / NOVATALKS_ENGINE_TOKEN for BotFlow"
 
     log "engine ${ENGINE_IMAGE}"
+    # The key pair goes in under the names the engine reads, AWS_S3_ACCESS_KEY_ID and
+    # AWS_S3_SECRET_ACCESS_KEY (libs/common/src/config/env.validation.ts). It went in as
+    # AWS_S3_ACCESS_KEY / AWS_S3_SECRET, which nothing reads, so the chart's placeholder key won
+    # and every upload answered InvalidAccessKeyId, against R2 on CI and MinIO locally alike.
+    # QANT-105's "Create" on a menu item with two attachments then left its dialog open over
+    # the page. The inputs keep their old names so no caller changes.
     docker run -d --name "$ENGINE" --network host --env-file "${WORK}/engine.env" \
         -v "${WORK}/proxy.crt:/etc/e2e-proxy-ca.crt:ro" \
         -e NODE_EXTRA_CA_CERTS=/etc/e2e-proxy-ca.crt \
@@ -406,7 +412,7 @@ up() {
         -e NATS_SERVERS=127.0.0.1:4222 \
         -e FILE_DRIVER="${FILE_DRIVER:-s3}" \
         -e AWS_S3_ENDPOINT="${AWS_S3_ENDPOINT:-}" -e AWS_S3_BUCKET="${AWS_S3_BUCKET:-}" \
-        -e AWS_S3_ACCESS_KEY="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET="${AWS_S3_SECRET:-}" \
+        -e AWS_S3_ACCESS_KEY_ID="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET_ACCESS_KEY="${AWS_S3_SECRET:-}" \
         -e AWS_S3_REGION="${AWS_S3_REGION:-eeur}" -e AWS_S3_FORCE_PATH_STYLE=true \
         "$ENGINE_IMAGE" >/dev/null || fail "the engine container refused to start"
     started "$ENGINE" "the engine"
