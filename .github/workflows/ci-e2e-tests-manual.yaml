@@ -496,6 +496,12 @@ jobs:
           IMAP_HOST: ${{ secrets.E2E_IMAP_HOST }}
           IMAP_PORT: ${{ secrets.E2E_IMAP_PORT }}
           TEST_EMAIL_ADDRESS: ${{ secrets.E2E_TEST_EMAIL_ADDRESS }}
+          # The email specs send their inbound letter through Mailgun. Without the key the
+          # client throws `Parameter "key" is required` before anything is sent, and eight
+          # specs (QANT-02..05, 56..59) failed at their first step on every CI run while
+          # passing on a laptop whose nova.ci/.env happened to carry it.
+          MAILGUN_API_KEY: ${{ secrets.E2E_MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.E2E_MAILGUN_DOMAIN }}
           # Node-RED webhook paths from the QA flow set, appended to BOTFLOW_URL by
           # the channel helpers. They come from the flow file, not from the stand,
           # so they are literals here rather than inputs or secrets.
