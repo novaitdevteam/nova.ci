@@ -248,12 +248,36 @@ The change stays (it removes a real dependency on an external site) but the caus
 config records a trace only on the first retry, so no failing first attempt has one; finding it
 needs a run with `--trace retain-on-failure`.
 
+**The first full `@e2e` on the ephemeral target in CI** (run 35905206948, four workers, 42.4
+minutes) — the triangle's missing corner:
+
+| run | passed | flaky | failed | did not run |
+| --- | --- | --- | --- | --- |
+| lab, drop, 4 workers (35889000226) | 352 | 23 | 7 | 26 |
+| ephemeral, 4 workers (35905206948) | 378 | 19 | 3 | 8 |
+
+It ran with the stack's own mail server (GreenMail): no letter left the runner, and the whole
+email class passed. Three causes came out of reading both runs, each looking like flakiness:
+
+- **QANT-21 deleted every agent on the account** from the parallel project, before and after each
+  attempt. Other workers' fresh agents vanished between creation and sign-in: POST 200, sign-in
+  401, DELETE 404. This is the "login form filled and never submitted" class from the lab run;
+  the timings line up with QANT-21's three attempts. It now deletes only its own.
+- **Specs that empty a shared collection** (every canned response, every label) ran side by side,
+  and so did the account-settings specs that change the account everybody runs in. They now run
+  in `workers: 1` projects, alongside everything else. The email specs moved into one too, which
+  retires the 170 s lock wait. `fullyParallel: false`, which the old "serial" projects relied on,
+  never serialized files — only the tests inside one.
+- **CI's `--grep @e2e` runs every chromium test**, 27 of them untagged, because it selects the
+  write-first project and Playwright runs a selected project's dependencies in full. The new
+  projects are write-first dependencies for that reason, so the selection stays 418 tests.
+
 Decisions, each needing a word from the owner rather than more code:
 
 | decision | why it cannot be coded around |
 | --- | --- |
 | **one admin identity per worker** | 70 spec files sign in as the one seeded SuperAdmin, and the engine keeps one session per device type, so parallel workers sign each other out. It is most of the lab's flaky count at 4-6 workers. Proposal: seed extra SuperAdmins (same password hash, own access token) on both targets and pick by worker index. |
-| **a mailbox that does not throttle** | ukr.net intermittently answers Mailgun with `421 4.3.0` and Mailgun retries 10-21 minutes later, so a letter lands in a later spec's inbox. |
+| **a mail server of the lab's own** | Done on the ephemeral target (GreenMail in the stack). The lab still delivers through Mailgun to ukr.net, which answers `421 4.3.0` so letters land 10-21 minutes late; giving it GreenMail needs a deployment in the stand's namespace, a way in for the runner, and the lab engine's mail values changed. |
 | **the lab's system SMTP password** | the lab engine has no `MAIL_SYSTEM_PASSWORD` from any source, so QANT-21/135/136 get no mail there. |
 | **PrivateBin on the lab** | `PASTEBIN_BASE_URL` points at a namespace that does not exist, so QANT-85 fails on both targets. |
 
