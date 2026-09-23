@@ -4,7 +4,7 @@
 #   ./local.sh up      # start it; prints the origin to point the suite at
 #   ./local.sh down    # stop it, with each container's log if it went wrong
 #   ./local.sh env     # print the variables to export before running the suite
-#   ./local.sh test [@tag]  # run the suite against it, in a container on the same network
+#   ./local.sh test [@tag] [playwright args]  # run the suite in a container on the same network
 #
 # WHY THIS EXISTS. On 2026-09-21 a day of CI cycles was spent on things a laptop finds in
 # seconds: `sed -i -E` is GNU-only, a container that died on a taken port went unnoticed
@@ -44,13 +44,39 @@ load_env() {
     export E2E_SOURCE_BOTFLOW_LOGIN="${BOTFLOW_ADMIN_LOGIN:?BOTFLOW_ADMIN_LOGIN is not in the tests .env}"
     export E2E_SOURCE_BOTFLOW_PASSWORD="${BOTFLOW_ADMIN_PASSWORD:?BOTFLOW_ADMIN_PASSWORD is not in the tests .env}"
 
-    # s3 with values that resolve to nothing, never `local`: there is no local driver, and
-    # asking for one kills the engine in provider init. Attachments fail; nothing else does.
+    # s3, never `local`: there is no local driver, and asking for one kills the engine in
+    # provider init. It used to point at s3.example.invalid, which boots fine and fails every
+    # upload — QANT-105 attaches two files to a menu item, Create answered with the engine's
+    # `getaddrinfo ENOTFOUND s3.example.invalid`, the dialog stayed open over the page, and the
+    # next click waited 30 s behind it. CI's ephemeral target has real R2 (the E2E_R2_*
+    # secrets) and never saw it; only this machine did. So a local MinIO stands in, unless a
+    # real endpoint is given. Credentials are obviously fake and exist only in that container.
     export FILE_DRIVER=s3
-    export AWS_S3_ENDPOINT="${AWS_S3_ENDPOINT:-http://s3.example.invalid}"
-    export AWS_S3_BUCKET="${AWS_S3_BUCKET:-e2e-dummy-not-a-real-bucket}"
-    export AWS_S3_ACCESS_KEY="${AWS_S3_ACCESS_KEY:-e2e-dummy-not-a-real-key}"
-    export AWS_S3_SECRET="${AWS_S3_SECRET:-e2e-dummy-not-a-real-secret}"
+    if [ -z "${AWS_S3_ENDPOINT:-}" ]; then
+        export AWS_S3_ENDPOINT=http://127.0.0.1:19000 AWS_S3_BUCKET=e2e-local AWS_S3_REGION=us-east-1
+        export AWS_S3_ACCESS_KEY=e2e-local-minio AWS_S3_SECRET=e2e-local-not-a-real-secret
+        USE_MINIO=yes
+    fi
+}
+
+# 19000, not 9000, for the same reason the proxy is on 18080: ports near the defaults are the
+# ones something else on a machine already holds. Pinned by digest — MinIO's release tags do
+# not pull from Docker Hub, and `latest` would change under a run nobody changed.
+MINIO_IMAGE="minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+
+start_minio() {
+    docker rm -f e2e-minio >/dev/null 2>&1 || true
+    docker run -d --name e2e-minio --network host \
+        -e MINIO_ROOT_USER="$AWS_S3_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$AWS_S3_SECRET" \
+        "$MINIO_IMAGE" server /data --address :19000 --console-address :19001 >/dev/null
+    # The image carries mc, so the bucket is made from inside it: no second image, no host port.
+    for _ in $(seq 1 30); do
+        docker exec e2e-minio mc alias set local http://127.0.0.1:19000 "$AWS_S3_ACCESS_KEY" "$AWS_S3_SECRET" >/dev/null 2>&1 && break
+        sleep 1
+    done
+    docker exec e2e-minio mc mb --ignore-existing "local/${AWS_S3_BUCKET}" >/dev/null \
+        || { echo "MinIO did not come up, so uploads would fail exactly as before" >&2; docker logs e2e-minio >&2; exit 1; }
+    echo "[local] MinIO on :19000, bucket ${AWS_S3_BUCKET}"
 }
 
 case "${1:-up}" in
@@ -59,6 +85,7 @@ case "${1:-up}" in
         # Idempotent: helm keeps the login, so this is a no-op on every run after the first.
         printf '%s' "${pat_ket:?pat_ket is not in nova.ci/.env}" \
             | helm registry login ghcr.io -u "${GHCR_USER:-$(git -C "$CI_REPO" config user.name)}" --password-stdin >/dev/null
+        [ "${USE_MINIO:-}" = yes ] && start_minio
         "${STACK_DIR}/stack.sh" up
         echo
         echo "Point the suite at it:"
@@ -66,6 +93,7 @@ case "${1:-up}" in
         ;;
     down)
         "${STACK_DIR}/stack.sh" down
+        docker rm -f e2e-minio >/dev/null 2>&1 || true
         ;;
     env)
         work="${RUNNER_TEMP:-/tmp}/e2e-stack"
@@ -89,6 +117,7 @@ case "${1:-up}" in
         [ -f "${work}/stack.env" ] || { echo "no ${work}/stack.env — bring the stack up first" >&2; exit 1; }
         shift
         grep_arg="${1:-@CI}"
+        shift || true   # anything after the tag goes to playwright as is: --retries 0 --trace on
         docker run --rm --network host \
             -v "${TESTS_REPO}:/work" -v "${work}:${work}:ro" -w /work \
             --env-file "${work}/stack.env" \
@@ -98,7 +127,7 @@ case "${1:-up}" in
             -e MAILGUN_API_KEY -e MAILGUN_DOMAIN -e TEST_EMAIL_ADDRESS \
             -e IMAP_USER -e IMAP_PASSWORD -e IMAP_HOST -e IMAP_PORT \
             mcr.microsoft.com/playwright:v1.56.1-noble \
-            npx playwright test --grep "$grep_arg"
+            npx playwright test --grep "$grep_arg" "$@"
         ;;
     *)
         echo "usage: local.sh up|down|env|test [@tag]" >&2

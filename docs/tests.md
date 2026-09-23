@@ -127,10 +127,13 @@ Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 | `@e2e` | 4 | medium | 1.2 h | 2.7 | 326 passed, 25 flaky, 31 failed |
 
 **Run the ephemeral stack on your own machine** with
-[`e2e-stack/local.sh`](../.github/actions/e2e-stack/local.sh) — `up`, `down`, `env`. It runs
+[`e2e-stack/local.sh`](../.github/actions/e2e-stack/local.sh) — `up`, `down`, `env`, `test`. It runs
 the same `stack.sh` CI runs, reads the GHCR token and the stand's BotFlow admin out of the two
 repositories' own `.env` files without printing either, and prints the variables to export
-before `npx playwright test`.
+before `npx playwright test`. `test <grep> [playwright args]` runs the suite in a container on
+the stack's network, so `test 'QANT-105-' --retries 0 --trace on` traces a first attempt. With no
+real S3 endpoint in the environment, `up` starts a local MinIO for uploads: a placeholder
+endpoint boots fine and fails every attachment.
 
 Use it before reaching for a CI run. On 2026-09-21 a laptop found four defects in twenty
 minutes that fifteen CI runs had not: `sed -i -E` is GNU-only and had been silently mangling
