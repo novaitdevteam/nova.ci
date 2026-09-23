@@ -65,6 +65,10 @@ UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"
 ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
 
 log()  { printf '[stack] %s\n' "$1"; }
+# A mask line is an instruction to the Actions runner, which swallows it and hides the value from
+# then on. Anywhere else it is only the value, printed: `local.sh up` on a laptop wrote the lab
+# BotFlow's admin session token into a terminal on 2026-09-23. Every token here goes through this.
+mask() { [ "${GITHUB_ACTIONS:-}" = true ] && printf '::add-mask::%s\n' "$1"; return 0; }
 fail() { # fail <message> [container]
     printf '::error::%s\n' "$1" >&2
     [ -n "${2:-}" ] && docker logs --tail 60 "$2" 2>&1 | sed 's/^/    /' >&2 || true
@@ -204,7 +208,7 @@ nr_token() { # nr_token <botflow-url> <user> <password>
     [ -n "$NR_TOKEN" ] || return 1
     # Masked whatever its source, like every other token this repository acquires: the failure
     # paths here print curl output and container logs, and nova.ci is public.
-    printf '::add-mask::%s\n' "$NR_TOKEN"
+    mask "$NR_TOKEN"
 }
 
 copy_flows() { # the stand's own flow document, rewritten for this stack (spec D7)
@@ -386,7 +390,7 @@ up() {
     # has: there the dialer's own bootstrap seeds a random token and the engine has to be
     # upgraded a second time to learn it. Nothing is written to the dialer's database.
     dialer_token="$(openssl rand -hex 24)"
-    printf '::add-mask::%s\n' "$dialer_token"
+    mask "$dialer_token"
     [ -n "$bot_token" ] && [ -n "$engine_token" ] \
         || fail "the chart rendered no NOVATALKS_BOTAGENT_TOKEN / NOVATALKS_ENGINE_TOKEN for BotFlow"
 
@@ -486,7 +490,7 @@ up() {
     api_token="$(openssl rand -hex 24)"
     # Masked before it reaches a psql command line or an environment file: the failure paths
     # around here print container logs, and nova.ci is public.
-    printf '::add-mask::%s\n' "$api_token"
+    mask "$api_token"
     inserted="$(docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
         insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
         select 'User', id, '${api_token}', now(), now() from users where email = '${admin_user}'
