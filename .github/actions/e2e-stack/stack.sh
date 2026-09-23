@@ -253,7 +253,9 @@ copy_flows() { # the stand's own flow document, rewritten for this stack (spec D
             -H 'Node-RED-API-Version: v2' "${src}/flows" > "${WORK}/stand-flows.json" \
             || fail "could not read the stand's flows from ${src}/flows"
         # Keep what was copied, so a later run has something it can be pointed at deliberately.
-        cache="${E2E_FLOWS_CACHE:-$HOME/.cache/nova-e2e}"
+        # HOME is not always set on a runner, and under set -u a bare $HOME ended the bring-up
+        # right here (run 35904386845); the cache is a convenience, so any writable place will do.
+        cache="${E2E_FLOWS_CACHE:-${HOME:-${RUNNER_TEMP:-/tmp}}/.cache/nova-e2e}"
         mkdir -p "$cache" && cp "${WORK}/stand-flows.json" "${cache}/flows-latest.json" 2>/dev/null || true
     fi
     jq -e '.flows | length > 0' "${WORK}/stand-flows.json" >/dev/null \
