@@ -59,10 +59,10 @@ RELEASE="${E2E_HELM_RELEASE:-e2e}"
 
 PG="${PREFIX}-postgres"; REDIS="${PREFIX}-redis"
 ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow"
-UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"; MAIL="${PREFIX}-mail"
+UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"; MAIL="${PREFIX}-mail"; PASTEBIN="${PREFIX}-pastebin"
 # nova-nats is the name dast_bring_up_nats gives it; this reuses that helper rather than
 # copying its stream setup, so the name comes with it.
-ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
+ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" "$PASTEBIN" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
 
 # The stack's own mail server: SMTP and IMAP in one container, any address, any password.
 # Every letter the suite reads used to cross the internet: customer mail went out through
@@ -74,6 +74,15 @@ ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" nova-nats 
 # Pinned by digest. The API is moved off 8080, which the runner's own nginx holds.
 MAIL_IMAGE="greenmail/standalone@sha256:8a2024725c7b1ce8f720644bccb6f237781992a8cbf283023446eb7d29326ad0"
 MAIL_SMTP_PORT=3025; MAIL_IMAP_PORT=3143; MAIL_API_PORT=18190
+
+# PrivateBin, which the engine stores referral codes in: it encrypts a paste, uploads it over
+# PrivateBin's v2 API and reads it back later, so a stub would not do. The chart points it at a
+# privatebin namespace in the cluster that neither target has, and the referral endpoint answered
+# 500 — QANT-85 then had no code to copy and no "Copied to clipboard" to see. The image listens on
+# 8080, which the runner's nginx holds, so this one runs on a bridge network, published on
+# loopback only. Pinned by digest.
+PASTEBIN_IMAGE="privatebin/nginx-fpm-alpine@sha256:42b6a30cf1bd4a3297308499ee8f4ac6f76e5060258df0e18e83fd2aa6843df1"
+PASTEBIN_PORT=18280
 
 log()  { printf '[stack] %s\n' "$1"; }
 # A mask line is an instruction to the Actions runner, which swallows it and hides the value from
@@ -392,6 +401,21 @@ up() {
     started "$MAIL" "the mail server"
     wait_http "mail" "http://127.0.0.1:${MAIL_API_PORT}/api/service/readiness" "$MAIL" 60
 
+    log "pastebin"
+    # With its traffic limiter off. PrivateBin refuses a second paste from one address within 10 s
+    # and still answers 200, with an error body and no paste URL; the engine then failed on
+    # `response.url.slice` and QANT-85's admin, signing in right after its agent, got no code.
+    # Every sign-in here comes from 127.0.0.1. The three sections it insists on stay empty, which
+    # it fills with its own defaults.
+    printf '%s\n' ';<?php http_response_code(403); /*' '[main]' '[model]' '[model_options]' \
+        '[traffic]' 'limit = 0' ';*/' > "${WORK}/pastebin.conf.php"
+    chmod 644 "${WORK}/pastebin.conf.php"
+    docker run -d --name "$PASTEBIN" -p "127.0.0.1:${PASTEBIN_PORT}:8080" \
+        -v "${WORK}/pastebin.conf.php:/srv/cfg/conf.php:ro" "$PASTEBIN_IMAGE" >/dev/null \
+        || fail "PrivateBin refused to start"
+    started "$PASTEBIN" "PrivateBin"
+    wait_http "pastebin" "http://127.0.0.1:${PASTEBIN_PORT}/" "$PASTEBIN" 60
+
     log "nats"
     # Shared with the DAST bring-up rather than copied: the 'campaign' stream the dialer's
     # client asks for at startup is easy to forget, and a JetStream without it still answers
@@ -434,6 +458,7 @@ up() {
         -e NATS_SERVERS=127.0.0.1:4222 \
         -e MAIL_SYSTEM_HOST=127.0.0.1 -e MAIL_SYSTEM_PORT="$MAIL_SMTP_PORT" -e MAIL_SYSTEM_USER= \
         -e MAIL_HOST=127.0.0.1 -e MAIL_PORT="$MAIL_SMTP_PORT" \
+        -e PASTEBIN_BASE_URL="http://127.0.0.1:${PASTEBIN_PORT}/" \
         -e FILE_DRIVER="${FILE_DRIVER:-s3}" \
         -e AWS_S3_ENDPOINT="${AWS_S3_ENDPOINT:-}" -e AWS_S3_BUCKET="${AWS_S3_BUCKET:-}" \
         -e AWS_S3_ACCESS_KEY_ID="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET_ACCESS_KEY="${AWS_S3_SECRET:-}" \

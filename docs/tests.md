@@ -123,7 +123,8 @@ the suite's mail helpers use it instead of Mailgun, the ukr.net mailbox and the 
 a customer's letter is appended to the shared inbox the engine polls, and a system letter is read
 back from the agent's own mailbox there. The external path had two faults nobody could fix from
 the suite: ukr.net answering Mailgun with `421` so letters landed 10-21 minutes late, and a system
-mailer with no SMTP password on the lab.
+mailer with no SMTP password on the lab. The stack also runs PrivateBin, which the engine stores
+referral codes in: without it the referral endpoint answered `500` on both targets.
 
 Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 
