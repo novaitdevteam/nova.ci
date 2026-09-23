@@ -227,6 +227,27 @@ Fixed, each read as flakiness until the cause was found:
 - a settings click straight after sign-in was sometimes swallowed;
 - the email counter specs assumed both letters land in one mailbox poll, in send order.
 
+The full lab regression that evening, after a drop, at four workers (run 35889000226), in 49.9 minutes:
+
+| run | passed | flaky | failed | did not run |
+| --- | --- | --- | --- | --- |
+| teammate, 6 workers, prune (35863839352) | 311 | 40 | 16 | 41 |
+| today's fixes, 4 workers, drop (35889000226) | 352 | 23 | 7 | 26 |
+
+Of the seven failures, three are the lab's missing SMTP password (QANT-21/135/136), one is
+PrivateBin (QANT-85), one is the mailbox (QANT-02), and two are the shared admin signed out
+mid-test (QANT-130/133 — their screenshots are the login page). Nearly everything that needed
+a second retry sits in the three Account Settings serial groups (QANT-130/133/134), which is the
+same shared-admin sign-out; only QANT-17, 18 and 25 needed it outside them.
+
+**A correction.** The onboarding-modal change was committed as the fix for five 61 s timeouts,
+on the reading that the external onboarding site was slow. It was not the cause: in this run
+three specs (QANT-25, 34, 85) still stopped there, and their screenshots show the login form
+filled in and never submitted — the modal never appeared because the sign-in did not complete.
+The change stays (it removes a real dependency on an external site) but the cause is open. The
+config records a trace only on the first retry, so no failing first attempt has one; finding it
+needs a run with `--trace retain-on-failure`.
+
 Decisions, each needing a word from the owner rather than more code:
 
 | decision | why it cannot be coded around |
