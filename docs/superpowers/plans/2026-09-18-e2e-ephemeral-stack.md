@@ -201,8 +201,40 @@ Running the full regression in CI regularly means raising one of the two, delibe
 
 ### 4. `/drop` has never been fired
 
-Built, deployed, RBAC verified from inside the pod — and never once run, because it destroys a
-shared stand for several minutes. It needs a green light and a moment when QA is not inside.
+Closed on 2026-09-23: see below.
+
+### 2026-09-23 — what the day closed, and what it turned into decisions
+
+`/drop` has fired, repeatedly, and item 4 is closed: two minutes, both databases recreated,
+the engine and the dialer restarted and re-told each other's tokens. Every lab run since has
+started from it.
+
+A teammate's full lab run (6 workers, prune) ended 311 passed, 40 flaky, 16 failed. Of the
+sixteen, eleven were fixed today in the suite or the workflow; the rest are decisions below.
+A targeted lab run of every group touched (1 worker, after a drop) then came back 33 of 34 with
+nothing flaky, and the one failure is the mailbox finding below.
+
+Fixed, each read as flakiness until the cause was found:
+
+- the workflow never passed Mailgun's key, so eight email specs failed at their first step on
+  every CI run;
+- two team fixtures rang an alert for 20 s against a counter cached for 30 s;
+- `stack.sh` handed the engine its S3 key under names it does not read, so every upload on the
+  ephemeral target failed;
+- QANT-130 read a row before it rendered, and clicked shut a section it meant to open;
+- QANT-117 took "no Next button" for "more pages";
+- the onboarding modal's wait depended on an external site;
+- a settings click straight after sign-in was sometimes swallowed;
+- the email counter specs assumed both letters land in one mailbox poll, in send order.
+
+Decisions, each needing a word from the owner rather than more code:
+
+| decision | why it cannot be coded around |
+| --- | --- |
+| **one admin identity per worker** | 70 spec files sign in as the one seeded SuperAdmin, and the engine keeps one session per device type, so parallel workers sign each other out. It is most of the lab's flaky count at 4-6 workers. Proposal: seed extra SuperAdmins (same password hash, own access token) on both targets and pick by worker index. |
+| **a mailbox that does not throttle** | ukr.net intermittently answers Mailgun with `421 4.3.0` and Mailgun retries 10-21 minutes later, so a letter lands in a later spec's inbox. |
+| **the lab's system SMTP password** | the lab engine has no `MAIL_SYSTEM_PASSWORD` from any source, so QANT-21/135/136 get no mail there. |
+| **PrivateBin on the lab** | `PASTEBIN_BASE_URL` points at a namespace that does not exist, so QANT-85 fails on both targets. |
 
 ### 5. Merge — on an explicit say-so, never on a green number
 
