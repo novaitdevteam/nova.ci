@@ -107,11 +107,8 @@ case "${1:-up}" in
         # probes do: the host cannot reach a --network host container on a Mac. It also keeps
         # the run identical to CI — same image family, same addressing — so a pass here means
         # something about a pass there.
-        # The mail credentials come from the same two .env files the bring-up reads, and are
-        # handed to the container by name (`-e VAR`) so no value reaches a command line. Without
-        # them the whole email class — the four Email* specs, their four superadmin twins,
-        # password set and recovery, the referral programme — fails on a mail provider that was
-        # never configured, which reads as a stack fault and is not one.
+        # No mail credentials: the stack runs its own mail server and stack.env names it, so
+        # the email specs read and write there instead of a real mailbox.
         load_env
         work="${RUNNER_TEMP:-/tmp}/e2e-stack"
         [ -f "${work}/stack.env" ] || { echo "no ${work}/stack.env — bring the stack up first" >&2; exit 1; }
@@ -124,8 +121,6 @@ case "${1:-up}" in
             -e RESET_STAND=off -e WORKERS="${WORKERS:-1}" -e CI=true \
             -e SUITE_TIMEOUT_MINUTES="${SUITE_TIMEOUT_MINUTES:-110}" \
             -e TELEGRAM_URL=/telegram/ -e VIBER_URL=/viber/ -e META_URL=/messenger/channel-messenger/ \
-            -e MAILGUN_API_KEY -e MAILGUN_DOMAIN -e TEST_EMAIL_ADDRESS \
-            -e IMAP_USER -e IMAP_PASSWORD -e IMAP_HOST -e IMAP_PORT \
             mcr.microsoft.com/playwright:v1.56.1-noble \
             npx playwright test --grep "$grep_arg" "$@"
         ;;

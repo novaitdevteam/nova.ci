@@ -59,10 +59,21 @@ RELEASE="${E2E_HELM_RELEASE:-e2e}"
 
 PG="${PREFIX}-postgres"; REDIS="${PREFIX}-redis"
 ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow"
-UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"
+UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"; MAIL="${PREFIX}-mail"
 # nova-nats is the name dast_bring_up_nats gives it; this reuses that helper rather than
 # copying its stream setup, so the name comes with it.
-ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
+ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
+
+# The stack's own mail server: SMTP and IMAP in one container, any address, any password.
+# Every letter the suite reads used to cross the internet: customer mail went out through
+# Mailgun to a ukr.net mailbox that every engine on every stand polled, system mail went to
+# smtp.gmail.com with no password, and the suite read it back from a temp-mail website.
+# ukr.net answered Mailgun with 421 and a letter landed 10-21 minutes later in the next
+# spec's inbox; the lab had no SMTP password at all. Here nothing leaves the VM. IMAP because
+# the engine *polls* for inbound mail, which is why an SMTP-only catcher would not do.
+# Pinned by digest. The API is moved off 8080, which the runner's own nginx holds.
+MAIL_IMAGE="greenmail/standalone@sha256:8a2024725c7b1ce8f720644bccb6f237781992a8cbf283023446eb7d29326ad0"
+MAIL_SMTP_PORT=3025; MAIL_IMAP_PORT=3143; MAIL_API_PORT=18190
 
 log()  { printf '[stack] %s\n' "$1"; }
 # A mask line is an instruction to the Actions runner, which swallows it and hides the value from
@@ -370,6 +381,15 @@ up() {
     docker run -d --name "$REDIS" --network host redis:8 >/dev/null || fail "redis refused to start"
     started "$REDIS" "redis"
 
+    log "mail"
+    # Before the engine: its system mailer is pointed here at boot. Neither port offers
+    # STARTTLS, so nodemailer and ImapFlow never try TLS against a certificate nobody trusts.
+    docker run -d --name "$MAIL" --network host \
+        -e GREENMAIL_OPTS="-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.api.hostname=127.0.0.1 -Dgreenmail.api.port=${MAIL_API_PORT}" \
+        "$MAIL_IMAGE" >/dev/null || fail "the mail server refused to start"
+    started "$MAIL" "the mail server"
+    wait_http "mail" "http://127.0.0.1:${MAIL_API_PORT}/api/service/readiness" "$MAIL" 60
+
     log "nats"
     # Shared with the DAST bring-up rather than copied: the 'campaign' stream the dialer's
     # client asks for at startup is easy to forget, and a JetStream without it still answers
@@ -410,6 +430,8 @@ up() {
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=novatalks \
         -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
         -e NATS_SERVERS=127.0.0.1:4222 \
+        -e MAIL_SYSTEM_HOST=127.0.0.1 -e MAIL_SYSTEM_PORT="$MAIL_SMTP_PORT" -e MAIL_SYSTEM_USER= \
+        -e MAIL_HOST=127.0.0.1 -e MAIL_PORT="$MAIL_SMTP_PORT" \
         -e FILE_DRIVER="${FILE_DRIVER:-s3}" \
         -e AWS_S3_ENDPOINT="${AWS_S3_ENDPOINT:-}" -e AWS_S3_BUCKET="${AWS_S3_BUCKET:-}" \
         -e AWS_S3_ACCESS_KEY_ID="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET_ACCESS_KEY="${AWS_S3_SECRET:-}" \
@@ -512,6 +534,15 @@ up() {
         limit 1 returning 1" 2>&1)" || fail "could not seed the BotFlow connector token: ${inserted}" "$PG"
     [ "$inserted" = "1" ] \
         || fail "no users row for ${admin_user}, so every call BotFlow makes into the engine answers 401" "$PG"
+
+    # The admin has signed in before, as on any stand that has been used. The UI opens its
+    # onboarding modal over the whole page for a user whose last_sign_in_at is null, so on a
+    # fresh database the first spec to sign in as the admin found its next click covered — QANT-21
+    # run alone waited 30 s on the settings link behind it. The lab never shows this: the
+    # workflow's credential check signs the admin in through the API before the suite starts.
+    docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX \
+        -c "update users set last_sign_in_at = now() where email = '${admin_user}'" >/dev/null \
+        || fail "could not mark ${admin_user} as having signed in" "$PG"
 
     log "seeded an API token for ${admin_user}, and BotFlow's own connector token"
 
@@ -676,6 +707,7 @@ EOF
         printf 'UI_ADMIN_PASSWORD=%s\n' "$admin_pass"
         printf 'API_TOKEN=%s\n' "$api_token"
         printf 'NODE_EXTRA_CA_CERTS=%s\n' "${WORK}/proxy.crt"
+        printf 'E2E_MAIL_HOST=127.0.0.1\nE2E_MAIL_SMTP_PORT=%s\nE2E_MAIL_IMAP_PORT=%s\n' "$MAIL_SMTP_PORT" "$MAIL_IMAP_PORT"
     } > "${WORK}/stack.env"
     chmod 600 "${WORK}/stack.env"
 
@@ -690,6 +722,9 @@ EOF
             printf 'E2E_STACK_UI_LOGIN=%s\n' "$admin_user"
             printf 'E2E_STACK_UI_PASSWORD=%s\n' "$admin_pass"
             printf 'E2E_STACK_API_TOKEN=%s\n' "$api_token"
+            # Under these names the suite reads them directly: no workflow ternary, and the
+            # stand's mail secrets it is also handed go unused on this target.
+            printf 'E2E_MAIL_HOST=127.0.0.1\nE2E_MAIL_SMTP_PORT=%s\nE2E_MAIL_IMAP_PORT=%s\n' "$MAIL_SMTP_PORT" "$MAIL_IMAP_PORT"
         } >> "$GITHUB_ENV"
     fi
     # The API token, checked on the path the suite actually uses. Sending it straight at the

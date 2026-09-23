@@ -114,7 +114,16 @@ never returns hangs a run with nothing else to stop it.
 
 The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 
-One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs. The email-channel specs (`QANT-02`–`05`, `56`–`59`) send their inbound letter through Mailgun, so its key and domain are passed as well (`E2E_MAILGUN_API_KEY`, `E2E_MAILGUN_DOMAIN`). Without them the client throws `Parameter "key" is required` before anything is sent, and all eight fail at their first step.
+One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs. The email-channel specs (`QANT-02`–`05`, `56`–`59`) send their inbound letter through Mailgun, so its key and domain are passed as well (`E2E_MAILGUN_API_KEY`, `E2E_MAILGUN_DOMAIN`). Without them the client throws `Parameter "key" is required` before anything is sent, and all eight fail at their first step. Those secrets serve the lab only.
+
+**On the ephemeral target no letter leaves the machine.** The stack runs its own mail server
+(GreenMail: SMTP and IMAP, any address, any password), points both of the engine's mailers at it,
+and hands the suite `E2E_MAIL_HOST` / `E2E_MAIL_SMTP_PORT` / `E2E_MAIL_IMAP_PORT`. With those set
+the suite's mail helpers use it instead of Mailgun, the ukr.net mailbox and the temp-mail website:
+a customer's letter is appended to the shared inbox the engine polls, and a system letter is read
+back from the agent's own mailbox there. The external path had two faults nobody could fix from
+the suite: ukr.net answering Mailgun with `421` so letters landed 10-21 minutes late, and a system
+mailer with no SMTP password on the lab.
 
 Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 
