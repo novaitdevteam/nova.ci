@@ -333,8 +333,10 @@ Decisions, each needing a word from the owner rather than more code:
 | 36036612815 | lab | 406 | 2 | 0 | 37.1 | 0 |
 | 36046590432 | ephemeral | 405 | 3 | 0 | 50.4 | 0 |
 | 36046595792 | lab | 404 | 4 | 0 | 38.6 | 0 |
+| 36055501617 | lab (lease) | 403 | 5 | 0 | 40.1 | 0 |
+| 36057459698 | ephemeral (dialer tag named) | 403 | 5 | 0 | 42.0 | 1 (QANT-130) |
 
-No test needed a second retry on either target. The last two runs still ended red: the report
+Until 36057459698 no test needed a second retry on either target; QANT-130's submenu test then did, and was fixed the same evening (the expand decided before the tree had rendered). The last two runs still ended red: the report
 upload hit the organisation's artifact quota (6.3 GB of three days of E2E reports, a ~20 MB trace
 per retried test). The old reports were deleted and the report is now kept one day.
 
@@ -354,8 +356,14 @@ What the fixes were, all in `novatalks.tests`:
 - **QANT-21**: two of faker's colour names contain a space, which made the webhook URL invalid.
 
 Still flaking, each once per run or less: QANT-54 (a deleted contact attribute comes back when the
-next one is added) and QANT-73 (the assignee still shown after Resolved) look like the UI applying
-a stale event, and are left unmasked; the email alert specs (QANT-56/58/59) where the chatbot
+next one is added) and QANT-03/63/73 (the assignee still shown after Resolved) are a **product
+bug, confirmed in `novatalks.ui`'s code and left unmasked**: every conversation event
+(`conversation.status_changed`, `substatus_changed`, `assignee.changed`) is spread over the stored
+conversation with no ordering check (`src/store/conversations/mutations.js`, `UPDATE_CONVERSATION`),
+so whichever event arrives last wins even when its snapshot is older, and the same action rewrites
+the contact from the event's `meta.sender` (`actions.js`, `updateConversation`), which is how a
+deleted attribute returns. It needs an `updated_at` (or sequence) comparison in the UI, or snapshots
+built after commit in the engine; the email alert specs (QANT-56/58/59) where the chatbot
 answered but no transfer to the team followed — the lab's engine logs had rotated before they
 could be read; QANT-52/46 (status still `Alerting`), QANT-84/96 (a delete button not found),
 QANT-117, QANT-130.
