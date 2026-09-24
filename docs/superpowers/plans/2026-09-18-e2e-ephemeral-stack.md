@@ -272,11 +272,29 @@ email class passed. Three causes came out of reading both runs, each looking lik
   write-first project and Playwright runs a selected project's dependencies in full. The new
   projects are write-first dependencies for that reason, so the selection stays 418 tests.
 
+**2026-09-24 — the shared admin, closed on the ephemeral target.** The stack now seeds seven
+extra admins and the suite's default sign-in gives each worker its own; the lab is unchanged
+until it seeds a pool of its own.
+
+| ephemeral run | passed | flaky | failed | minutes |
+| --- | --- | --- | --- | --- |
+| 35905206948 (first) | 378 | 19 | 3 | 42.4 |
+| 35910791418 (+ QANT-21, serial groups) | 388 | 6 | 4 | 40.0 |
+| 35975580682 (+ admin pool, PrivateBin) | 394 | 5 | 1 | 37.4 |
+
+399 of the 400 tests that ran passed in the end, 394 of them first time. What was left after that:
+QANT-74, the admin twin of QANT-45, never got QANT-45's wait for after-call work; and QANT-117,
+which fills the account to 100 inboxes, ran beside the inbox CRUD specs that look for their own
+row on the table's first page. Both fixed the same day (an `inbox-serial` project).
+
+One correction: every `WORKERS=n local.sh test` before this ran on one worker, because the tests
+repository's `.env` sets `WORKERS` and overrode the command line. Fixed in `local.sh`.
+
 Decisions, each needing a word from the owner rather than more code:
 
 | decision | why it cannot be coded around |
 | --- | --- |
-| **one admin identity per worker** | 70 spec files sign in as the one seeded SuperAdmin, and the engine keeps one session per device type, so parallel workers sign each other out. It is most of the lab's flaky count at 4-6 workers. Proposal: seed extra SuperAdmins (same password hash, own access token) on both targets and pick by worker index. |
+| **one admin identity per worker, on the lab** | 70 spec files sign in as the one seeded SuperAdmin, and the engine keeps one session per device type, so parallel workers sign each other out. It is most of the lab's flaky count at 4-6 workers. Proposal: seed extra SuperAdmins (same password hash, own access token) on both targets and pick by worker index. |
 | **a mail server of the lab's own** | Done on the ephemeral target (GreenMail in the stack). The lab still delivers through Mailgun to ukr.net, which answers `421 4.3.0` so letters land 10-21 minutes late; giving it GreenMail needs a deployment in the stand's namespace, a way in for the runner, and the lab engine's mail values changed. |
 | **the lab's system SMTP password** | the lab engine has no `MAIL_SYSTEM_PASSWORD` from any source, so QANT-21/135/136 get no mail there. |
 | **PrivateBin on the lab** | `PASTEBIN_BASE_URL` points at a namespace that does not exist, so QANT-85 fails on both targets. |
