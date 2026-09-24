@@ -43,7 +43,7 @@ File storage is repository-aware too. For `novatalks.core` only, a `Configure S3
 
 ## End-to-end tests (novatalks.tests)
 
-[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand, then publishes the HTML report to R2 and notifies.
+[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand, then publishes the HTML report to R2 and notifies. The report travels between the two jobs as a run artifact kept one day; when it cannot be uploaded — the artifact quota is the organisation's, shared with every product build — the run keeps the suite's own result, warns that it has no report, and the notification says so instead of linking one.
 
 **Two targets, chosen per run by the `target` input.** Both stay; neither replaces the other.
 The point of having two is that the same build gives the same result on either, so each starts

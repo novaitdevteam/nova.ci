@@ -694,10 +694,19 @@ jobs:
           # organisation's, so it is shared with every product build. On 2026-09-24 three days of
           # E2E reports (6.3 GB) filled it and two green runs went red on this upload.
           retention-days: 1
+        # The artifact only carries the report to the publish job; it is not the tests' result.
+        # Three runs with no failed test went red on 2026-09-24 because the quota was full, and a
+        # red that means "the report store is full" is a red nobody can act on in the suite.
+        continue-on-error: true
+
+      - name: Say the report was not stored
+        if: ${{ !cancelled() && steps.report.outcome == 'failure' }}
+        run: echo "::warning::the report could not be uploaded (see Save Artifact; usually the organisation's artifact quota) — the test result stands, but this run has no report"
 
   publish-report-r2:
     name: Publish HTML Report
-    if: always()
+    # Nothing to publish when the upload above failed.
+    if: ${{ always() && needs.build-tests.outputs.REPORT != '' }}
     needs: [build-tests]
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     continue-on-error: true
@@ -748,8 +757,8 @@ jobs:
           if_true: |
             👷 Tests triggered manually have been completed ✅
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: ${{ inputs.report_base_url }}/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
+            ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
 
             Repository: ${{ github.repository }}
             Stand: ${{ inputs.env_url }}
@@ -759,8 +768,8 @@ jobs:
           if_false: |
             👷 Tests triggered manually have been failed
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: ${{ inputs.report_base_url }}/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
+            ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
 
             Repository: ${{ github.repository }}
             Stand: ${{ inputs.env_url }}
