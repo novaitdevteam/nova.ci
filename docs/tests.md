@@ -80,6 +80,12 @@ minutes, naming the holder while it waits), `/drop`, `/prune` and `/normalize` a
 run that does not hold it, and `Release the stand` gives it back on every exit. A run killed
 before it can release frees the stand when the lease runs out, 160 minutes after it was taken.
 
+What the lease does not see: a suite started any other way that never calls the reset service —
+Playwright run from a laptop against the lab, without the reset token. Such a run cannot prune,
+normalise or drop the stand, but its specs still create and delete entities, sign the pool admins
+in and read the shared mailbox, and nothing stops it. Taking the lease in the suite's
+`global-setup` would close that gap; it is not done while no such runs are known to happen.
+
 Use `lab` when a human wants to open the thing afterwards and look. Use `ephemeral` to test a
 particular build, to run two suites at once, or to get a failure somebody else can reproduce —
 the stand moves under you, and a run there cannot be repeated twice the same way.
