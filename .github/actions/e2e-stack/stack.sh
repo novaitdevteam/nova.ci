@@ -381,11 +381,15 @@ up() {
     started "$PG" "postgres"
     # Three minutes, not one. Run 35975017465 gave up at 60 s with initdb still running on a
     # slow VM: the log ended at "The files belonging to this database system will be owned by".
+    # And over TCP (-h 127.0.0.1), never the socket. During init the entrypoint runs a temporary
+    # server on the Unix socket only, which answers ready and then shuts down; run 35985654327
+    # saw it ready, re-checked in the shutdown window and failed on a healthy database. Only the
+    # real server listens on TCP.
     for _ in $(seq 1 90); do
-        docker exec "$PG" pg_isready -U novatalks >/dev/null 2>&1 && break
+        docker exec "$PG" pg_isready -h 127.0.0.1 -U novatalks >/dev/null 2>&1 && break
         sleep 2
     done
-    docker exec "$PG" pg_isready -U novatalks >/dev/null 2>&1 \
+    docker exec "$PG" pg_isready -h 127.0.0.1 -U novatalks >/dev/null 2>&1 \
         || fail "postgres never became ready" "$PG"
     # The dialer keeps its own database on the same server, exactly as the chart deploys it.
     docker exec "$PG" psql -U novatalks -d novatalks -c 'create database dialer' >/dev/null 2>&1 || true
