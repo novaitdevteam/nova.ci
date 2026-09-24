@@ -348,6 +348,42 @@ jobs:
       # targets is supposed to give. On 2026-09-21 the lab sat on locale 'pl', left by an
       # interrupted run, and all nine English-asserting smoke specs failed there while the
       # ephemeral stack was green.
+      # One admin per worker, as the ephemeral stack seeds in stack.sh. The engine keeps one
+      # session per device type, and 70 spec files sign in as the default admin when they name
+      # nobody, so parallel workers signed each other out mid-test. Created through the API
+      # (the fields the engine requires: username, displayName), before the normalise step,
+      # which gives them the seeded admin's user type and a past sign-in. Idempotent: an admin
+      # left by an earlier run answers "already in use". The password is the admin's own,
+      # read from stdin so it never reaches a process list. The suite picks one per worker
+      # from E2E_ADMIN_POOL (novatalks.tests, login.page.ts: defaultAdmin).
+      - name: Seed one admin per worker
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          ENV_URL: ${{ inputs.env_url }}
+          API_TOKEN: ${{ secrets.E2E_API_TOKEN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
+        run: |
+          esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }
+          pool=""
+          for n in 1 2 3 4 5 6 7; do
+            email="e2e-admin-${n}@mail.e2e.test"
+            code="$(printf '{"username":"%s","email":"%s","name":"E2E Admin %s","displayName":"E2E Admin %s","role":"administrator","provider":"email","password":"%s"}' \
+                      "$email" "$email" "$n" "$n" "$(esc "$UI_ADMIN_PASSWORD")" \
+                    | curl -sS --max-time 60 -o /tmp/admin.json -w '%{http_code}' -X POST \
+                        -H "api_access_token: ${API_TOKEN}" -H 'Content-Type: application/json' \
+                        --data-binary @- "${ENV_URL}/api/v1/accounts/1/agents")" \
+              || { echo "::error::could not reach ${ENV_URL} to create ${email}"; exit 1; }
+            case "$code" in
+              2*) echo "created ${email}" ;;
+              400) grep -q 'already in use' /tmp/admin.json \
+                     || { echo "::error::creating ${email} answered 400: $(head -c 300 /tmp/admin.json)"; exit 1; }
+                   echo "kept ${email}" ;;
+              *) echo "::error::creating ${email} answered ${code}: $(head -c 300 /tmp/admin.json)"; exit 1 ;;
+            esac
+            pool="${pool:+${pool},}${email}"
+          done
+          echo "E2E_ADMIN_POOL=${pool}" >> "$GITHUB_ENV"
+
       - name: Normalise the stand's account
         if: ${{ inputs.target != 'ephemeral' }}
         env:
