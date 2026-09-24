@@ -305,6 +305,14 @@ two lab decisions below: QANT-21, 135 and 136 get no system mail (no SMTP passwo
 no referral code (no PrivateBin). Four of the nine flaky are the email specs waiting on ukr.net.
 Every flaky test passed on its first retry.
 
+**The lab, green** (run 36006157477, drop, 4 workers, 39.8 minutes): 403 passed, 5 flaky, 0 failed
+— the first full lab run with no failure. PrivateBin runs next to the lab as release `privatebin`
+in namespace `privatebin` (production's chart, filesystem storage instead of R2), and the lab has
+its own GreenMail, reached by the suite through stand-reset's `/mail` routes; QA's ukr.net mailbox
+is no longer touched. The lab's values (`novatalks.charts/novatalks_v5/examples/dev-e2e-tests`) are
+gitignored in that repository, so the mail change lives only in the working copy it was applied
+from and in release revision 17.
+
 One correction: every `WORKERS=n local.sh test` before this ran on one worker, because the tests
 repository's `.env` sets `WORKERS` and overrode the command line. Fixed in `local.sh`.
 
@@ -313,9 +321,9 @@ Decisions, each needing a word from the owner rather than more code:
 | decision | why it cannot be coded around |
 | --- | --- |
 | ~~one admin identity per worker, on the lab~~ | Done 2026-09-24: the workflow seeds the pool, stand-reset :12 types it. |
-| **a mail server of the lab's own** | Done on the ephemeral target (GreenMail in the stack). The lab still delivers through Mailgun to ukr.net, which answers `421 4.3.0` so letters land 10-21 minutes late; giving it GreenMail needs a deployment in the stand's namespace, a way in for the runner, and the lab engine's mail values changed. |
-| **the lab's system SMTP password** | the lab engine has no `MAIL_SYSTEM_PASSWORD` from any source, so QANT-21/135/136 get no mail there. |
-| **PrivateBin on the lab** | `PASTEBIN_BASE_URL` points at a namespace that does not exist, so QANT-85 fails on both targets. |
+| ~~a mail server of the lab's own~~ | Done 2026-09-24. |
+| ~~the lab's system SMTP password~~ | Done 2026-09-24: the system mailer points at the lab's GreenMail. |
+| ~~PrivateBin on the lab~~ | Done 2026-09-24. |
 
 ### 5. Merge — on an explicit say-so, never on a green number
 
