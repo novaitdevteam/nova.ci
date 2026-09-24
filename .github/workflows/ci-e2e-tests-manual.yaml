@@ -425,6 +425,38 @@ jobs:
             *)  echo "::error::the reset service answered ${code} for the normalise route"; exit 1 ;;
           esac
 
+      # The lab's own mail server instead of the ukr.net mailbox QA uses for its own testing.
+      # GreenMail runs inside the lab's namespace (novatalks.tests/tools/mail), both engine
+      # mailers point at it, and the suite reaches it through the reset service's /mail routes,
+      # because the cluster serves no IMAP. The engine sees it as e2e-mail; the suite as the
+      # reset service's URL and token. A stand whose reset service has no /mail answers 404 or
+      # 501, and the run keeps the old external path with a warning rather than failing.
+      - name: Point the suite at the lab's mail server
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          [ -n "$RESET_URL" ] && [ -n "$RESET_TOKEN" ] \
+            || { echo "::warning::no reset service configured — the email specs use the external mailbox"; exit 0; }
+          MAIL_API="${RESET_URL%/prune}"
+          code="$(curl -sS --max-time 60 -o /tmp/mail-probe.json -w '%{http_code}' -X POST \
+                    -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                    -d '{"mailbox":"probe@mail.e2e.test"}' "${MAIL_API}/mail/read")" || code=000
+          case "$code" in
+            200)
+              {
+                echo "E2E_MAIL_HOST=e2e-mail"
+                echo "E2E_MAIL_SMTP_PORT=3025"
+                echo "E2E_MAIL_IMAP_PORT=3143"
+                echo "E2E_MAIL_API=${MAIL_API}"
+                echo "E2E_MAIL_API_TOKEN=${RESET_TOKEN}"
+              } >> "$GITHUB_ENV"
+              echo "email specs use the lab's own mail server" ;;
+            404|501) echo "::warning::the reset service has no mail routes (${code}) — the email specs use the external mailbox" ;;
+            *) echo "::error::the reset service's mail route answered ${code}: $(head -c 300 /tmp/mail-probe.json)"; exit 1 ;;
+          esac
+
       - name: Runner capacity
         working-directory: ./
         run: |
