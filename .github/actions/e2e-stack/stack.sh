@@ -379,7 +379,9 @@ up() {
         -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
         >/dev/null || fail "postgres refused to start"
     started "$PG" "postgres"
-    for _ in $(seq 1 30); do
+    # Three minutes, not one. Run 35975017465 gave up at 60 s with initdb still running on a
+    # slow VM: the log ended at "The files belonging to this database system will be owned by".
+    for _ in $(seq 1 90); do
         docker exec "$PG" pg_isready -U novatalks >/dev/null 2>&1 && break
         sleep 2
     done
