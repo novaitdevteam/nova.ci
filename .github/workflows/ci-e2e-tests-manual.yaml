@@ -353,8 +353,8 @@ jobs:
       # nobody, so parallel workers signed each other out mid-test. Created through the API
       # (the fields the engine requires: username, displayName), before the normalise step,
       # which gives them the seeded admin's user type and a past sign-in. Idempotent: an admin
-      # left by an earlier run answers "already in use". The password is the admin's own,
-      # read from stdin so it never reaches a process list. The suite picks one per worker
+      # left by an earlier run answers "already in use". The password goes in on stdin
+      # so it never reaches a process list. The suite picks one per worker
       # from E2E_ADMIN_POOL (novatalks.tests, login.page.ts: defaultAdmin).
       - name: Seed one admin per worker
         if: ${{ inputs.target != 'ephemeral' }}
@@ -364,11 +364,17 @@ jobs:
           UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
         run: |
           esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }
+          # Not the admin's own password: the lab's was seeded before the password policy and
+          # the engine refuses it for a new agent (422 password_policy_violation, run
+          # 35996407261). Derived from it instead, with a suffix that meets every rule, so it is
+          # the same on every run and still fits admins an earlier run created.
+          pool_pass="${UI_ADMIN_PASSWORD}Aa1!"
+          echo "::add-mask::${pool_pass}"
           pool=""
           for n in 1 2 3 4 5 6 7; do
             email="e2e-admin-${n}@mail.e2e.test"
             code="$(printf '{"username":"%s","email":"%s","name":"E2E Admin %s","displayName":"E2E Admin %s","role":"administrator","provider":"email","password":"%s"}' \
-                      "$email" "$email" "$n" "$n" "$(esc "$UI_ADMIN_PASSWORD")" \
+                      "$email" "$email" "$n" "$n" "$(esc "$pool_pass")" \
                     | curl -sS --max-time 60 -o /tmp/admin.json -w '%{http_code}' -X POST \
                         -H "api_access_token: ${API_TOKEN}" -H 'Content-Type: application/json' \
                         --data-binary @- "${ENV_URL}/api/v1/accounts/1/agents")" \
@@ -382,7 +388,7 @@ jobs:
             esac
             pool="${pool:+${pool},}${email}"
           done
-          echo "E2E_ADMIN_POOL=${pool}" >> "$GITHUB_ENV"
+          { echo "E2E_ADMIN_POOL=${pool}"; echo "E2E_ADMIN_POOL_PASSWORD=${pool_pass}"; } >> "$GITHUB_ENV"
 
       - name: Normalise the stand's account
         if: ${{ inputs.target != 'ephemeral' }}
