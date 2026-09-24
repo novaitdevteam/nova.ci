@@ -287,6 +287,18 @@ QANT-74, the admin twin of QANT-45, never got QANT-45's wait for after-call work
 which fills the account to 100 inboxes, ran beside the inbox CRUD specs that look for their own
 row on the table's first page. Both fixed the same day (an `inbox-serial` project).
 
+Then three green full runs in a row — CI conclusion `success`, no failure, every flaky test
+passing on its first retry except QANT-75 once (on retry 2, fixed by the attributes group):
+
+| ephemeral run | passed | flaky | failed | minutes |
+| --- | --- | --- | --- | --- |
+| 35980836422 (+ QANT-74, inbox group) | 405 | 3 | 0 | 36.0 |
+| 35986151868 (+ three flake fixes, postgres TCP readiness) | 403 | 5 | 0 | 40.3 |
+| 35991556020 (+ attributes group) | 404 | 4 | 0 | 39.5 |
+
+What still flakes is QANT-117, which needs a fixed number of inboxes while nearly every other
+spec creates one, and a handful of single retries that did not repeat between runs.
+
 One correction: every `WORKERS=n local.sh test` before this ran on one worker, because the tests
 repository's `.env` sets `WORKERS` and overrode the command line. Fixed in `local.sh`.
 
