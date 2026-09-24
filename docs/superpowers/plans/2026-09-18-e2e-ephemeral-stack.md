@@ -299,6 +299,12 @@ passing on its first retry except QANT-75 once (on retry 2, fixed by the attribu
 What still flakes is QANT-117, which needs a fixed number of inboxes while nearly every other
 spec creates one, and a handful of single retries that did not repeat between runs.
 
+**The lab with the admin pool** (run 35996985089, drop, 4 workers, 43.0 minutes): 387 passed,
+9 flaky, 4 failed — against 352 / 23 / 7 the evening before. The four failures are exactly the
+two lab decisions below: QANT-21, 135 and 136 get no system mail (no SMTP password), QANT-85
+no referral code (no PrivateBin). Four of the nine flaky are the email specs waiting on ukr.net.
+Every flaky test passed on its first retry.
+
 One correction: every `WORKERS=n local.sh test` before this ran on one worker, because the tests
 repository's `.env` sets `WORKERS` and overrode the command line. Fixed in `local.sh`.
 
@@ -306,7 +312,7 @@ Decisions, each needing a word from the owner rather than more code:
 
 | decision | why it cannot be coded around |
 | --- | --- |
-| **one admin identity per worker, on the lab** | 70 spec files sign in as the one seeded SuperAdmin, and the engine keeps one session per device type, so parallel workers sign each other out. It is most of the lab's flaky count at 4-6 workers. Proposal: seed extra SuperAdmins (same password hash, own access token) on both targets and pick by worker index. |
+| ~~one admin identity per worker, on the lab~~ | Done 2026-09-24: the workflow seeds the pool, stand-reset :12 types it. |
 | **a mail server of the lab's own** | Done on the ephemeral target (GreenMail in the stack). The lab still delivers through Mailgun to ukr.net, which answers `421 4.3.0` so letters land 10-21 minutes late; giving it GreenMail needs a deployment in the stand's namespace, a way in for the runner, and the lab engine's mail values changed. |
 | **the lab's system SMTP password** | the lab engine has no `MAIL_SYSTEM_PASSWORD` from any source, so QANT-21/135/136 get no mail there. |
 | **PrivateBin on the lab** | `PASTEBIN_BASE_URL` points at a namespace that does not exist, so QANT-85 fails on both targets. |
