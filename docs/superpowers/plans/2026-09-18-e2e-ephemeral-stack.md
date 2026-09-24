@@ -325,6 +325,41 @@ Decisions, each needing a word from the owner rather than more code:
 | ~~the lab's system SMTP password~~ | Done 2026-09-24: the system mailer points at the lab's GreenMail. |
 | ~~PrivateBin on the lab~~ | Done 2026-09-24. |
 
+**2026-09-24 evening — the flakes, by cause.** Four runs, both targets, 4 workers each:
+
+| run | target | passed | flaky | failed | minutes | retry #2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 36036607588 | ephemeral | 401 | 7 | 0 | 53.0 | 0 |
+| 36036612815 | lab | 406 | 2 | 0 | 37.1 | 0 |
+| 36046590432 | ephemeral | 405 | 3 | 0 | 50.4 | 0 |
+| 36046595792 | lab | 404 | 4 | 0 | 38.6 | 0 |
+
+No test needed a second retry on either target. The last two runs still ended red: the report
+upload hit the organisation's artifact quota (6.3 GB of three days of E2E reports, a ~20 MB trace
+per retried test). The old reports were deleted and the report is now kept one day.
+
+What the fixes were, all in `novatalks.tests`:
+
+- **A cleanup that deleted another project's inbox.** `removeEmailInboxes` removed every email
+  inbox in the account, and `email-serial` runs beside `inbox-serial`: QANT-88's Microsoft inbox
+  lived five seconds on the lab and went the second QANT-56 finished. It now removes only inboxes
+  that read the shared mailbox.
+- **Two races in the custom-attribute row** (QANT-26–29, 32–35, 38, 39). A date row shows the typed
+  value before the engine stores it, while its copy button copies the stored one — QANT-29 pasted
+  QANT-28's link; and a new row can miss its focus event and stay in view mode with its input
+  hidden. `ui/app/actions/attributeRow.ts` waits for the POST and opens the row itself.
+- **An accordion that was toggled, not opened.** Conversation Actions keeps its open state in the
+  user's server-side `ui_settings`, so a pool admin carried it between specs and a second click
+  closed it (QANT-55, QANT-95). The button now only opens.
+- **QANT-21**: two of faker's colour names contain a space, which made the webhook URL invalid.
+
+Still flaking, each once per run or less: QANT-54 (a deleted contact attribute comes back when the
+next one is added) and QANT-73 (the assignee still shown after Resolved) look like the UI applying
+a stale event, and are left unmasked; the email alert specs (QANT-56/58/59) where the chatbot
+answered but no transfer to the team followed — the lab's engine logs had rotated before they
+could be read; QANT-52/46 (status still `Alerting`), QANT-84/96 (a delete button not found),
+QANT-117, QANT-130.
+
 ### 5. Merge — on an explicit say-so, never on a green number
 
 nova.ci `e2e-dev` → `main`, then the temporary bindings in `novatalks.tests` come out and that
