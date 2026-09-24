@@ -169,6 +169,50 @@ jobs:
           npx playwright install chromium
         working-directory: ./
 
+      # One run at a time on the lab. The concurrency group above only holds back runs of this
+      # workflow, in this repository, with the same env_url string; the lease lives on the stand
+      # itself, in its reset service, and /drop, /prune and /normalize refuse a run that does not
+      # hold it. A run that finds the stand taken waits here and says by whom, rather than failing.
+      - name: Take the stand
+        if: ${{ inputs.target != 'ephemeral' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+          OWNER: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} by ${{ github.actor }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ]; then
+            echo "::warning::E2E_RESET_URL or E2E_RESET_TOKEN is unset — nothing keeps another run off this stand"
+            exit 0
+          fi
+          case "$RESET_URL" in
+            */prune) LEASE_URL="${RESET_URL%/prune}/lease" ;;
+            *) echo "::error::E2E_RESET_URL does not end in /prune, so the lease route cannot be derived from it"; exit 1 ;;
+          esac
+          # 160 minutes: the job's timeout-minutes plus a margin, so a run killed before it can
+          # release frees the stand on its own no later than the job could have lasted.
+          body="$(printf '{"owner":"%s","minutes":160}' "$OWNER")"
+          holder=""
+          # Ninety minutes of thirty-second polls, longer than a whole lab run takes.
+          for _ in $(seq 1 180); do
+            code="$(curl -sS --max-time 30 -o /tmp/lease.out -w '%{http_code}' -X POST \
+                      -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                      --data "$body" "$LEASE_URL")" || code=000
+            case "$code" in
+              200) cat /tmp/lease.out; echo; echo "STAND_LEASE=${OWNER}" >> "$GITHUB_ENV"; exit 0 ;;
+              404) echo "::warning::the reset service has no /lease route (an image before :14) — nothing keeps another run off this stand"; exit 0 ;;
+              409) now="$(sed -n 's/.*"owner": "\([^"]*\)".*/\1/p' /tmp/lease.out)"
+                   if [ "$now" != "$holder" ]; then
+                     holder="$now"
+                     echo "the stand is in use by ${holder} until $(sed -n 's/.*"until": "\([^"]*\)".*/\1/p' /tmp/lease.out); waiting"
+                   fi ;;
+              *)   echo "::warning::the lease route answered ${code}; retrying" ;;
+            esac
+            sleep 30
+          done
+          echo "::error::the stand was still in use by ${holder} after 90 minutes"
+          exit 1
+
       # Sizing evidence: every repository but novatalks.core resolves to a small VM,
       # and nobody has measured whether the browser workers fit. Printed before and
       # after the suite so a flaky timeout can be told apart from a starved runner.
@@ -190,7 +234,8 @@ jobs:
           fi
           # -f so a 401 or a 500 fails the job: a reset that quietly did nothing is the
           # failure this step exists to prevent.
-          curl -fsS --max-time 300 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" "$RESET_URL"
+          curl -fsS --max-time 300 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" \
+               -H "X-Stand-Lease: ${STAND_LEASE:-}" "$RESET_URL"
           echo
 
       # The destructive one: both databases recreated, the Engine and the Dialer restarted,
@@ -228,13 +273,14 @@ jobs:
           # so the run reported a failure for something that in fact succeeded.
           code="$(curl -sS --max-time 60 -o /tmp/drop.out -w '%{http_code}' \
                     -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                    -H "X-Stand-Lease: ${STAND_LEASE:-}" \
                     --data "{\"stand\":\"${STAND_NAME}\",\"api_token\":\"${API_TOKEN}\"}" "$DROP_URL")" \
             || { echo "::error::could not reach the reset service at the drop route"; exit 1; }
           cat /tmp/drop.out; echo
           case "$code" in
             202) ;;
             501) echo "::error::this stand's reset service has no drop configured — it predates the route, or its deployment is missing STAND_NAME / the deployment and config map names"; exit 1 ;;
-            409) echo "::error::the service refused the name in E2E_STAND_NAME, or a drop is already running"; exit 1 ;;
+            409) echo "::error::the service refused the name in E2E_STAND_NAME, a drop is already running, or another run holds the stand (see the answer above)"; exit 1 ;;
             *)  echo "::error::the drop route answered ${code}"; exit 1 ;;
           esac
 
@@ -416,7 +462,8 @@ jobs:
           # reset service predates the /normalize route. That cost a whole lab run on
           # 2026-09-22 (novatalks.tests run 35719049544), which died here before a single test.
           code="$(curl -sS --max-time 120 -o /tmp/normalize.out -w '%{http_code}' \
-                    -X POST -H "Authorization: Bearer ${RESET_TOKEN}" "$NORMALIZE_URL")" \
+                    -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H "X-Stand-Lease: ${STAND_LEASE:-}" \
+                    "$NORMALIZE_URL")" \
             || { echo "::error::could not reach the reset service at the normalise route"; exit 1; }
           cat /tmp/normalize.out; echo
           case "$code" in
@@ -602,6 +649,20 @@ jobs:
         env:
           E2E_STACK_FAILED: ${{ job.status == 'success' && '0' || '1' }}
         run: ./.nova-ci/.github/actions/e2e-stack/stack.sh down
+
+      # Hand the stand back. always(): a failed or cancelled run must not keep the next one
+      # waiting out the lease. A runner killed outright never gets here; the lease then runs out.
+      - name: Release the stand
+        if: ${{ always() && inputs.target != 'ephemeral' && env.STAND_LEASE != '' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          curl -sS --max-time 30 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+               --data "$(printf '{"owner":"%s"}' "$STAND_LEASE")" "${RESET_URL%/prune}/lease/release" \
+            || echo "::warning::could not release the stand; its lease runs out on its own"
+          echo
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7

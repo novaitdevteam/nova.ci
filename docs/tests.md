@@ -66,10 +66,19 @@ one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 | --- | --- | --- |
 | What it is | the shared stand at `novatalks-e2e-tests.k3s.dev.novait.com.ua` | the whole product started on the runner for this run, then destroyed |
 | Comes from | whatever is deployed there | four image tags and a chart version, all form inputs |
-| Runs at a time | one — the `concurrency` group keys on `env_url` | as many as the pool allows; the group keys on the run id |
+| Runs at a time | one — a lease on the stand's own reset service, behind a `concurrency` group on `env_url` | as many as the pool allows; the group keys on the run id |
 | State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
 | Campaigns | cannot run: the engine awaits NATS at boot and the lab has none | run, because the stack brings its own NATS and dialer |
 | Costs | nothing to start | about a minute of bring-up, on an `e2e-medium` runner |
+
+One lab run at a time is held by the stand, not only by the workflow. The `concurrency` group
+sees runs of this workflow, in one repository, with the same `env_url` string — another spelling
+of the URL, another repository or a run started any other way is invisible to it, and GitHub keeps
+only one waiting run per group, cancelling the one before it. So the lab's reset service also
+holds a lease: `Take the stand` takes it before anything changes the stand (waiting up to 90
+minutes, naming the holder while it waits), `/drop`, `/prune` and `/normalize` answer `409` to a
+run that does not hold it, and `Release the stand` gives it back on every exit. A run killed
+before it can release frees the stand when the lease runs out, 160 minutes after it was taken.
 
 Use `lab` when a human wants to open the thing afterwards and look. Use `ephemeral` to test a
 particular build, to run two suites at once, or to get a failure somebody else can reproduce —
