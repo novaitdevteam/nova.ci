@@ -573,6 +573,31 @@ up() {
 
     log "seeded an API token for ${admin_user}, and BotFlow's own connector token"
 
+    # One admin per worker, beyond the seeded one. The engine keeps one session per device type,
+    # and 70 spec files sign in as the default admin, so parallel workers signed each other out:
+    # the login form or an empty Account Settings shell, mid-test (ephemeral run 35910791418).
+    # Created through the engine's own API so each gets every row a real agent has, then given the
+    # seeded admin's type and a past sign-in (see the onboarding note above). Same password as the
+    # seeded admin, at the stack's own mail domain so nothing addressed to them leaves the VM.
+    # The suite picks one by worker index from E2E_ADMIN_POOL (login.page.ts, defaultAdmin).
+    admin_pool=""
+    for n in $(seq 1 "${E2E_ADMIN_POOL_SIZE:-7}"); do
+        pool_email="e2e-admin-${n}@mail.e2e.test"
+        code="$(jq -n --arg e "$pool_email" --arg p "$admin_pass" --arg n "E2E Admin ${n}" \
+                '{username:$e, email:$e, name:$n, displayName:$n, role:"administrator", provider:"email", password:$p}' \
+            | docker exec -i "$PROBE" curl -s -o /dev/null -w '%{http_code}' -X POST \
+                -H "api_access_token: ${api_token}" -H 'Content-Type: application/json' --data-binary @- \
+                "http://127.0.0.1:${ENGINE_PORT}/api/v1/accounts/1/agents" || true)"
+        [ "$code" = "200" ] || [ "$code" = "201" ] \
+            || fail "could not create the per-worker admin ${pool_email} (HTTP ${code})" "$ENGINE"
+        admin_pool="${admin_pool:+${admin_pool},}${pool_email}"
+    done
+    docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
+        update users set type = (select type from users where email = '${admin_user}'), last_sign_in_at = now()
+        where email like 'e2e-admin-%@mail.e2e.test'" >/dev/null \
+        || fail "could not give the per-worker admins the seeded admin's type" "$PG"
+    log "created ${E2E_ADMIN_POOL_SIZE:-7} per-worker admins"
+
     log "dialer ${DIALER_IMAGE}"
     # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
     # api-scan arm of the target table, which is the one place that knows it. NATS_DELIVER_TO
@@ -735,6 +760,7 @@ EOF
         printf 'API_TOKEN=%s\n' "$api_token"
         printf 'NODE_EXTRA_CA_CERTS=%s\n' "${WORK}/proxy.crt"
         printf 'E2E_MAIL_HOST=127.0.0.1\nE2E_MAIL_SMTP_PORT=%s\nE2E_MAIL_IMAP_PORT=%s\n' "$MAIL_SMTP_PORT" "$MAIL_IMAP_PORT"
+        printf 'E2E_ADMIN_POOL=%s\n' "$admin_pool"
     } > "${WORK}/stack.env"
     chmod 600 "${WORK}/stack.env"
 
@@ -752,6 +778,7 @@ EOF
             # Under these names the suite reads them directly: no workflow ternary, and the
             # stand's mail secrets it is also handed go unused on this target.
             printf 'E2E_MAIL_HOST=127.0.0.1\nE2E_MAIL_SMTP_PORT=%s\nE2E_MAIL_IMAP_PORT=%s\n' "$MAIL_SMTP_PORT" "$MAIL_IMAP_PORT"
+            printf 'E2E_ADMIN_POOL=%s\n' "$admin_pool"
         } >> "$GITHUB_ENV"
     fi
     # The API token, checked on the path the suite actually uses. Sending it straight at the

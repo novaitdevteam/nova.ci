@@ -109,6 +109,9 @@ case "${1:-up}" in
         # something about a pass there.
         # No mail credentials: the stack runs its own mail server and stack.env names it, so
         # the email specs read and write there instead of a real mailbox.
+        # WORKERS is read before load_env, because the tests repository's .env sets it too and
+        # would win: every "WORKERS=4 local.sh test" ran on one worker until this.
+        workers="${WORKERS:-1}"
         load_env
         work="${RUNNER_TEMP:-/tmp}/e2e-stack"
         [ -f "${work}/stack.env" ] || { echo "no ${work}/stack.env — bring the stack up first" >&2; exit 1; }
@@ -118,7 +121,7 @@ case "${1:-up}" in
         docker run --rm --network host \
             -v "${TESTS_REPO}:/work" -v "${work}:${work}:ro" -w /work \
             --env-file "${work}/stack.env" \
-            -e RESET_STAND=off -e WORKERS="${WORKERS:-1}" -e CI=true \
+            -e RESET_STAND=off -e WORKERS="$workers" -e CI=true \
             -e SUITE_TIMEOUT_MINUTES="${SUITE_TIMEOUT_MINUTES:-110}" \
             -e TELEGRAM_URL=/telegram/ -e VIBER_URL=/viber/ -e META_URL=/messenger/channel-messenger/ \
             mcr.microsoft.com/playwright:v1.56.1-noble \
