@@ -42,22 +42,29 @@ on:
         required: false
         type: string
         default: "main"
+      # Empty means the release build, the same one the lab runs; the tags live once, in the
+      # bring-up step's env. Empty rather than a default here because a caller forwarding an
+      # empty form field passes "" and a default never applies to that.
       engine_tag:
+        description: "novatalks.core image tag for target: ephemeral. Empty: the release build."
         required: false
         type: string
-        default: "2026_R3_NC2-2778_engine_f64f9736"
+        default: ""
       ui_tag:
+        description: "novatalks.ui image tag for target: ephemeral. Empty: the release build."
         required: false
         type: string
-        default: "2026_R3_development_20fdf74f"
+        default: ""
       botflow_tag:
+        description: "nova.botflow image tag for target: ephemeral. Empty: the release build."
         required: false
         type: string
-        default: "2026_R3_master_f9126a11"
+        default: ""
       dialer_tag:
+        description: "novatalks.dialer image tag for target: ephemeral. Empty: the release build."
         required: false
         type: string
-        default: "2026_R3_master_a81e7763"
+        default: ""
       chart_version:
         required: false
         type: string
@@ -134,6 +141,15 @@ jobs:
         run: |
           echo "TESTS_REF=${TESTS_REF}" | tee -a "$GITHUB_OUTPUT"
           echo "SHORT_SHA=$(git rev-parse --short=8 HEAD)" | tee -a "$GITHUB_OUTPUT"
+
+      # The lab runs whatever is deployed on it, so an image tag cannot change what a lab run
+      # tests. Refused rather than ignored: a run that went green for a build nobody asked for
+      # reads as that build passing.
+      - name: Refuse image tags for a stand that runs its own
+        if: ${{ inputs.target != 'ephemeral' && format('{0}{1}{2}{3}', inputs.engine_tag, inputs.ui_tag, inputs.botflow_tag, inputs.dialer_tag) != '' }}
+        run: |
+          echo "::error::image tags only apply to target: ephemeral — the lab runs the builds deployed on it. Clear the tag fields or choose ephemeral."
+          exit 1
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
@@ -363,10 +379,13 @@ jobs:
         if: ${{ inputs.target == 'ephemeral' }}
         env:
           CHART_VERSION: ${{ inputs.chart_version }}
-          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag }}
-          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag }}
-          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag }}
-          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag }}
+          # The release builds, and the same four the lab runs: change them together with the
+          # lab, or an ephemeral run and a lab run stop testing the same thing. A tag on the form
+          # replaces its own image only.
+          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag || '2026_R3_NC2-2778_engine_f64f9736' }}
+          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag || '2026_R3_development_20fdf74f' }}
+          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag || '2026_R3_master_f9126a11' }}
+          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag || '2026_R3_master_a81e7763' }}
           # Attachments go to the stand's own bucket, whose 30-day retention is the cleanup
           # (spec D8).
           # No `local` fallback: there is no such driver. Both the engine's and the dialer's

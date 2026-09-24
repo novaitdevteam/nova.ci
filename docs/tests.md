@@ -65,7 +65,7 @@ one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 | | `lab` (the default) | `ephemeral` |
 | --- | --- | --- |
 | What it is | the shared stand at `novatalks-e2e-tests.k3s.dev.novait.com.ua` | the whole product started on the runner for this run, then destroyed |
-| Comes from | whatever is deployed there | four image tags and a chart version, all form inputs |
+| Comes from | whatever is deployed there | the release builds the lab runs, unless the form names another tag for an image; a chart version |
 | Runs at a time | one — a lease on the stand's own reset service, behind a `concurrency` group on `env_url` | as many as the pool allows; the group keys on the run id |
 | State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
 | Campaigns | cannot run: the engine awaits NATS at boot and the lab has none | run, because the stack brings its own NATS and dialer |
@@ -79,6 +79,12 @@ holds a lease: `Take the stand` takes it before anything changes the stand (wait
 minutes, naming the holder while it waits), `/drop`, `/prune` and `/normalize` answer `409` to a
 run that does not hold it, and `Release the stand` gives it back on every exit. A run killed
 before it can release frees the stand when the lease runs out, 160 minutes after it was taken.
+
+The ephemeral stack boots the same four release builds the lab runs; they are written once, in
+the bring-up step of `ci-e2e-tests-manual.yaml`, and change together with the lab's. The form's
+`engine_tag`, `ui_tag`, `botflow_tag` and `dialer_tag` replace one image each, for a build that is
+not on the lab yet; left empty they mean the release build. A lab run refuses them rather than
+ignoring them, because the lab tests whatever is deployed on it.
 
 What the lease does not see: a suite started any other way that never calls the reset service —
 Playwright run from a laptop against the lab, without the reset token. Such a run cannot prune,
