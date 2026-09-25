@@ -23,10 +23,6 @@
     <text x="64" y="336" font-size="18" fill="#6E7A87">@smoke; empty = all</text>
     <text x="64" y="370" font-size="18" fill="#6E7A87">no tag route</text>
 
-    <path d="M340 190 C 360 190, 360 172, 388 172" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M396 172 l -10 -6 v 12 z" fill="#2A3138"/>
-    <path d="M340 190 C 360 190, 360 300, 388 300" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M396 300 l -10 -6 v 12 z" fill="#2A3138"/>
 
     <rect x="372" y="80" width="484" height="308" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
     <text x="396" y="114" font-size="18" letter-spacing="1.4" fill="#6E7A87">TARGET</text>
@@ -44,9 +40,6 @@
     <text x="420" y="338" font-size="18" fill="#8B96A2">mail, from image tags</text>
     <text x="420" y="362" font-size="18" fill="#6E7A87">torn down afterwards</text>
 
-    <path d="M832 182 C 852 182, 852 214, 880 214" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M832 306 C 852 306, 852 214, 880 214" fill="none" stroke="#2A3138" stroke-width="2"/>
-    <path d="M912 214 l -10 -6 v 12 z" fill="#2A3138"/>
 
     <rect x="888" y="80" width="272" height="308" rx="14" fill="#0F1317" stroke="#1F2429" stroke-width="1.5"/>
     <text x="912" y="114" font-size="18" letter-spacing="1.4" fill="#6E7A87">REPORT</text>
@@ -58,6 +51,14 @@
     <rect x="912" y="280" width="224" height="84" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
     <text x="936" y="314" font-size="21" fill="#F4F6F8">notify</text>
     <text x="936" y="342" font-size="18" fill="#8B96A2">report + run link</text>
+
+    <path d="M340 190 C 360 190, 360 172, 388 172" fill="none" stroke="#2A3138" stroke-width="2"/>
+    <path d="M396 172 l -10 -6 v 12 z" fill="#2A3138"/>
+    <path d="M340 190 C 360 190, 360 300, 388 300" fill="none" stroke="#2A3138" stroke-width="2"/>
+    <path d="M396 300 l -10 -6 v 12 z" fill="#2A3138"/>
+    <path d="M832 182 C 852 182, 852 214, 880 214" fill="none" stroke="#2A3138" stroke-width="2"/>
+    <path d="M832 306 C 852 306, 852 214, 880 214" fill="none" stroke="#2A3138" stroke-width="2"/>
+    <path d="M912 214 l -10 -6 v 12 z" fill="#2A3138"/>
   </g>
 
   <text x="40" y="424" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"

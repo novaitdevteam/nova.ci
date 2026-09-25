@@ -104,4 +104,4 @@ Self-hosted runner images do not ship the full Android toolchain, so both workfl
 
 ---
 
-[← How a trigger is routed](routing.md) · [Docs index](../README.md) · [Container scanning (Trivy) →](../security/container-scanning.md)
+[← How a trigger is routed](routing.md) · [Docs index](../README.md) · [Runners →](runners.md)

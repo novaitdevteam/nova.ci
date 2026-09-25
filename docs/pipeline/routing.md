@@ -20,7 +20,7 @@
 | `push` | `novatalks.ui-lite` | tag contains `build-pwa`, `build-spa`, or `build-crm` | [`…-mob-pwa-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml) |
 | `push` | `novatalks.chatwidget` | tag contains `build` | [`…-widget-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml) |
 | `push` | `novatalks.botflow.flows` | tag contains `build` | [`…-flows-to-pub.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml) |
-| `workflow_dispatch` | `novatalks.tests` | the **Run workflow** form on its `CI Build Trigger`, with `tests_ref` and `test_tags` | [`ci-e2e-tests-manual.yaml`](../../.github/workflows/ci-e2e-tests-manual.yaml) — see [Tests](../testing/e2e.md) |
+| `workflow_dispatch` | `novatalks.tests` | the **Run workflow** form on its `CI Build Trigger`, with `tests_ref` and `test_tags` | [`ci-e2e-tests-manual.yaml`](../../.github/workflows/ci-e2e-tests-manual.yaml) — see [End-to-end tests](../testing/e2e.md) |
 | `pull_request` / `push` | the 13 secret-scan repositories | PRs, drafts included, on the same actions; branch push to the default branch or `main`/`master`/`development` | the inline `secret-scan` job — see [Secret detection](../security/secret-detection.md) |
 | `pull_request` | the same 13 repositories | PRs, drafts included, on the same actions | the inline `sast-scan` job — Semgrep on the proposed code, advisory; see [SAST and DAST](../security/sast-dast.md#semgrep-on-the-pull-request) |
 | `pull_request` | the same 13 repositories | PRs, drafts included, on the same actions | the inline `deps-scan` job — Trivy fs and OSV-Scanner over the checkout's own lockfiles, advisory; see [SAST and DAST](../security/sast-dast.md#dependency-scanning-source-manifests) |

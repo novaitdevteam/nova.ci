@@ -531,10 +531,13 @@ assert_output "notify: odd default branch is not told to rebase" "rebase" --abse
 
 # Every docs page scan.sh points a developer at must exist: the docs moved into section
 # folders once, and a summary link that 404s is the one place the fix is explained.
-missing=""
-for doc in $(grep -o 'docs/[a-z/-]*\.md' "$SCAN" | sort -u); do
+# At least one: a pattern that matches nothing would pass for every missing page.
+missing="" found=0
+for doc in $(grep -oE 'docs/[^][ )"`]+\.md' "$SCAN" | sort -u); do
+    found=$((found + 1))
     [ -f "$ROOT/$doc" ] || missing="$missing $doc"
 done
+[ "$found" -gt 0 ] || missing=" (no docs path found in scan.sh)"
 if [ -z "$missing" ]; then
     printf 'ok   %-56s\n' "docs: every page scan.sh links to exists"; pass=$((pass + 1))
 else

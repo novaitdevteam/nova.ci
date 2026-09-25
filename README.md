@@ -55,7 +55,8 @@ Opening a pull request — drafts included — runs lint and unit tests only: no
 | [Quick start](docs/getting-started/quick-start.md) | [Container scanning (Trivy)](docs/security/container-scanning.md) | [Validation](docs/reference/validation.md) |
 | [How a trigger is routed](docs/pipeline/routing.md) | [Runners](docs/pipeline/runners.md) | [Reference](docs/reference/reference.md) |
 | [Build pipeline](docs/pipeline/build-pipeline.md) | [Notifications](docs/pipeline/notifications.md) | [`CLAUDE.md`](CLAUDE.md) · [`AGENTS.md`](AGENTS.md) |
-| [Tests](docs/testing/tests.md) | [SAST and DAST](docs/security/sast-dast.md) | |
+| [Unit and integration tests](docs/testing/tests.md) | [SAST and DAST](docs/security/sast-dast.md) | |
+| [End-to-end tests](docs/testing/e2e.md) | | |
 | [Secret detection](docs/security/secret-detection.md) | | |
 
 ## Validation

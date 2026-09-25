@@ -53,4 +53,4 @@ The Playwright suite from `novatalks.tests` has its own page: [End-to-end tests]
 
 ---
 
-[← SAST and DAST](../security/sast-dast.md) · [Docs index](../README.md) · [End-to-end tests →](e2e.md)
+[← Notifications](../pipeline/notifications.md) · [Docs index](../README.md) · [End-to-end tests →](e2e.md)

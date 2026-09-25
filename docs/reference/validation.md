@@ -10,7 +10,7 @@ One harness runs every check:
 ./scripts/validate.sh   # or: make validate
 ```
 
-[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, three documentation-asset checks (every page under `docs/` opens with a diagram, every referenced asset resolves, no asset drops below `font-size` 18), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
+[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, three documentation checks (every page under `docs/` opens with a diagram from its own section's `assets/`, every local link and asset in the docs and the root `*.md` files resolves, no asset drops below `font-size` 18), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
 
 ## Runner script self-check
 
@@ -190,4 +190,4 @@ After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](
 
 ---
 
-[← Notifications](../pipeline/notifications.md) · [Docs index](../README.md) · [Reference →](reference.md)
+[← SAST and DAST](../security/sast-dast.md) · [Docs index](../README.md) · [Reference →](reference.md)

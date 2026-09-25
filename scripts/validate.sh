@@ -86,28 +86,37 @@ if ruby -e '
   Dir.glob("docs/**/*.md").sort.each do |page|
     next if File.basename(page) == "README.md"
     next if page.include?("docs/superpowers/")   # specs and plans are records, not pages
-    next if File.read(page) =~ %r{(?<![-\w])src="[^"]*assets/[\w.-]+\.(svg|gif)"}
+    # src="assets/..." exactly: the folder next to the page, not a URL or another section
+    next if File.read(page) =~ %r{(?<![-\w])src="assets/[\w.-]+\.(svg|gif|png|webp)"}
     puts "       #{page}"
     fail_count += 1
   end
-  abort "ERROR: these pages have no diagram from an assets/ folder (CLAUDE.md, Editing style)" if fail_count > 0
+  abort "ERROR: these pages do not open with a diagram from their own assets/ folder (CLAUDE.md, Editing style)" if fail_count > 0
   puts "OK: every docs page embeds a diagram"
 
-  # 2. every locally referenced asset resolves - a renamed file is an invisible diff
-  (Dir.glob("docs/**/*.md") + ["README.md"]).sort.each do |md|
+  # 2. every local link and asset resolves - a moved page or renamed file is an invisible diff.
+  # Markdown links and href as well as src: moving the pages into sections broke four hrefs
+  # while this check, reading src alone, still passed. Fenced code is skipped (examples, not
+  # links), and so are the dated records under docs/superpowers/, which describe the tree as
+  # it was when they were written.
+  pages = Dir.glob("docs/**/*.md").reject { |md| md.include?("docs/superpowers/") }
+  (pages + Dir.glob("*.md")).sort.each do |md|
+    text = File.read(md).gsub(/^ *```.*?^ *```/m, "")
     # The lookbehind is load-bearing: an unanchored src=" also matches the tail of any
-    # identifier ending in "src", so a shell variable like zap_conf_src="..." in a fenced
-    # code block was read as an HTML attribute and failed the whole run.
-    File.read(md).scan(/(?<![-\w])src="([^"]+)"/).flatten.each do |ref|
-      next if ref =~ %r{\A(https?:|#)}
-      target = File.expand_path(ref, File.dirname(md))
+    # identifier ending in "src", so a shell variable like zap_conf_src="..." was read
+    # as an HTML attribute and failed the whole run.
+    refs = text.scan(/(?<![-\w])(?:src|href)="([^"]+)"/).flatten +
+           text.scan(/\]\(([^)\s]+)(?:\s+"[^"]*")?\)/).flatten
+    refs.each do |ref|
+      next if ref =~ %r{\A(https?:|mailto:|#)}
+      target = File.expand_path(ref.sub(/#.*/, ""), File.dirname(md))
       next if File.exist?(target)
       puts "       #{md} -> #{ref}"
       fail_count += 1
     end
   end
-  abort "ERROR: these asset references do not resolve" if fail_count > 0
-  puts "OK: every referenced asset resolves"
+  abort "ERROR: these links or asset references do not resolve" if fail_count > 0
+  puts "OK: every local link and asset resolves"
 
   # 3. below 18 SVG units a label is unreadable at GitHub content width
   Dir.glob("docs/**/assets/*.svg").sort.each do |svg|

@@ -384,4 +384,4 @@ decisions and the Gitleaks behaviours verified behind them ·
 
 ---
 
-[← Tests](../testing/tests.md) · [Docs index](../README.md) · [Runners →](../pipeline/runners.md)
+[← End-to-end tests](../testing/e2e.md) · [Docs index](../README.md) · [Container scanning (Trivy) →](container-scanning.md)

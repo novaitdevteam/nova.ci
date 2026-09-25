@@ -41,4 +41,4 @@ IDs; the redacted detail stays in the job summary. See
 
 ---
 
-[← Runners](runners.md) · [Docs index](../README.md) · [Validation →](../reference/validation.md)
+[← Runners](runners.md) · [Docs index](../README.md) · [Unit and integration tests →](../testing/tests.md)

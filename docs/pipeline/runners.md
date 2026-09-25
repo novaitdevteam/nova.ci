@@ -74,4 +74,4 @@ The size input remains a measuring tool: four Playwright workers load a 4-core r
 
 ---
 
-[← Secret detection](../security/secret-detection.md) · [Docs index](../README.md) · [Notifications →](notifications.md)
+[← Build pipeline](build-pipeline.md) · [Docs index](../README.md) · [Notifications →](notifications.md)

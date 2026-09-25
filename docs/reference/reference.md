@@ -5,7 +5,7 @@
 </p>
 
 <details>
-<summary><b>Reusable workflows</b> — 12 in <a href="../.github/workflows">.github/workflows</a></summary>
+<summary><b>Reusable workflows</b> — 12 in <a href="../../.github/workflows">.github/workflows</a></summary>
 
 | Workflow | Purpose |
 | --- | --- |
@@ -30,7 +30,7 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 </details>
 
 <details>
-<summary><b>Internal actions</b> — <a href="../.github/actions">.github/actions</a></summary>
+<summary><b>Internal actions</b> — <a href="../../.github/actions">.github/actions</a></summary>
 
 - [`action-cond/action.yml`](../../.github/actions/action-cond/action.yml) — composite replacement for the deprecated `haya14busa/action-cond`. Preserves the original interface: inputs `cond`, `if_true`, `if_false`; output `value`. Notifier workflows use it to select success or failure text.
 - [`install-docker/action.yml`](../../.github/actions/install-docker/action.yml) — ensures the Docker CLI and daemon are available before Docker-based actions or Buildx steps run on self-hosted runners.
@@ -48,7 +48,7 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 </details>
 
 <details>
-<summary><b>Scripts</b> — <a href="../scripts">scripts</a></summary>
+<summary><b>Scripts</b> — <a href="../../scripts">scripts</a></summary>
 
 - [`validate.sh`](../../scripts/validate.sh) — the one harness to run after any change; see [Validation](validation.md)
 - [`test-create-runner.sh`](../../scripts/test-create-runner.sh) — offline scenario self-check for the runner script
@@ -63,7 +63,7 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 </details>
 
 <details>
-<summary><b>Specs and plans</b> — <a href="superpowers">docs/superpowers</a></summary>
+<summary><b>Specs and plans</b> — <a href="../superpowers">docs/superpowers</a></summary>
 
 Written-up specs and completed-work records, one pair per task, so the reasoning behind a
 change is greppable from git history. They are records, not queues — the work is on `main`.

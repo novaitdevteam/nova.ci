@@ -1771,4 +1771,4 @@ settled during implementation ·
 
 ---
 
-[← Container scanning (Trivy)](container-scanning.md) · [Docs index](../README.md) · [Tests →](../testing/tests.md)
+[← Container scanning (Trivy)](container-scanning.md) · [Docs index](../README.md) · [Validation →](../reference/validation.md)

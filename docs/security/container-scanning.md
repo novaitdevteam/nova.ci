@@ -73,4 +73,4 @@ The image is built and pushed before the scan in every mode, so a failing scan m
 
 ---
 
-[← Build pipeline](../pipeline/build-pipeline.md) · [Docs index](../README.md) · [SAST and DAST →](sast-dast.md)
+[← Secret detection](secret-detection.md) · [Docs index](../README.md) · [SAST and DAST →](sast-dast.md)
