@@ -728,6 +728,8 @@ jobs:
     if: always()
     needs: [build-tests]
     steps:
+      # Which stand the run tested: env_url is the lab's address even on an ephemeral run, and two
+      # notifications that differ only in their run cannot be told apart (2026-09-25, 15:53).
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
@@ -740,7 +742,8 @@ jobs:
             ▶️ Web View Report: ${{ needs.build-tests.outputs.REPORT_PUBLISHED == 'true' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published, see the run' }}
 
             Repository: ${{ github.repository }}
-            Stand: ${{ inputs.env_url }}
+            Stand: ${{ inputs.target == 'ephemeral' && 'ephemeral stack, booted and destroyed by this run' || inputs.env_url }}
+            Builds: ${{ inputs.target == 'ephemeral' && format('engine {0}, ui {1}, botflow {2}, dialer {3}', inputs.engine_tag || 'release', inputs.ui_tag || 'release', inputs.botflow_tag || 'release', inputs.dialer_tag || 'release') || 'what the lab runs' }}
             Branch: ${{ needs.build-tests.outputs.TESTS_REF }} (${{ needs.build-tests.outputs.SHORT_SHA }})
             Tags: ${{ inputs.test_tags || 'all tests' }}
             Dispatched by: ${{ github.actor }}
@@ -750,7 +753,8 @@ jobs:
             ▶️ Web View Report: ${{ needs.build-tests.outputs.REPORT_PUBLISHED == 'true' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published, see the run' }}
 
             Repository: ${{ github.repository }}
-            Stand: ${{ inputs.env_url }}
+            Stand: ${{ inputs.target == 'ephemeral' && 'ephemeral stack, booted and destroyed by this run' || inputs.env_url }}
+            Builds: ${{ inputs.target == 'ephemeral' && format('engine {0}, ui {1}, botflow {2}, dialer {3}', inputs.engine_tag || 'release', inputs.ui_tag || 'release', inputs.botflow_tag || 'release', inputs.dialer_tag || 'release') || 'what the lab runs' }}
             Branch: ${{ needs.build-tests.outputs.TESTS_REF }} (${{ needs.build-tests.outputs.SHORT_SHA }})
             Tags: ${{ inputs.test_tags || 'all tests' }}
             Dispatched by: ${{ github.actor }}
