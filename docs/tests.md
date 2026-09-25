@@ -69,7 +69,7 @@ one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 | Runs at a time | one — a lease on the stand's own reset service, behind a `concurrency` group on `env_url` | as many as the pool allows; the group keys on the run id |
 | State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
 | Campaigns | cannot run: the engine awaits NATS at boot and the lab has none | run, because the stack brings its own NATS and dialer |
-| Costs | nothing to start | about a minute of bring-up, on an `e2e-medium` runner |
+| Costs | a `drop` when asked for one (121 s, run 36062984485) | 139 s of bring-up (run 36062979251), on an `e2e-medium` runner |
 
 One lab run at a time is held by the stand, not only by the workflow. The `concurrency` group
 sees runs of this workflow, in one repository, with the same `env_url` string — another spelling
@@ -116,7 +116,7 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | `runner_size` | `small`. `medium`/`large` exist for measuring — see the table below for why routine runs stay on `small` |
 | `reset_stand` | `prune` — the run deletes what earlier runs left, through the Engine API, before it starts. `deep` also calls the stand's own SQL reset for the residue the API cannot touch. `off` keeps everything, for investigating a failure |
 | `report_base_url` | no link in the notification; otherwise the public base of the report bucket |
-| `suite_timeout_minutes` | 120, which leaves room for the slowest legitimate run — the `@e2e` regression takes about 75 minutes. Lower it for a smoke run |
+| `suite_timeout_minutes` | 120, which leaves room for the slowest legitimate run — the `@e2e` regression takes about 40 minutes at four workers (it took 75 before the flake fixes of 2026-09-24). Lower it for a smoke run |
 
 **A run is bounded twice, and on purpose.** The suite step carries
 `suite_timeout_minutes` (120); the job carries a literal 150, because GitHub Actions
@@ -204,6 +204,24 @@ fixed 10-second sleep in the spec racing a 20-second `wrapup_timeout`. Four work
 *hiding* it — another worker's traffic was the event that drained the queue.
 
 Two conclusions, both measured rather than preferred. **A bigger VM buys nothing**: doubling the cores halved the load and moved the regression's wall time by zero, because that time is spent waiting on the application and on fixed timeouts (30 s per click, 60 s per `expect`, 360 s per test), not on CPU. And **more workers cost stability faster than they buy time**: 4 → 8 workers on the smoke suite saved 1.5 minutes and turned five passing tests into one, because the suite shares one account and its `afterEach` cleanups delete entities belonging to whichever worker is running alongside. Four workers on `small` is the working setting until that isolation is fixed; the per-worker channel slots, generated on demand against the stand, are the other ceiling.
+
+**The full regression on both targets, 2026-09-24/25** — `@e2e`, four workers, every run a CI run:
+
+| Run | Target | Passed | Flaky | Failed | Suite | Setup |
+| --- | --- | --- | --- | --- | --- | --- |
+| 36036607588 | ephemeral | 401 | 7 | 0 | 53.0 min | |
+| 36036612815 | lab | 406 | 2 | 0 | 37.1 min | |
+| 36046590432 | ephemeral | 405 | 3 | 0 | 50.4 min | |
+| 36046595792 | lab | 404 | 4 | 0 | 38.6 min | |
+| 36062979251 | ephemeral | 406 | 2 | 0 | 36.8 min | 139 s bring-up |
+| 36062984485 | lab | 403 | 5 | 0 | 39.6 min | 121 s `drop` |
+
+The last pair is the first where both concluded `success` with no test needing a second retry.
+What it says for choosing a target: the two now cost the same — the ephemeral bring-up and the
+lab's `drop` are two minutes each, and the suite runs within three minutes of each other — and
+they are equally stable. What still separates them is not time. The lab runs one suite at a time
+and keeps its state for somebody to look at afterwards; the ephemeral stack runs as many as the
+pool allows, shares nothing, and can boot a build that is not on the lab yet.
 
 The run needs seven environment variables for the stand itself — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
 

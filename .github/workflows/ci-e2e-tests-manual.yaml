@@ -100,7 +100,7 @@ on:
         # for 90 minutes and queued every E2E run behind it. The @e2e regression measured
         # 1.2 h on 2026-09-18, so 120 leaves room for the slowest legitimate run; a smoke run
         # deserves a much smaller number and can be given one.
-        description: "Bound on the suite itself. The @e2e regression takes about 75 minutes."
+        description: "Bound on the suite itself. The @e2e regression takes about 40 minutes at four workers."
         required: false
         type: number
         default: 120
