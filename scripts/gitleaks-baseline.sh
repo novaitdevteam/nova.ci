@@ -26,8 +26,8 @@ ORG="${ORG:-novaitdevteam}"
 OUT_DIR="${OUT_DIR:-$ROOT/.baseline}"
 
 # The NC2-2742 list: exactly the repositories secret-scan covers in CI, so the audit
-# and the gate agree on scope. Out of scope: novatalks.tests, nova.ai.marketplace,
-# novatalks.charts, novatalks.grafana.connector; the genesys wizard is deprecated.
+# and the gate agree on scope. Out of scope: nova.ai.marketplace, novatalks.charts,
+# novatalks.grafana.connector; the genesys wizard is deprecated.
 # Those get no CI coverage at all, so auditing them is a manual job - pass repository
 # names as arguments to scan anything outside this list.
 DEFAULT_REPOS=(
@@ -43,6 +43,7 @@ DEFAULT_REPOS=(
     nova.chatsconnector.telegram-client-api
     nova.chatsconnector.whatsapp-client-api
     nova.chatsconnector.signal-client-api
+    novatalks.tests
     nova.ci
 )
 

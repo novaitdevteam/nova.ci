@@ -56,7 +56,15 @@ Wired through the switcher — **no change needed in these repositories**:
 `novatalks.flowrunner` · `novatalks.dialer` · `novatalks.chatwidget` ·
 `novatalks.geoip-api` · `novatalks.uspacy.connector` ·
 `nova.chatsconnector.telegram-client-api` ·
-`nova.chatsconnector.whatsapp-client-api` · `nova.chatsconnector.signal-client-api`
+`nova.chatsconnector.whatsapp-client-api` · `nova.chatsconnector.signal-client-api` ·
+`novatalks.tests`
+
+`novatalks.tests` joined on 2026-09-25, out of scope until then. It builds nothing, but it holds
+the lab's tokens in flow exports and fixtures, and it now has notifier secrets. Its full-history
+baseline that day found 79 hits; in the tracked tree only `botflow_fows/flows.json` (Node-RED
+`insecureToken`/`insecureAppSecret` fields) and one high-entropy string in a regression report
+remain. The gate reads only the lines a change adds, so those block nothing until a new export
+adds them again.
 
 `nova.ci` scans itself through `ci-self-validate.yaml`, having no caller workflow.
 
@@ -64,7 +72,6 @@ Wired through the switcher — **no change needed in these repositories**:
 
 | Repository | Why |
 | --- | --- |
-| `novatalks.tests` | test automation; also has no notifier secrets configured |
 | `nova.chatsconnector.genesys.cloud.premium.wizard.engine` | deprecated |
 | `nova.ai.marketplace` | out of scope (also has no caller workflow) |
 | `novatalks.charts` | out of scope (also has no caller workflow) |
@@ -85,13 +92,13 @@ than a hardcoded list. As verified for NC2-2742:
 | --- | --- |
 | `development` | 4 — `novatalks.core`, `novatalks.ui`, `nova.botflow`, whatsapp connector |
 | `master` | 3 — `novatalks.dialer`, `novatalks.chatwidget`, telegram connector |
-| `main` | 4 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector`, `novatalks.flowrunner` |
+| `main` | 5 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector`, `novatalks.flowrunner`, `novatalks.tests` |
 | `NC2-1992_docker` | 1 — `nova.chatsconnector.signal-client-api`, **temporary**: unifies to `development`/`master` once its regression run finishes |
 
-`master` exists in 11 of the 12 (`novatalks.flowrunner` has only `main` — no `master`, no
-`development`), `development` in 9 (not in `novatalks.geoip-api`, `novatalks.flowrunner` or
-the signal connector), so both of the branches the team actually works on are covered
-everywhere. The
+`master` exists in 11 of the 13 (`novatalks.flowrunner` and `novatalks.tests` have only `main` —
+no `master`, no `development`), `development` in 9 (not in `novatalks.geoip-api`,
+`novatalks.flowrunner`, `novatalks.tests` or the signal connector), so both of the branches the
+team actually works on are covered everywhere. The
 `default_branch` clause is what covers the signal connector, whose default is a feature
 branch — a hardcoded list would silently never fire there, and it needs no edit when that
 repository unifies its branches.

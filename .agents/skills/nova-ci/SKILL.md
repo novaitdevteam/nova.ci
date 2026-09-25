@@ -255,14 +255,15 @@ Preserve these behaviors:
 - Changing `scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the
   same change; `validate.sh` also fails if any workflow invokes Gitleaks directly.
 
-Repositories covered (12, all reached through their existing caller workflow, no
+Repositories covered (13, all reached through their existing caller workflow, no
 product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
 `nova.botflow`, `novatalks.flowrunner`, `novatalks.dialer`, `novatalks.chatwidget`,
-`novatalks.geoip-api`, `novatalks.uspacy.connector`, and the telegram, whatsapp and
-signal chatsconnectors.
+`novatalks.geoip-api`, `novatalks.uspacy.connector`, the telegram, whatsapp and
+signal chatsconnectors, and `novatalks.tests`.
 `nova.ci` scans itself via `ci-self-validate.yaml`.
 
-Out of scope by decision on NC2-2742, do not add without a request: `novatalks.tests`,
+`novatalks.tests` joined on 2026-09-25 at the owner's request. Out of scope by decision on
+NC2-2742, do not add without a request:
 `nova.chatsconnector.genesys.cloud.premium.wizard.engine` (deprecated),
 `nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`. The last
 three also have no `ci-build-trigger.yaml`, so no event of theirs reaches the switcher.
@@ -333,7 +334,7 @@ reasoning and evidence behind every rule in this section — **read the invarian
 its "why" lives one hop away, never dropped, only moved.**
 
 Job map: the switcher runs inline `sast-scan` and `deps-scan` jobs on `pull_request` (Semgrep;
-Trivy fs + OSV-Scanner) for the twelve `secret-scan` repositories, since a PR builds no image
+Trivy fs + OSV-Scanner) for the thirteen `secret-scan` repositories, since a PR builds no image
 and would otherwise get no SAST/dependency feedback until trunk. The build workflow runs
 `sast-scan` on every build of every standard repository, and `dast-scan` (ZAP baseline/full)
 plus opt-in `api-scan` (authenticated ZAP) only on trunk/`scan*` builds of the repositories
