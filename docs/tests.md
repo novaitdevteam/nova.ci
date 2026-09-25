@@ -222,9 +222,13 @@ Two conclusions, both measured rather than preferred. **A bigger VM buys nothing
 | 36046595792 | lab | 404 | 4 | 0 | 38.6 min | |
 | 36062979251 | ephemeral | 406 | 2 | 0 | 36.8 min | 139 s bring-up |
 | 36062984485 | lab | 403 | 5 | 0 | 39.6 min | 121 s `drop` |
+| 36142473260 | ephemeral | 408 | 0 | 0 | 36.1 min | |
+| 36142478732 | lab | 406 | 2 | 0 | 45.4 min | |
 
-The last pair is the first where both concluded `success` with no test needing a second retry.
-What it says for choosing a target: the two now cost the same — the ephemeral bring-up and the
+The 36062… pair is the first where both concluded `success` with no test needing a second retry;
+in the 36142… pair, on 2026-09-25 after the fixes described below, the ephemeral run had no flaky
+test at all. The lab's 45 minutes there is one run and has not been looked into.
+What the 36062… pair says for choosing a target: the two now cost the same — the ephemeral bring-up and the
 lab's `drop` are two minutes each, and the suite runs within three minutes of each other — and
 they are equally stable. What still separates them is not time. The lab runs one suite at a time
 and keeps its state for somebody to look at afterwards; the ephemeral stack runs as many as the
