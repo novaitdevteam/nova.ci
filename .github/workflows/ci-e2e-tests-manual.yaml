@@ -666,7 +666,9 @@ jobs:
         # Always, including on a cancelled run: the runner is reused, and a stack left behind
         # meets the next job as a set of occupied ports. Logs of every container first when
         # the suite went red — a stack nobody can inspect afterwards is worse than no stack.
-        if: ${{ always() && inputs.target == 'ephemeral' }}
+        # Only once the bring-up was checked out: a run refused at its first steps has no stack
+        # and no script, and a red teardown there would only hide the refusal.
+        if: ${{ always() && inputs.target == 'ephemeral' && hashFiles('.nova-ci/.github/actions/e2e-stack/stack.sh') != '' }}
         env:
           E2E_STACK_FAILED: ${{ job.status == 'success' && '0' || '1' }}
         run: ./.nova-ci/.github/actions/e2e-stack/stack.sh down
