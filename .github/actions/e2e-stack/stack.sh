@@ -59,10 +59,10 @@ RELEASE="${E2E_HELM_RELEASE:-e2e}"
 
 PG="${PREFIX}-postgres"; REDIS="${PREFIX}-redis"
 ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow"
-UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"; MAIL="${PREFIX}-mail"; PASTEBIN="${PREFIX}-pastebin"
+UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"; MAIL="${PREFIX}-mail"; PASTEBIN="${PREFIX}-pastebin"; GEOIP="${PREFIX}-geoip"
 # nova-nats is the name dast_bring_up_nats gives it; this reuses that helper rather than
 # copying its stream setup, so the name comes with it.
-ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" "$PASTEBIN" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
+ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" "$PASTEBIN" "$GEOIP" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
 
 # The stack's own mail server: SMTP and IMAP in one container, any address, any password.
 # Every letter the suite reads used to cross the internet: customer mail went out through
@@ -83,6 +83,12 @@ MAIL_SMTP_PORT=3025; MAIL_IMAP_PORT=3143; MAIL_API_PORT=18190
 # loopback only. Pinned by digest.
 PASTEBIN_IMAGE="privatebin/nginx-fpm-alpine@sha256:42b6a30cf1bd4a3297308499ee8f4ac6f76e5060258df0e18e83fd2aa6843df1"
 PASTEBIN_PORT=18280
+# Production's GeoIP API (ntk-01, novatalks-system), the image by digest; its database is inside
+# it. The engine looks up every sign-in's address, and the chart points it at a cluster Service
+# this stack does not have, so each sign-in waited out a one-second timeout and logged a
+# failure. Its own port, because the engine holds 3000.
+GEOIP_IMAGE="ghcr.io/novaitdevteam/novatalks.geoip-api:2026_R2_main_2965a9f1@sha256:5f2a9b6e487d9de8dce744c8254034838ed30730e8f5edf1724c252793cf4119"
+GEOIP_PORT=18300
 
 log()  { printf '[stack] %s\n' "$1"; }
 # A mask line is an instruction to the Actions runner, which swallows it and hides the value from
@@ -422,6 +428,14 @@ up() {
     started "$PASTEBIN" "PrivateBin"
     wait_http "pastebin" "http://127.0.0.1:${PASTEBIN_PORT}/" "$PASTEBIN" 60
 
+    log "geoip"
+    docker run -d --name "$GEOIP" --network host \
+        -e NODE_ENV=production -e APP_HOST=127.0.0.1 -e APP_PORT="$GEOIP_PORT" \
+        -e LOG_LEVEL=info -e ENABLE_REQUEST_LOGGING=false \
+        "$GEOIP_IMAGE" >/dev/null || fail "the GeoIP API refused to start"
+    started "$GEOIP" "the GeoIP API"
+    wait_http "geoip" "http://127.0.0.1:${GEOIP_PORT}/readyz" "$GEOIP" 60
+
     log "nats"
     # Shared with the DAST bring-up rather than copied: the 'campaign' stream the dialer's
     # client asks for at startup is easy to forget, and a JetStream without it still answers
@@ -465,6 +479,7 @@ up() {
         -e MAIL_SYSTEM_HOST=127.0.0.1 -e MAIL_SYSTEM_PORT="$MAIL_SMTP_PORT" -e MAIL_SYSTEM_USER= \
         -e MAIL_HOST=127.0.0.1 -e MAIL_PORT="$MAIL_SMTP_PORT" \
         -e PASTEBIN_BASE_URL="http://127.0.0.1:${PASTEBIN_PORT}/" \
+        -e GEOIP_URL="http://127.0.0.1:${GEOIP_PORT}" \
         -e FILE_DRIVER="${FILE_DRIVER:-s3}" \
         -e AWS_S3_ENDPOINT="${AWS_S3_ENDPOINT:-}" -e AWS_S3_BUCKET="${AWS_S3_BUCKET:-}" \
         -e AWS_S3_ACCESS_KEY_ID="${AWS_S3_ACCESS_KEY:-}" -e AWS_S3_SECRET_ACCESS_KEY="${AWS_S3_SECRET:-}" \

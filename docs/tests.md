@@ -147,7 +147,10 @@ a customer's letter is appended to the shared inbox the engine polls, and a syst
 back from the agent's own mailbox there. The external path had two faults nobody could fix from
 the suite: ukr.net answering Mailgun with `421` so letters landed 10-21 minutes late, and a system
 mailer with no SMTP password on the lab. The stack also runs PrivateBin, which the engine stores
-referral codes in: without it the referral endpoint answered `500` on both targets.
+referral codes in: without it the referral endpoint answered `500` on both targets. Both also run production's GeoIP API: the engine looks up the address of every sign-in with a
+one-second timeout, and with no GeoIP to answer, each one waited that second out and logged a
+failure. The lab has it on the dev cluster at the address the chart already gives the engine
+(`novatalks-system`), the stack on loopback port `18300`.
 
 Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 
