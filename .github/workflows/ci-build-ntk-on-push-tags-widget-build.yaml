@@ -129,6 +129,8 @@ jobs:
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # Two weeks, not the 90-day default: the job summary names this artifact as the full list.
+          retention-days: 14
 
       # Upsert into the release build-widget already created for this build: the same
       # tag_name expression as the "Create a Release" step above, so this appends the
