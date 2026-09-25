@@ -66,7 +66,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget and botflow assets.
 - Playwright E2E is **dispatch only**: `workflow_dispatch` in `novatalks.tests` → `ci-e2e-tests-manual.yaml` with `tests_ref`, `test_tags`, `env_url` and `botflow_url` plus the rest of the form (`target`, `reset_stand`, `workers`, `suite_timeout_minutes`, the four image tags, ...), read in the switcher from `github.event.inputs`. No tag route; the `concurrency` group keys on `env_url`, since runs share a stand, and the stand's reset service holds a lease (`Take the stand` / `Release the stand`) that `/drop`, `/prune` and `/normalize` enforce, because the group cannot see a run from another repository or with the URL spelled differently. The stand's URLs are inputs (public, and one form must reach another stand); only the four credentials and the API token are secrets, named `E2E_*`. Seven environment variables total — the suite derives the client URLs from `ENV_URL`, and with `USE_DB` unset it needs no database, so the workflow carries no kubeconfig and no DB credentials. The lab restore/Redis-sync/engine-restart steps were removed on 2026-09-17: they needed in-cluster access the deprecated in-cluster runners had. Never `FLUSHALL` the stand's Redis — DB 15 holds `nr:flows`. A second **`target`** landed on 2026-09-21 as exactly that — an optional input with a default, not a second workflow: `lab` (unchanged) or `ephemeral`, which boots the whole product on the runner from four image tags and a chart version and destroys it afterwards. Its configuration is rendered from the published chart rather than listed in nova.ci, its flows are copied from the stand at boot, its origin is `localhost:18080` (the runner VM already has an nginx on 8080), and its `concurrency` keys on the run id so ephemeral runs never queue behind each other. `reset_stand` is refused there rather than ignored. See the invariants block in CLAUDE.md before changing it — most of what it does is a scar.
-- The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 12 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
+- The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 13 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
 
@@ -255,14 +255,15 @@ Preserve these behaviors:
 - Changing `scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the
   same change; `validate.sh` also fails if any workflow invokes Gitleaks directly.
 
-Repositories covered (12, all reached through their existing caller workflow, no
+Repositories covered (13, all reached through their existing caller workflow, no
 product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
 `nova.botflow`, `novatalks.flowrunner`, `novatalks.dialer`, `novatalks.chatwidget`,
-`novatalks.geoip-api`, `novatalks.uspacy.connector`, and the telegram, whatsapp and
-signal chatsconnectors.
+`novatalks.geoip-api`, `novatalks.uspacy.connector`, the telegram, whatsapp and
+signal chatsconnectors, and `novatalks.tests`.
 `nova.ci` scans itself via `ci-self-validate.yaml`.
 
-Out of scope by decision on NC2-2742, do not add without a request: `novatalks.tests`,
+`novatalks.tests` joined on 2026-09-25 at the owner's request. Out of scope by decision on
+NC2-2742, do not add without a request:
 `nova.chatsconnector.genesys.cloud.premium.wizard.engine` (deprecated),
 `nova.ai.marketplace`, `novatalks.charts`, `novatalks.grafana.connector`. The last
 three also have no `ci-build-trigger.yaml`, so no event of theirs reaches the switcher.
@@ -333,7 +334,7 @@ reasoning and evidence behind every rule in this section — **read the invarian
 its "why" lives one hop away, never dropped, only moved.**
 
 Job map: the switcher runs inline `sast-scan` and `deps-scan` jobs on `pull_request` (Semgrep;
-Trivy fs + OSV-Scanner) for the twelve `secret-scan` repositories, since a PR builds no image
+Trivy fs + OSV-Scanner) for the thirteen `secret-scan` repositories, since a PR builds no image
 and would otherwise get no SAST/dependency feedback until trunk. The build workflow runs
 `sast-scan` on every build of every standard repository, and `dast-scan` (ZAP baseline/full)
 plus opt-in `api-scan` (authenticated ZAP) only on trunk/`scan*` builds of the repositories
