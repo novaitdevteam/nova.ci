@@ -766,10 +766,15 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
           if-no-files-found: warn
+          # One day: the TRIVY.SCAN_* release is this report's lasting copy and what the summary links.
+          retention-days: 1
 
       # Publish the .report as a downloadable release asset, like the chat widget build.
       - name: Publish report release
@@ -912,9 +917,15 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # Two weeks, not the 90-day default: the job summary names this artifact as the full
+          # list, and on a feature build it is the only copy.
+          retention-days: 14
 
       # Upsert into the release trivy-scan already created for this build: one release
       # per build carrying every scanner's report. The TRIVY.SCAN_ prefix is historical
@@ -1003,9 +1014,14 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # Two weeks, not the 90-day default: the job summary names this artifact as the full list.
+          retention-days: 14
 
       # Upsert into the release trivy-scan created for this build — one release carrying
       # every scanner's report. Never where PUBLISH_RELEASE is false: action-gh-release
@@ -1114,9 +1130,14 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # One day: the TRIVY.SCAN_* release is this report's lasting copy and what the summary links.
+          retention-days: 1
 
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
@@ -1213,9 +1234,14 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # One day: the TRIVY.SCAN_* release is this report's lasting copy and what the summary links.
+          retention-days: 1
 
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}

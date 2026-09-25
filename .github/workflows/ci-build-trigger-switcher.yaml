@@ -134,9 +134,15 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # Two weeks, not the 90-day default: the job summary names this artifact as the full
+          # list, and on a pull request it is the only copy.
+          retention-days: 14
 
   # Reads declared dependencies in the checkout's own lockfiles, on the same pull-request
   # gate as sast-scan above and for the same reason: trivy-scan already reads whatever
@@ -209,9 +215,15 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # Two weeks, not the 90-day default: the job summary names this artifact as the full
+          # list, and on a pull request it is the only copy.
+          retention-days: 14
 
   # Compensating control for the free plan, where a red check cannot actually block a
   # merge (docs/secret-detection.md#what-we-lose-without-enforcement). If nothing stops

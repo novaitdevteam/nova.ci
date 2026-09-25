@@ -183,6 +183,18 @@ check "waits at the global cap" \
     'runner_need=false
 runner_labels=small'
 
+# E2E VMs share the dev-00-gh-runner- prefix and cx33, but register as e2e-small, which no
+# build job asks for. Counting them filled the small cap on 2026-09-25 and every build
+# queued behind two idle E2E runners it could never use.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-a:cx33:running dev-00-gh-runner-e2e-b:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-a:online:false:e2e-small dev-00-gh-runner-e2e-b:online:false:e2e-small) \
+check "E2E VMs do not fill the build pool's small cap" \
+    refs/tags/build-NC2-1 novatalks.ui \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true'
+
 SHIM_SERVERS=$(servers dev-00-gh-runner-a:cx33:running dev-00-gh-runner-b:cx33:starting) \
 SHIM_RUNNERS=$(runners) \
 check "waits at the small per-size cap of 2" \

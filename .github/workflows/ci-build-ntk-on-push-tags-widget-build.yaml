@@ -126,9 +126,14 @@ jobs:
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: actions/upload-artifact@v4
+        # A full organisation-wide artifact quota must not red a scan: the findings are in the
+        # job summary, and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         with:
           name: ${{ env.REPORT_FILE }}
           path: ${{ env.REPORT_FILE }}
+          # Two weeks, not the 90-day default: the job summary names this artifact as the full list.
+          retention-days: 14
 
       # Upsert into the release build-widget already created for this build: the same
       # tag_name expression as the "Create a Release" step above, so this appends the

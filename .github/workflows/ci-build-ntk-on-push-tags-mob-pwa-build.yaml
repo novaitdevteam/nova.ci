@@ -50,6 +50,10 @@ jobs:
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     environment: ${{ inputs.environment }}
+    # build-push-action uploads a .dockerbuild build record per build, kept 90 days by default.
+    # It is only a Docker Desktop import; the image in GHCR is the build's result.
+    env:
+      DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
     # permissions:
     #   contents: read
     #   packages: write

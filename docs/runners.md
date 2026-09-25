@@ -10,6 +10,7 @@ Connected repositories download and run [`ci-build-create-runner.sh`](../.github
 - lists GitHub self-hosted runners named `dev-00-gh-runner-*` (paginated, `per_page=100`, so idle runners past the first page stay visible)
 - **reuses** an online idle runner whose size priority is at least the required size **and** whose backing Hetzner VM is in `running` status — registrations whose VM is deleting or gone (ghosts) are skipped, since a job queued on them would never start
 - enforces a global `MAX_TOTAL_RUNNERS` cap (env-overridable, default `8` — the sum of the per-size caps: 2 small + 4 medium + 2 large) counting **all** `dev-00-gh-runner-*` Hetzner servers in any status, across all sizes; at the cap the run goes to the wait queue regardless of per-size counts
+- scopes every count and the reuse filter to one pool, so a build never counts a `dev-00-gh-runner-e2e-*` VM (see [The E2E pool](#the-e2e-pool)). Before the pools reached `main`, the build script counted them as `small`: on 2026-09-25 two idle E2E VMs filled the small cap, and every build queued behind runners it could never use
 - otherwise counts per-size Hetzner servers (`starting`, `initializing`, `running` of the required `server_type`) straight from the Hetzner API, and creates up to two runners per size
 - emits `runner_need`, `runner_labels`, `runner_size`, `runner_name`
 - runs under `set -euo pipefail` and fails the step loudly (`::error::`) on any Hetzner/GitHub API or parse error, instead of deciding on empty counts
