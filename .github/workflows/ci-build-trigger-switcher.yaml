@@ -406,14 +406,6 @@ jobs:
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
-  # call-external-on-push-branches-e2e-tests:
-  #   name: Call Playwright Tests
-  #   if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'playtest') }}
-  #   uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-run-e2e.yaml@main
-  #   secrets: inherit
-  #   with:
-  #     runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
-
   call-external-on-push-branches-flows-to-pub:
     name: Call Notifier To Google Chat
     if: ${{ github.event.repository.name == 'novatalks.botflow.flows' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
@@ -422,10 +414,22 @@ jobs:
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
-  call-external-on-push-branches-e2e-tests-manual:
-    name: Call Playwright Tests manual
-    if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'push' && github.ref_type == 'tag' }}
+  # A called workflow sees its caller's github context, so the dispatch form's values
+  # arrive as github.event.inputs without the switcher declaring inputs of its own.
+  # Dispatch only: a tag push no longer runs the suite, because every run drops and
+  # restores the shared lab database.
+  call-e2e-tests:
+    name: Call Playwright Tests
+    if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'workflow_dispatch' }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-e2e-tests-manual.yaml@main
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
+      tests_ref: ${{ github.event.inputs.tests_ref }}
+      test_tags: ${{ github.event.inputs.test_tags }}
+      env_url: ${{ github.event.inputs.env_url }}
+      botflow_url: ${{ github.event.inputs.botflow_url }}
+      report_base_url: ${{ github.event.inputs.report_base_url }}
+      workers: ${{ github.event.inputs.workers || '2' }}
+      exclude_tags: ${{ github.event.inputs.exclude_tags }}
+      reset_stand: ${{ github.event.inputs.reset_stand || 'prune' }}

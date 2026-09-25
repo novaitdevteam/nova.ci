@@ -6,177 +6,683 @@ on:
       runner_labels:
         required: false
         type: string
-    # workflow_dispatch:
-    #   inputs:
-    #     test_tags:
-    #       description: "Tags (ex. '@smoke', '@smoke + @regression'). If no tag - all tests will run"
-    #       required: false
+      # Reached from the caller's workflow_dispatch form in novatalks.tests via the
+      # switcher. Adding a target later (e.g. image tags for an ephemeral stack) means
+      # a new optional input with a default, which existing callers never notice.
+      tests_ref:
+        description: "novatalks.tests branch to run. Empty: the branch the run was dispatched from."
+        required: false
+        type: string
+        default: ""
+      test_tags:
+        description: "Playwright tags, e.g. '@smoke' or '@smoke + @regression'. Empty: all tests."
+        required: false
+        type: string
+        default: ""
+      # The stand is a run parameter, not a secret: it is a public URL, and naming it
+      # here is what lets one form point at another stand without touching secrets.
+      env_url:
+        description: "Base URL of the stand under test. Ignored — and resolved — for target: ephemeral."
+        required: true
+        type: string
+      botflow_url:
+        description: "BotFlow admin URL — base URL + adminPath, e.g. https://host/redbot."
+        required: true
+        type: string
+      # The second target (spec D1): the whole product started on the runner for one run,
+      # from four image tags and a chart version, then torn down. `lab` is unchanged, so a
+      # caller that never names a target keeps the behaviour it has today.
+      target:
+        description: "lab (the shared stand) or ephemeral (a stack this run boots and destroys)."
+        required: false
+        type: string
+        default: "lab"
+      nova_ci_ref:
+        description: "nova.ci ref holding the bring-up. Only read for target: ephemeral."
+        required: false
+        type: string
+        default: "main"
+      # Empty means the release build, the same one the lab runs; the tags live once, in the
+      # bring-up step's env. Empty rather than a default here because a caller forwarding an
+      # empty form field passes "" and a default never applies to that.
+      engine_tag:
+        description: "novatalks.core image tag for target: ephemeral. Empty: the release build."
+        required: false
+        type: string
+        default: ""
+      ui_tag:
+        description: "novatalks.ui image tag for target: ephemeral. Empty: the release build."
+        required: false
+        type: string
+        default: ""
+      botflow_tag:
+        description: "nova.botflow image tag for target: ephemeral. Empty: the release build."
+        required: false
+        type: string
+        default: ""
+      dialer_tag:
+        description: "novatalks.dialer image tag for target: ephemeral. Empty: the release build."
+        required: false
+        type: string
+        default: ""
+      chart_version:
+        required: false
+        type: string
+        default: "5.4.7"
+      source_botflow_url:
+        description: "Node-RED admin API of the stand whose flows an ephemeral stack copies."
+        required: false
+        type: string
+        default: "https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot"
+      exclude_tags:
+        description: "Tags to skip, e.g. '@campaigns' or '@campaigns + @db'. Empty: skip nothing."
+        required: false
+        type: string
+        default: ""
+      reset_stand:
+        description: "prune (API-level, the default), deep (also the stand's SQL reset), drop (both databases recreated — minutes, and the stand is unusable meanwhile), or off."
+        required: false
+        type: string
+        default: "prune"
+      workers:
+        description: "Playwright workers. Each one needs its own Node-RED channel slot."
+        required: false
+        type: string
+        default: "2"
+      report_base_url:
+        description: "Public base URL of the bucket the HTML report is published to."
+        required: false
+        type: string
+        default: ""
+      suite_timeout_minutes:
+        # A hung suite parks one of the two E2E runners, and with no timeout at all it does
+        # that for GitHub's default of six hours: run 35583263280 sat in Run Playwright Tests
+        # for 90 minutes and queued every E2E run behind it. The @e2e regression measured
+        # 1.2 h on 2026-09-18, so 120 leaves room for the slowest legitimate run; a smoke run
+        # deserves a much smaller number and can be given one.
+        description: "Bound on the suite itself. The @e2e regression takes about 40 minutes at four workers."
+        required: false
+        type: number
+        default: 120
 
-defaults:
-  run:
-    working-directory: /home/runner/work/
+# One shared stand: two runs would create and delete each other's entities. An ephemeral
+# stack shares nothing, so it keys on the run id instead and never queues (spec D12).
+concurrency:
+  group: e2e-${{ inputs.target == 'ephemeral' && github.run_id || inputs.env_url }}
+  cancel-in-progress: false
 
 jobs:
   build-tests:
     name: Run Playwright Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
+    # The backstop for everything the step timeout below does not cover — a checkout that
+    # hangs, an npm install that never returns, a teardown that stalls. A literal, not
+    # suite_timeout_minutes plus a margin: GitHub Actions expressions have no arithmetic at
+    # all, and `${{ inputs.x + 30 }}` does not fail at that line — it fails the whole file to
+    # parse, which took every push run in novatalks.tests down with it until it was caught.
+    # Keep it above suite_timeout_minutes, so the step is what normally fires; raising that
+    # input past 150 means raising this too.
+    timeout-minutes: 150
     outputs:
-      REP_NAME: ${{ steps.prep.outputs.REP_NAME }}
+      TESTS_REF: ${{ steps.prep.outputs.TESTS_REF }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
-      SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
-      RELEASE: ${{ steps.prep.outputs.RELEASE }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
+      REPORT_ID: ${{ steps.report.outputs.artifact-id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tests_ref }}
 
       - name: Prepare Vars
         id: prep
-        run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          if [[ ${{ github.ref_type }} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          else
-            echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          fi
-
-      - name: Install AWS CLI
-        working-directory: ./
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install
-          aws --version
-
-      - name: Install psql, redis tools
-        run: |
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt update
-          sudo apt -y install postgresql-client-15
-          psql --version
-          curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
-          sudo apt update
-          sudo apt install redis-tools=6:7.0.0-1rl1~focal1
-          redis-cli -v
-
-      - name: Restore DB on Lab e2e
-        run: |
-          lastdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/lab-e2e-backup/manual/postgres/ --recursive | sort | tail -n 1);
-          aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${lastdump##* } ./last_backup.gz --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200;
-          echo "..download complete";
-          echo "Starting Restore..";
-          dropdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -f -e --if-exists;
-          createdb -U $PGUSER -h $PGHOST -p 5432 $PGDATABASE -O $PGUSER -e;
-          pg_restore -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -v ./last_backup.gz;
-          psql -U $PGUSER -h $PGHOST -p 5432 -d $PGDATABASE -c "VACUUM ANALYZE;";
         working-directory: ./
         env:
-          PGHOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
-          PGDATABASE: ${{ secrets.LAB_E2E_DATABASE_NAME }}
-          PGPASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
-          PGUSER: ${{ secrets.LAB_E2E_DATABASE_USER }}
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
-          AWS_REGION: "eeur"
-
-      - name: Sync QA Flow
+          TESTS_REF: ${{ inputs.tests_ref || github.ref_name }}
         run: |
-          mkdir ./redis
-          lastredisdump=$(aws --endpoint-url $AWS_ENDPOINT_URL --no-verify-ssl s3 ls s3://$AWS_BUCKET/test-lab-qa-max/manual/redis/ --recursive | grep manual | sort | tr -s ' ' | tail -n 4 | cut -d ' ' -f 4);
-          for path in $lastredisdump; do aws --endpoint-url $AWS_ENDPOINT_URL s3 cp s3://$AWS_BUCKET/${path} ./redis/ --no-verify-ssl --cli-connect-timeout 1200 --cli-read-timeout 1200; done &&
-          echo "..download complete";
-          # redis-cli -h $REDIS_HOST -n 15 FLUSHDB;
-          # redis-cli -h $REDIS_HOST -n 1 FLUSHDB;
-          redis-cli -h $REDIS_HOST FLUSHALL;
-          backup=$(ls ./redis);
-          for key in $backup; do redis-cli -h $REDIS_HOST -n 15 -x SET "nr:$(echo $key | cut -d '_' -f 1)" < ./redis/${key}; done &&
-          echo "Restore complete";
-          token=$(curl -s $BOTFLOW_URL/auth/token --data 'client_id=node-red-admin&grant_type=password&scope=*&username=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}&password=${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}' -k | grep -i access_token | awk -F '"' '{print $4}');
-          curl -vs -X POST $BOTFLOW_URL/flows -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
-          curl -vs -X POST $BOTFLOW_URL/auth/revoke -H "Content-Type: application/json" --header "Node-RED-Deployment-Type: reload" --header "Authorization: Bearer $token" -k;
-          echo "Botflow reloaded";
-        working-directory: ./
-        env:
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
-          AWS_REGION: "eeur"
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
-          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
-          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
-          REDIS_HOST: ${{ secrets.LAB_E2E_REDIS_HOST }}
+          echo "TESTS_REF=${TESTS_REF}" | tee -a "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(git rev-parse --short=8 HEAD)" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Restart Engine in pod
+      # The lab runs whatever is deployed on it, so an image tag cannot change what a lab run
+      # tests. Refused rather than ignored: a run that went green for a build nobody asked for
+      # reads as that build passing.
+      - name: Refuse image tags for a stand that runs its own
+        if: ${{ inputs.target != 'ephemeral' && format('{0}{1}{2}{3}', inputs.engine_tag, inputs.ui_tag, inputs.botflow_tag, inputs.dialer_tag) != '' }}
         run: |
-          curl $ENGINE_URL:1234/restart
-          until [ "$(curl -s -w '%{http_code}' -o /dev/null "$ENGINE_URL:3000/auth/validate_token")" -eq 401 ];
-          do
-            sleep 5;
-          done;
-          echo "Engine API ready";
-        working-directory: ./
-        env:
-          ENGINE_URL: ${{ secrets.LAB_E2E_ENGINE_URL }}
+          echo "::error::image tags only apply to target: ephemeral — the lab runs the builds deployed on it. Clear the tag fields or choose ephemeral."
+          exit 1
 
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@v6
         id: node_inst
         with:
-          node-version: 20
-          package-manager-cache: false
+          node-version: 24
+          # Keyed on package-lock.json; the suite's only native builds are imap and pg.
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: ▶️ Install Node.js dependencies
-        run: ls -la ./ && npm ci
+        run: npm ci
         working-directory: ./
+
+      # Browsers used to live in ./browsers, inside the workspace actions/checkout
+      # wipes, so every run re-downloaded chromium. They now sit in the runner's own
+      # cache directory, shared across runs on a reused VM and restored from the
+      # Actions cache on a fresh one.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright_cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Browsers
         run: |
+          # install-deps is apt work on the VM itself, never in the cache. No sudo in
+          # front: it resets PATH, so the setup-node toolchain disappears and npx is
+          # not found — playwright escalates on its own where it needs to.
           npx playwright install-deps chromium
           npx playwright install chromium
         working-directory: ./
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ./browsers
 
-      - name: Run Playwright Tests
-        run: |
-          if [[ "${{ github.ref_name }}" == *all ]]; then
-            echo "Теги не заданы. Запускаем все тесты..."
-            npx playwright test
-          elif [[ "${{ github.ref_name }}" == *"smoke + regression" ]]; then
-            echo "Запускаем тесты с тегами: @smoke|@regression"
-            npx playwright test --grep "@smoke|@regression"
-          elif [[ "${{ github.ref_name }}" == *smoke ]]; then
-            echo "Запускаем тесты с тегом: @smoke"
-            npx playwright test --grep "@smoke"
-          else
-            echo "Невідомий тег: запускаємо всі тести за замовчуванням"
-            npx playwright test
-          fi
-
+      # One run at a time on the lab. The concurrency group above only holds back runs of this
+      # workflow, in this repository, with the same env_url string; the lease lives on the stand
+      # itself, in its reset service, and /drop, /prune and /normalize refuse a run that does not
+      # hold it. A run that finds the stand taken waits here and says by whom, rather than failing.
+      - name: Take the stand
+        if: ${{ inputs.target != 'ephemeral' }}
         working-directory: ./
         env:
-          ENV_URL: ${{ secrets.LAB_E2E_ENV_URL }}
-          BOTFLOW_URL: ${{ secrets.LAB_E2E_BOTFLOW_URL }}
-          BOTFLOW_ADMIN_LOGIN: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_LOGIN }}
-          BOTFLOW_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_BOTFLOW_ADMIN_PASSWORD }}
-          UI_ADMIN_LOGIN: ${{ secrets.LAB_E2E_UI_ADMIN_LOGIN }}
-          UI_ADMIN_PASSWORD: ${{ secrets.LAB_E2E_UI_ADMIN_PASSWORD }}
-          API_TOKEN: ${{ secrets.LAB_E2E_API_TOKEN }}
-          PLAYWRIGHT_BROWSERS_PATH: ./browsers
-          DB_HOST: ${{ secrets.LAB_E2E_DATABASE_HOST }}
-          DB_NAME: ${{ secrets.LAB_E2E_DATABASE_NAME }}
-          DB_PASSWORD: ${{ secrets.LAB_E2E_DATABASE_PASSWORD }}
-          DB_USER: ${{ secrets.LAB_E2E_DATABASE_USER }}
-          DB_PORT: "5432"
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+          OWNER: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} by ${{ github.actor }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ]; then
+            echo "::warning::E2E_RESET_URL or E2E_RESET_TOKEN is unset — nothing keeps another run off this stand"
+            exit 0
+          fi
+          case "$RESET_URL" in
+            */prune) LEASE_URL="${RESET_URL%/prune}/lease" ;;
+            *) echo "::error::E2E_RESET_URL does not end in /prune, so the lease route cannot be derived from it"; exit 1 ;;
+          esac
+          # 160 minutes: the job's timeout-minutes plus a margin, so a run killed before it can
+          # release frees the stand on its own no later than the job could have lasted.
+          body="$(printf '{"owner":"%s","minutes":160}' "$OWNER")"
+          holder=""
+          # Ninety minutes of thirty-second polls, longer than a whole lab run takes.
+          for _ in $(seq 1 180); do
+            code="$(curl -sS --max-time 30 -o /tmp/lease.out -w '%{http_code}' -X POST \
+                      -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                      --data "$body" "$LEASE_URL")" || code=000
+            case "$code" in
+              200) cat /tmp/lease.out; echo; echo "STAND_LEASE=${OWNER}" >> "$GITHUB_ENV"; exit 0 ;;
+              404) echo "::warning::the reset service has no /lease route (an image before :14) — nothing keeps another run off this stand"; exit 0 ;;
+              409) now="$(sed -n 's/.*"owner": "\([^"]*\)".*/\1/p' /tmp/lease.out)"
+                   if [ "$now" != "$holder" ]; then
+                     holder="$now"
+                     echo "the stand is in use by ${holder} until $(sed -n 's/.*"until": "\([^"]*\)".*/\1/p' /tmp/lease.out); waiting"
+                   fi ;;
+              *)   echo "::warning::the lease route answered ${code}; retrying" ;;
+            esac
+            sleep 30
+          done
+          echo "::error::the stand was still in use by ${holder} after 90 minutes"
+          exit 1
+
+      # Sizing evidence: every repository but novatalks.core resolves to a small VM,
+      # and nobody has measured whether the browser workers fit. Printed before and
+      # after the suite so a flaky timeout can be told apart from a starved runner.
+      # deep adds what the Engine API cannot do: it has no delete endpoint for a
+      # conversation, and an inbox delete is soft, so a contact that owns a conversation
+      # — and the chatbot setting / team / wrap-up chain behind a deleted inbox — can
+      # never be cleared through the API. The stand answers one route for that, on its
+      # own host under /stand-reset, taking no parameters: there is nothing to aim.
+      - name: Reset the stand
+        if: ${{ inputs.reset_stand == 'deep' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ]; then
+            echo "::error::reset_stand=deep but E2E_RESET_URL or E2E_RESET_TOKEN is unset"
+            exit 1
+          fi
+          # -f so a 401 or a 500 fails the job: a reset that quietly did nothing is the
+          # failure this step exists to prevent.
+          curl -fsS --max-time 300 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" \
+               -H "X-Stand-Lease: ${STAND_LEASE:-}" "$RESET_URL"
+          echo
+
+      # The destructive one: both databases recreated, the Engine and the Dialer restarted,
+      # the Dialer's newly bootstrapped token carried into the Engine's config map, and the
+      # account normalised — all inside the stand, because none of it is reachable from a
+      # runner with no route into the cluster. Minutes, not seconds, and the stand answers
+      # nothing useful while it runs, which is why it is a separate choice and never a default.
+      #
+      # The body names the stand. A token can be pasted from a secret by a job that meant to
+      # prune; a name cannot be supplied by accident, and the service refuses anything else.
+      - name: Drop and rebuild the stand
+        if: ${{ inputs.reset_stand == 'drop' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+          STAND_NAME: ${{ secrets.E2E_STAND_NAME }}
+          # The suite's own token, handed over so the rebuilt database has it. It died with
+          # the old one, and the seeds make a different token that nobody outside the stand
+          # knows: the first real drop left every spec answering `401 Unauthorized` in under
+          # a second, which reads as a broken product and is a missing row.
+          API_TOKEN: ${{ secrets.E2E_API_TOKEN }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ] || [ -z "$STAND_NAME" ]; then
+            echo "::error::reset_stand=drop needs E2E_RESET_URL, E2E_RESET_TOKEN and E2E_STAND_NAME"
+            exit 1
+          fi
+          case "$RESET_URL" in
+            */prune) DROP_URL="${RESET_URL%/prune}/drop" ;;
+            *) echo "::error::E2E_RESET_URL does not end in /prune, so the drop route cannot be derived from it"; exit 1 ;;
+          esac
+          # Start it, then poll. The work outlives any single request: the first real drop
+          # answered `curl: (56) Failure when receiving data from the peer` after about three
+          # minutes — Traefik had cut an idle connection while the rebuild carried happily on,
+          # so the run reported a failure for something that in fact succeeded.
+          code="$(curl -sS --max-time 60 -o /tmp/drop.out -w '%{http_code}' \
+                    -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                    -H "X-Stand-Lease: ${STAND_LEASE:-}" \
+                    --data "{\"stand\":\"${STAND_NAME}\",\"api_token\":\"${API_TOKEN}\"}" "$DROP_URL")" \
+            || { echo "::error::could not reach the reset service at the drop route"; exit 1; }
+          cat /tmp/drop.out; echo
+          case "$code" in
+            202) ;;
+            501) echo "::error::this stand's reset service has no drop configured — it predates the route, or its deployment is missing STAND_NAME / the deployment and config map names"; exit 1 ;;
+            409) echo "::error::the service refused the name in E2E_STAND_NAME, a drop is already running, or another run holds the stand (see the answer above)"; exit 1 ;;
+            *)  echo "::error::the drop route answered ${code}"; exit 1 ;;
+          esac
+
+          # Twenty minutes of ten-second polls: two rollouts and the Engine's migrations on an
+          # empty schema. A drop still running when this gives up is reported as such rather
+          # than assumed finished — the stand would be half-built and every spec after it a lie.
+          for _ in $(seq 1 120); do
+            sleep 10
+            state="$(curl -sS --max-time 30 -H "Authorization: Bearer ${RESET_TOKEN}" "${DROP_URL}/status" || echo '{}')"
+            case "$state" in
+              *'"state": "ok"'*)     echo "$state"; break ;;
+              *'"state": "failed"'*) echo "$state"; echo "::error::the drop failed"; exit 1 ;;
+            esac
+          done
+          case "$state" in
+            *'"state": "ok"'*) ;;
+            *) echo "$state"; echo "::error::the drop was still running after 20 minutes"; exit 1 ;;
+          esac
+
+      # Everything below until "Runner capacity" runs for target: ephemeral only.
+      #
+      # nova.ci is checked out into a subdirectory rather than reached with `uses:`, and the
+      # ref is an input. This workflow is workflow_call: its GITHUB_WORKSPACE holds whichever
+      # repository called it — novatalks.tests — so a path into nova.ci only exists because
+      # this step puts one there, at a ref somebody named. (The rule that forbids sourcing
+      # nova.ci through GITHUB_WORKSPACE is about assuming a checkout that is not there; this
+      # is the opposite.) The workspace is left alone: the suite needs it.
+      - name: Checkout the bring-up
+        if: ${{ inputs.target == 'ephemeral' }}
+        uses: actions/checkout@v6
+        with:
+          repository: novaitdevteam/nova.ci
+          ref: ${{ inputs.nova_ci_ref }}
+          path: .nova-ci
+
+      - name: Install Docker
+        if: ${{ inputs.target == 'ephemeral' }}
+        uses: ./.nova-ci/.github/actions/install-docker
+
+      - name: Install helm
+        if: ${{ inputs.target == 'ephemeral' }}
+        run: |
+          if command -v helm >/dev/null 2>&1; then helm version --short; exit 0; fi
+          curl -fsSL --retry 5 --retry-all-errors https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz \
+            -o /tmp/helm.tgz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Log in to the chart registry
+        # The configuration is rendered from the published chart (spec D17), and that package
+        # is private today. Read-only, and unnecessary the day it becomes public like the
+        # product images already are.
+        if: ${{ inputs.target == 'ephemeral' }}
+        env:
+          REGISTRY_TOKEN: ${{ secrets.CHARTS_TOKEN || secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_TOKEN" ]; then
+            echo "::error::no token available to read the chart package"
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Refuse a stand reset for a stack that has no stand
+        # Spec D14. The database is new, so there is nothing to prune — but silently ignoring
+        # an input somebody set on the form is how a run ends up not doing what it was asked.
+        if: ${{ inputs.target == 'ephemeral' && inputs.reset_stand != 'off' }}
+        env:
+          RESET_STAND: ${{ inputs.reset_stand }}
+          # The same number that bounds the step, so Playwright stops first and still writes
+          # a report. They used to disagree — the config's own 110 minutes cut a run off at
+          # 264 of 418 tests while the step was allowed 120, and the 154 that never ran were
+          # reported as a suite result rather than as a budget.
+          SUITE_TIMEOUT_MINUTES: ${{ inputs.suite_timeout_minutes }}
+        run: |
+          echo "::error::reset_stand=${RESET_STAND} has no meaning for target: ephemeral — the stack is created for this run. Set reset_stand to off."
+          exit 1
+
+      - name: Bring the ephemeral stack up
+        if: ${{ inputs.target == 'ephemeral' }}
+        env:
+          CHART_VERSION: ${{ inputs.chart_version }}
+          # The release builds, and the same four the lab runs: change them together with the
+          # lab, or an ephemeral run and a lab run stop testing the same thing. A tag on the form
+          # replaces its own image only.
+          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag || '2026_R3_NC2-2778_engine_f64f9736' }}
+          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag || '2026_R3_development_20fdf74f' }}
+          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag || '2026_R3_master_f9126a11' }}
+          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag || '2026_R3_master_a81e7763' }}
+          # Attachments go to the stand's own bucket, whose 30-day retention is the cleanup
+          # (spec D8).
+          # No `local` fallback: there is no such driver. Both the engine's and the dialer's
+          # storages map holds exactly one entry, s3, so FILE_DRIVER=local indexes it to
+          # undefined and calls it — the container dies in provider init. Without credentials
+          # the driver still has to be s3, pointed at somewhere that does not resolve; the app
+          # logs one startup warning and runs, and only file operations fail.
+          FILE_DRIVER: s3
+          AWS_S3_ENDPOINT: ${{ secrets.E2E_R2_ENDPOINT || 'http://s3.example.invalid' }}
+          AWS_S3_BUCKET: ${{ secrets.E2E_R2_BUCKET || 'e2e-dummy-not-a-real-bucket' }}
+          AWS_S3_ACCESS_KEY: ${{ secrets.E2E_R2_ACCESS_KEY_ID || 'e2e-dummy-not-a-real-key' }}
+          AWS_S3_SECRET: ${{ secrets.E2E_R2_SECRET_ACCESS_KEY || 'e2e-dummy-not-a-real-secret' }}
+          # The flows are the stand's own (spec D7), so the bring-up reads its Node-RED with
+          # the same credentials the suite uses. The URL is a parameter, not a secret.
+          E2E_SOURCE_BOTFLOW_URL: ${{ inputs.source_botflow_url }}
+          E2E_SOURCE_BOTFLOW_LOGIN: ${{ secrets.E2E_BOTFLOW_ADMIN_LOGIN }}
+          E2E_SOURCE_BOTFLOW_PASSWORD: ${{ secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
+        run: ./.nova-ci/.github/actions/e2e-stack/stack.sh up
+
+      # Every lab run, not only a deep reset: this decides what the run starts from, which
+      # is a different question from what earlier runs left behind. The ephemeral target
+      # applies the same three settings on every boot (e2e-stack/stack.sh), and until this
+      # step existed only one of the two targets had a defined starting state — so the same
+      # build could pass on one and fail on the other, which is the property having two
+      # targets is supposed to give. On 2026-09-21 the lab sat on locale 'pl', left by an
+      # interrupted run, and all nine English-asserting smoke specs failed there while the
+      # ephemeral stack was green.
+      # One admin per worker, as the ephemeral stack seeds in stack.sh. The engine keeps one
+      # session per device type, and 70 spec files sign in as the default admin when they name
+      # nobody, so parallel workers signed each other out mid-test. Created through the API
+      # (the fields the engine requires: username, displayName), before the normalise step,
+      # which gives them the seeded admin's user type and a past sign-in. Idempotent: an admin
+      # left by an earlier run answers "already in use". The password goes in on stdin
+      # so it never reaches a process list. The suite picks one per worker
+      # from E2E_ADMIN_POOL (novatalks.tests, login.page.ts: defaultAdmin).
+      - name: Seed one admin per worker
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          ENV_URL: ${{ inputs.env_url }}
+          API_TOKEN: ${{ secrets.E2E_API_TOKEN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
+        run: |
+          esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }
+          # Not the admin's own password: the lab's was seeded before the password policy and
+          # the engine refuses it for a new agent (422 password_policy_violation, run
+          # 35996407261). Derived from it instead, with a suffix that meets every rule, so it is
+          # the same on every run and still fits admins an earlier run created.
+          pool_pass="${UI_ADMIN_PASSWORD}Aa1!"
+          echo "::add-mask::${pool_pass}"
+          pool=""
+          for n in 1 2 3 4 5 6 7; do
+            email="e2e-admin-${n}@mail.e2e.test"
+            code="$(printf '{"username":"%s","email":"%s","name":"E2E Admin %s","displayName":"E2E Admin %s","role":"administrator","provider":"email","password":"%s"}' \
+                      "$email" "$email" "$n" "$n" "$(esc "$pool_pass")" \
+                    | curl -sS --max-time 60 -o /tmp/admin.json -w '%{http_code}' -X POST \
+                        -H "api_access_token: ${API_TOKEN}" -H 'Content-Type: application/json' \
+                        --data-binary @- "${ENV_URL}/api/v1/accounts/1/agents")" \
+              || { echo "::error::could not reach ${ENV_URL} to create ${email}"; exit 1; }
+            case "$code" in
+              2*) echo "created ${email}" ;;
+              400) grep -q 'already in use' /tmp/admin.json \
+                     || { echo "::error::creating ${email} answered 400: $(head -c 300 /tmp/admin.json)"; exit 1; }
+                   echo "kept ${email}" ;;
+              *) echo "::error::creating ${email} answered ${code}: $(head -c 300 /tmp/admin.json)"; exit 1 ;;
+            esac
+            pool="${pool:+${pool},}${email}"
+          done
+          { echo "E2E_ADMIN_POOL=${pool}"; echo "E2E_ADMIN_POOL_PASSWORD=${pool_pass}"; } >> "$GITHUB_ENV"
+
+      - name: Normalise the stand's account
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ]; then
+            echo "::warning::E2E_RESET_URL or E2E_RESET_TOKEN is unset — the stand keeps whatever state it is in"
+            exit 0
+          fi
+          # Derived from the prune URL rather than a second secret, and checked: the two
+          # routes are served by one deployment, and a silently wrong URL would 404 into a
+          # skipped normalisation that nobody notices.
+          case "$RESET_URL" in
+            */prune) NORMALIZE_URL="${RESET_URL%/prune}/normalize" ;;
+            *) echo "::error::E2E_RESET_URL does not end in /prune, so the normalise route cannot be derived from it"; exit 1 ;;
+          esac
+          # A 401, a 404 or a 500 fails the job: a normalisation that quietly did not happen is
+          # exactly the silence this step exists to break, and the account state the suite is
+          # written against is the whole reason the two targets can be compared at all.
+          #
+          # The code is read rather than left to `curl -f`, because 404 has one overwhelmingly
+          # likely cause and it is not worth a round of log-reading to rediscover: the deployed
+          # reset service predates the /normalize route. That cost a whole lab run on
+          # 2026-09-22 (novatalks.tests run 35719049544), which died here before a single test.
+          code="$(curl -sS --max-time 120 -o /tmp/normalize.out -w '%{http_code}' \
+                    -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H "X-Stand-Lease: ${STAND_LEASE:-}" \
+                    "$NORMALIZE_URL")" \
+            || { echo "::error::could not reach the reset service at the normalise route"; exit 1; }
+          cat /tmp/normalize.out; echo
+          case "$code" in
+            2*) ;;
+            404) echo "::error::the reset service answered 404 — it is an image built before the /normalize route existed. Rebuild and redeploy novatalks.tests' tools/stand-reset; the route is in its app.py."; exit 1 ;;
+            *)  echo "::error::the reset service answered ${code} for the normalise route"; exit 1 ;;
+          esac
+
+      # The lab's own mail server instead of the ukr.net mailbox QA uses for its own testing.
+      # GreenMail runs inside the lab's namespace (novatalks.tests/tools/mail), both engine
+      # mailers point at it, and the suite reaches it through the reset service's /mail routes,
+      # because the cluster serves no IMAP. The engine sees it as e2e-mail; the suite as the
+      # reset service's URL and token. A stand whose reset service has no /mail answers 404 or
+      # 501, and the run keeps the old external path with a warning rather than failing.
+      - name: Point the suite at the lab's mail server
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          [ -n "$RESET_URL" ] && [ -n "$RESET_TOKEN" ] \
+            || { echo "::warning::no reset service configured — the email specs use the external mailbox"; exit 0; }
+          MAIL_API="${RESET_URL%/prune}"
+          code="$(curl -sS --max-time 60 -o /tmp/mail-probe.json -w '%{http_code}' -X POST \
+                    -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+                    -d '{"mailbox":"probe@mail.e2e.test"}' "${MAIL_API}/mail/read")" || code=000
+          case "$code" in
+            200)
+              {
+                echo "E2E_MAIL_HOST=e2e-mail"
+                echo "E2E_MAIL_SMTP_PORT=3025"
+                echo "E2E_MAIL_IMAP_PORT=3143"
+                echo "E2E_MAIL_API=${MAIL_API}"
+                echo "E2E_MAIL_API_TOKEN=${RESET_TOKEN}"
+              } >> "$GITHUB_ENV"
+              echo "email specs use the lab's own mail server" ;;
+            404|501) echo "::warning::the reset service has no mail routes (${code}) — the email specs use the external mailbox" ;;
+            *) echo "::error::the reset service's mail route answered ${code}: $(head -c 300 /tmp/mail-probe.json)"; exit 1 ;;
+          esac
+
+      - name: Runner capacity
+        working-directory: ./
+        run: |
+          echo "cpus: $(nproc) | load: $(cut -d' ' -f1-3 /proc/loadavg)"
+          free -m | sed -n '1,2p'
+          df -h --output=source,size,avail,pcent / | tail -1
+
+      # What this run is actually pointed at, before it starts. A red run otherwise leaves you
+      # guessing which target and which credentials it used, and an empty credential and a
+      # wrong one produce the same 401 — which is exactly what the first ephemeral suite run
+      # did, with the stack's own token proven working seconds earlier.
+      #
+      # Lengths, never values: these are credentials on the lab path.
+      - name: Resolved target
+        env:
+          TARGET: ${{ inputs.target }}
+          ENV_URL: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_ORIGIN || inputs.env_url }}
+          BOTFLOW_URL: ${{ inputs.target == 'ephemeral' && format('{0}/redbot', env.E2E_STACK_ORIGIN) || inputs.botflow_url }}
+          API_TOKEN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_API_TOKEN || secrets.E2E_API_TOKEN }}
+          UI_ADMIN_LOGIN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_LOGIN || secrets.E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_PASSWORD || secrets.E2E_UI_ADMIN_PASSWORD }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_BOTFLOW_PASSWORD || secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
+        run: |
+          echo "target:      ${TARGET}"
+          echo "ENV_URL:     ${ENV_URL}"
+          echo "BOTFLOW_URL: ${BOTFLOW_URL}"
+          echo "credentials (lengths only): API_TOKEN=${#API_TOKEN} UI_ADMIN_LOGIN=${#UI_ADMIN_LOGIN} UI_ADMIN_PASSWORD=${#UI_ADMIN_PASSWORD} BOTFLOW_ADMIN_PASSWORD=${#BOTFLOW_ADMIN_PASSWORD}"
+          for name in ENV_URL BOTFLOW_URL API_TOKEN UI_ADMIN_LOGIN UI_ADMIN_PASSWORD; do
+            [ -n "${!name}" ] || { echo "::error::${name} resolved to nothing for target ${TARGET}"; exit 1; }
+          done
+
+      # One login, before the suite, because the fifth wrong one costs everybody the stand.
+      #
+      # The engine locks a user after five failed attempts, and a locked user is refused on
+      # *every* credential it owns — including the `api_access_token` the suite uses for
+      # everything else. On 2026-09-22 a stale `E2E_UI_ADMIN_PASSWORD` spent those five during
+      # run 35719049544; the next run died at its first API call (`login_account_locked`) and
+      # the stand stayed unusable until somebody cleared `failed_attempts` by hand. One attempt
+      # here turns that into a red step with a sentence in it.
+      #
+      # `username`, not `email` — the field the engine's sign-in takes, and sending the wrong
+      # one answers 401 without ever reaching the password, which looks exactly like a bad
+      # credential while proving nothing. A 403 counts as a pass: the engine only reaches
+      # "already logged on this device type" after it has accepted the password.
+      - name: Check the admin credentials before spending attempts on them
+        if: ${{ inputs.target != 'ephemeral' }}
+        env:
+          ENV_URL: ${{ inputs.env_url }}
+          UI_ADMIN_LOGIN: ${{ secrets.E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ secrets.E2E_UI_ADMIN_PASSWORD }}
+        run: |
+          # Escaped in bash rather than with jq: nothing else in this workflow needs jq, and a
+          # credential check that fails because a tool is missing is a check nobody trusts.
+          esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }
+          body="{\"username\":\"$(esc "$UI_ADMIN_LOGIN")\",\"password\":\"$(esc "$UI_ADMIN_PASSWORD")\"}"
+          code="$(curl -sS --max-time 60 -o /tmp/signin.json -w '%{http_code}' \
+                    -X POST "${ENV_URL}/auth/sign_in" -H 'Content-Type: application/json' -d "$body")" \
+            || { echo "::error::could not reach ${ENV_URL}/auth/sign_in"; exit 1; }
+          case "$code" in
+            2*|403) echo "admin credentials accepted (${code})" ;;
+            401) echo "::error::E2E_UI_ADMIN_PASSWORD is not the password this stand holds for ${UI_ADMIN_LOGIN}. Stopping after one attempt: five would lock the account and take every api_access_token call down with it. The stand's own value is DEFAULT_USER_PASSWORD in the engine's config map — but note it only seeds a user that does not exist yet, so a stand seeded earlier can hold something else."; exit 1 ;;
+            *)   echo "::error::sign-in answered ${code}: $(head -c 300 /tmp/signin.json)"; exit 1 ;;
+          esac
+
+      - name: Run Playwright Tests
+        # Bounded at the step, not only at the job: a step timeout fails this step and lets
+        # the ones after it run, so the report is still uploaded and an ephemeral stack is
+        # still torn down. A job timeout cancels everything and leaves far less to read.
+        timeout-minutes: ${{ inputs.suite_timeout_minutes }}
+        run: |
+          # ' + ' separates alternatives in both inputs, so "@smoke + @regression"
+          # becomes one --grep and "@campaigns + @db" one --grep-invert.
+          ARGS=()
+          if [ -n "$TEST_TAGS" ]; then
+            ARGS+=(--grep "$(printf '%s' "$TEST_TAGS" | sed 's/ *+ */|/g')")
+          fi
+          if [ -n "$EXCLUDE_TAGS" ]; then
+            ARGS+=(--grep-invert "$(printf '%s' "$EXCLUDE_TAGS" | sed 's/ *+ */|/g')")
+          fi
+          echo "playwright test ${ARGS[*]:-(everything)}"
+          npx playwright test "${ARGS[@]}"
+        working-directory: ./
+        env:
+          TEST_TAGS: ${{ inputs.test_tags }}
+          EXCLUDE_TAGS: ${{ inputs.exclude_tags }}
+          # Pruning runs BEFORE the suite, not after: a cancelled or crashed run never
+          # reaches an "after" step, so the garbage that matters most would be the
+          # garbage that survives. Starting from a known state also needs no record of
+          # what this run created. Two regression runs left 977 users, 423 inboxes and
+          # 391 teams behind, and the suite reads those lists.
+          RESET_STAND: ${{ inputs.reset_stand }}
+          # Seven variables and no more: the suite derives CLIENT_URL/CLIENT_URL_API
+          # from ENV_URL itself, and needs no database — USE_DB stays unset, which is
+          # what keeps this run free of kubeconfig, port-forward and DB credentials.
+          # The two URLs are run parameters; only the four credentials and the token
+          # are secrets, named E2E_* rather than after any one stand.
+          # For target: ephemeral these come from the bring-up itself, which writes them to
+          # the environment — the origin's port is decided in one place and read here, rather
+          # than repeated in a workflow that would eventually disagree with it.
+          ENV_URL: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_ORIGIN || inputs.env_url }}
+          BOTFLOW_URL: ${{ inputs.target == 'ephemeral' && format('{0}/redbot', env.E2E_STACK_ORIGIN) || inputs.botflow_url }}
+          BOTFLOW_ADMIN_LOGIN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_BOTFLOW_LOGIN || secrets.E2E_BOTFLOW_ADMIN_LOGIN }}
+          BOTFLOW_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_BOTFLOW_PASSWORD || secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
+          UI_ADMIN_LOGIN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_LOGIN || secrets.E2E_UI_ADMIN_LOGIN }}
+          UI_ADMIN_PASSWORD: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_UI_PASSWORD || secrets.E2E_UI_ADMIN_PASSWORD }}
+          API_TOKEN: ${{ inputs.target == 'ephemeral' && env.E2E_STACK_API_TOKEN || secrets.E2E_API_TOKEN }}
+          # QANT-21 waits for the invitation mail, so the suite needs a mailbox it can
+          # read over IMAP. Secrets, unlike the URLs above: a real account's password.
+          IMAP_USER: ${{ secrets.E2E_IMAP_USER }}
+          IMAP_PASSWORD: ${{ secrets.E2E_IMAP_PASSWORD }}
+          IMAP_HOST: ${{ secrets.E2E_IMAP_HOST }}
+          IMAP_PORT: ${{ secrets.E2E_IMAP_PORT }}
+          TEST_EMAIL_ADDRESS: ${{ secrets.E2E_TEST_EMAIL_ADDRESS }}
+          # The email specs send their inbound letter through Mailgun. Without the key the
+          # client throws `Parameter "key" is required` before anything is sent, and eight
+          # specs (QANT-02..05, 56..59) failed at their first step on every CI run while
+          # passing on a laptop whose nova.ci/.env happened to carry it.
+          MAILGUN_API_KEY: ${{ secrets.E2E_MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.E2E_MAILGUN_DOMAIN }}
+          # Node-RED webhook paths from the QA flow set, appended to BOTFLOW_URL by
+          # the channel helpers. They come from the flow file, not from the stand,
+          # so they are literals here rather than inputs or secrets.
+          # Trailing slash: the helpers append the worker slot (1-based), so the
+          # README's "/telegram/1" produced "…/telegram/11" on slot 1.
+          TELEGRAM_URL: "/telegram/"
+          VIBER_URL: "/viber/"
+          META_URL: "/messenger/channel-messenger/"
+          # One Node-RED channel slot per worker; the QA flow set defines four.
+          WORKERS: ${{ inputs.workers }}
+
+      - name: Runner capacity after the suite
+        if: ${{ !cancelled() }}
+        working-directory: ./
+        run: |
+          echo "load after: $(cut -d' ' -f1-3 /proc/loadavg)"
+          free -m | sed -n '2p'
+
+      - name: Take the ephemeral stack down
+        # Always, including on a cancelled run: the runner is reused, and a stack left behind
+        # meets the next job as a set of occupied ports. Logs of every container first when
+        # the suite went red — a stack nobody can inspect afterwards is worse than no stack.
+        if: ${{ always() && inputs.target == 'ephemeral' }}
+        env:
+          E2E_STACK_FAILED: ${{ job.status == 'success' && '0' || '1' }}
+        run: ./.nova-ci/.github/actions/e2e-stack/stack.sh down
+
+      # Hand the stand back. always(): a failed or cancelled run must not keep the next one
+      # waiting out the lease. A runner killed outright never gets here; the lease then runs out.
+      - name: Release the stand
+        if: ${{ always() && inputs.target != 'ephemeral' && env.STAND_LEASE != '' }}
+        working-directory: ./
+        env:
+          RESET_URL: ${{ secrets.E2E_RESET_URL }}
+          RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+        run: |
+          curl -sS --max-time 30 -X POST -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
+               --data "$(printf '{"owner":"%s"}' "$STAND_LEASE")" "${RESET_URL%/prune}/lease/release" \
+            || echo "::warning::could not release the stand; its lease runs out on its own"
+          echo
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7
@@ -184,15 +690,29 @@ jobs:
         id: report
         with:
           name: playwright-report
-          path: playwright-report/
-          retention-days: 3
+          path: playwright-reports/playwright-report/
+          # One day: a report carries a ~20 MB trace per retried test, and the storage quota is the
+          # organisation's, so it is shared with every product build. On 2026-09-24 three days of
+          # E2E reports (6.3 GB) filled it and two green runs went red on this upload.
+          retention-days: 1
+        # The artifact only carries the report to the publish job; it is not the tests' result.
+        # Three runs with no failed test went red on 2026-09-24 because the quota was full, and a
+        # red that means "the report store is full" is a red nobody can act on in the suite.
+        continue-on-error: true
+
+      - name: Say the report was not stored
+        if: ${{ !cancelled() && steps.report.outcome == 'failure' }}
+        run: echo "::warning::the report could not be uploaded (see Save Artifact; usually the organisation's artifact quota) — the test result stands, but this run has no report"
 
   publish-report-r2:
     name: Publish HTML Report
-    if: always()
+    # Nothing to publish when the upload above failed.
+    if: ${{ always() && needs.build-tests.outputs.REPORT != '' }}
     needs: [build-tests]
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     continue-on-error: true
+    outputs:
+      ARTIFACT_DELETED: ${{ steps.drop.outcome == 'success' }}
     env:
       HTML_REPORT_URL_PATH: reports/manual/${{ github.run_id }}/${{ github.run_attempt }}
     steps:
@@ -204,9 +724,11 @@ jobs:
 
       - name: Install AWS CLI
         run: |
+          # Runner images ship no unzip; both jobs can land on the same reused VM.
+          sudo apt-get update -qq && sudo apt-get install -y unzip
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install
+          unzip -qo awscliv2.zip
+          sudo ./aws/install --update
           aws --version
 
       - name: Upload to R2
@@ -214,11 +736,30 @@ jobs:
           aws configure list
           aws --endpoint-url ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://${{ env.AWS_BUCKET }}/${{ env.HTML_REPORT_URL_PATH }} --recursive
         env:
-          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_AWS_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY }}
-          AWS_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET }}
+          # The stand's own attachment bucket: the old CF_R2_AWS_BUCKET still accepts
+          # uploads, but nothing serves it — every published report 404ed.
+          AWS_ENDPOINT_URL: ${{ secrets.E2E_R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.E2E_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.E2E_R2_SECRET_ACCESS_KEY }}
+          AWS_BUCKET: ${{ secrets.E2E_R2_BUCKET }}
           AWS_REGION: "eeur"
+
+      # R2 now holds the report; the artifact only carried it here. At 100-250 MB it is the one
+      # artifact that fills the organisation's quota, and a full quota reds every product
+      # build's scan-report upload: on 2026-09-24 two reports (343 MB) did exactly that. A
+      # failed R2 upload skips this, so the artifact stays for its one day.
+      - name: Delete the artifact
+        id: drop
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_ID: ${{ needs.build-tests.outputs.REPORT_ID }}
+        with:
+          script: |
+            await github.rest.actions.deleteArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: Number(process.env.ARTIFACT_ID),
+            });
 
   notify-telegram:
     name: Notifier
@@ -230,21 +771,31 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.*.result, ','), 'success') }}
+          # The tests' own result, not "anything succeeded": publish-report-r2 is
+          # continue-on-error and succeeds on its own when the tests failed.
+          cond: ${{ needs.build-tests.result == 'success' }}
           if_true: |
             👷 Tests triggered manually have been completed ✅
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ GitHub Playwright Artifact: ${{ needs.publish-report-r2.outputs.ARTIFACT_DELETED == 'true' && 'removed once published, see Web View' || needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
+            ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
 
             Repository: ${{ github.repository }}
+            Stand: ${{ inputs.env_url }}
+            Branch: ${{ needs.build-tests.outputs.TESTS_REF }} (${{ needs.build-tests.outputs.SHORT_SHA }})
+            Tags: ${{ inputs.test_tags || 'all tests' }}
+            Dispatched by: ${{ github.actor }}
           if_false: |
             👷 Tests triggered manually have been failed
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT }}
-            ▶️ Web View Report: https://ntk-dev-git-e2e-tests.novatalks.xyz/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+            ▶️ GitHub Playwright Artifact: ${{ needs.publish-report-r2.outputs.ARTIFACT_DELETED == 'true' && 'removed once published, see Web View' || needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
+            ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
 
             Repository: ${{ github.repository }}
+            Stand: ${{ inputs.env_url }}
+            Branch: ${{ needs.build-tests.outputs.TESTS_REF }} (${{ needs.build-tests.outputs.SHORT_SHA }})
+            Tags: ${{ inputs.test_tags || 'all tests' }}
+            Dispatched by: ${{ github.actor }}
 
       - name: Notify
         uses: novaitdevteam/nova.ci/.github/actions/notify@main

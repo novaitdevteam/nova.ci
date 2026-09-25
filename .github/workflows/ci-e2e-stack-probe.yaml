@@ -1,0 +1,207 @@
+# Boot the ephemeral E2E stack on a runner and report what came up.
+#
+# This is the measuring instrument for the ephemeral target, not the target itself: it exists
+# so `stack.sh` can be developed against a real runner — right architecture, real images, real
+# chart — before the E2E workflow depends on it. Spec:
+# docs/superpowers/specs/2026-09-18-e2e-ephemeral-stack.md, plan Step 1.
+#
+# Dispatched, never automatic: it boots a whole product stack and reads a private chart
+# repository — a thing somebody asks for, with an actor and a timestamp against the run.
+#
+# It carries workflow_call as well as workflow_dispatch for one practical reason: a
+# workflow_dispatch form is only offered for files that exist on the default branch, so while
+# this is still being developed on a branch, the way to run it is for the tests repository's
+# caller to call it at that ref — the same temporary arrangement the E2E workflow itself uses.
+name: CI E2E Stack Probe
+
+on:
+  workflow_call:
+    inputs:
+      runner_labels:
+        required: false
+        type: string
+      nova_ci_ref:
+        # Which nova.ci ref holds stack.sh. A caller on another repository checks this
+        # workflow out by name, so it cannot infer the branch it is itself running from.
+        required: false
+        type: string
+        default: "main"
+      engine_tag:
+        required: false
+        type: string
+        default: "2026_R3_NC2-2778_engine_f64f9736"
+      ui_tag:
+        required: false
+        type: string
+        default: "2026_R3_development_20fdf74f"
+      botflow_tag:
+        required: false
+        type: string
+        default: "2026_R3_master_f9126a11"
+      dialer_tag:
+        required: false
+        type: string
+        default: "2026_R3_master_a81e7763"
+      chart_version:
+        required: false
+        type: string
+        default: "5.4.7"
+      source_botflow_url:
+        # The stand's Node-RED, which the flows are copied from (spec D7). A URL, not a
+        # secret — public, and one form must be able to point at another stand.
+        required: false
+        type: string
+        default: "https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot"
+      keep_up:
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: "novatalks.core tag"
+        required: false
+        type: string
+        default: "2026_R3_NC2-2778_engine_f64f9736"
+      ui_tag:
+        description: "novatalks.ui tag"
+        required: false
+        type: string
+        default: "2026_R3_development_20fdf74f"
+      botflow_tag:
+        description: "nova.botflow tag"
+        required: false
+        type: string
+        default: "2026_R3_master_f9126a11"
+      dialer_tag:
+        description: "novatalks.dialer tag"
+        required: false
+        type: string
+        default: "2026_R3_master_a81e7763"
+      chart_version:
+        description: "Published chart version to render the configuration from"
+        required: false
+        type: string
+        default: "5.4.7"
+      source_botflow_url:
+        description: "Node-RED admin API of the stand whose flows this stack copies"
+        required: false
+        type: string
+        default: "https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot"
+      keep_up:
+        description: "Leave the stack running after the probe (for poking at it by hand)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  probe:
+    name: Boot the stack
+    # The E2E pool, not the build pool: this holds a runner for as long as a boot takes, and
+    # product builds must not queue behind it.
+    runs-on: ${{ inputs.runner_labels || 'e2e-medium' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout nova.ci
+        uses: actions/checkout@v6
+        with:
+          repository: novaitdevteam/nova.ci
+          ref: ${{ inputs.nova_ci_ref || 'main' }}
+
+      - name: Install Docker
+        uses: ./.github/actions/install-docker
+
+      - name: Install helm
+        run: |
+          if command -v helm >/dev/null 2>&1; then helm version --short; exit 0; fi
+          curl -fsSL --retry 5 --retry-all-errors https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz \
+            -o /tmp/helm.tgz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Log in to the chart registry
+        # The chart package is private today. This is the one credential the probe needs, and
+        # it only has to read packages — if the package is ever made public, like the product
+        # images already are, this step can go.
+        env:
+          REGISTRY_TOKEN: ${{ secrets.CHARTS_TOKEN || secrets.BACKUP_GH_TOKEN || secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_TOKEN" ]; then
+            echo "::error::no token available to read the chart package"
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Bring the stack up
+        env:
+          CHART_VERSION: ${{ inputs.chart_version }}
+          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag }}
+          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag }}
+          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag }}
+          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag }}
+          # Attachments go to the stand's own bucket, whose 30-day retention is the cleanup
+          # (spec D8).
+          # No `local` fallback: there is no such driver. Both the engine's and the dialer's
+          # storages map holds exactly one entry, s3, so FILE_DRIVER=local indexes it to
+          # undefined and calls it — the container dies in provider init. Without credentials
+          # the driver still has to be s3, pointed at somewhere that does not resolve; the app
+          # logs one startup warning and runs, and only file operations fail.
+          FILE_DRIVER: s3
+          AWS_S3_ENDPOINT: ${{ secrets.CF_R2_AWS_ENDPOINT_URL || 'http://s3.example.invalid' }}
+          AWS_S3_BUCKET: ${{ secrets.CF_R2_AWS_BUCKET || 'e2e-dummy-not-a-real-bucket' }}
+          AWS_S3_ACCESS_KEY: ${{ secrets.CF_R2_AWS_ACCESS_KEY_ID || 'e2e-dummy-not-a-real-key' }}
+          AWS_S3_SECRET: ${{ secrets.CF_R2_AWS_SECRET_ACCESS_KEY || 'e2e-dummy-not-a-real-secret' }}
+          # The flows come from the stand itself (D7), so the bring-up needs to read its
+          # Node-RED. The URL is an input; only the credentials are secrets, and they are the
+          # same E2E_BOTFLOW_ADMIN_* pair the suite already uses.
+          E2E_SOURCE_BOTFLOW_URL: ${{ inputs.source_botflow_url || 'https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot' }}
+          E2E_SOURCE_BOTFLOW_LOGIN: ${{ secrets.E2E_BOTFLOW_ADMIN_LOGIN }}
+          E2E_SOURCE_BOTFLOW_PASSWORD: ${{ secrets.E2E_BOTFLOW_ADMIN_PASSWORD }}
+        run: ./.github/actions/e2e-stack/stack.sh up
+
+      - name: Report what answers
+        run: |
+          # The probe's own verdict, printed rather than implied: a boot that "worked" and a
+          # boot nobody checked look identical in a green job.
+          # `|| true`, never an `|| echo` of a second 000: curl already writes 000 when nothing
+          # answered, and doubling it yields a code that matches nothing it is compared to.
+          probe() { curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$1" || true; }
+          {
+            echo "### Ephemeral stack probe"
+            echo ""
+            # Both columns, because one alone cannot say where a request was lost: run
+            # 35582123718 had /redbot/ answering 200 on the container and 404 through the
+            # proxy, and a single number gives no way to tell nginx's routing from the app's.
+            echo "| Endpoint | Direct | Through the proxy |"
+            echo "| --- | --- | --- |"
+            for row in /:8000 /api/v1/:3000 /auth/:3000 /redbot/:1880 /api/v1/dialer/:3002; do
+              path="${row%:*}"; port="${row##*:}"
+              echo "| \`${path}\` | $(probe "http://127.0.0.1:${port}${path}") | $(probe "https://localhost:18080${path}") |"
+            done
+            echo ""
+            echo ""
+            # Which server block nginx is actually running, and what it did with the requests
+            # above. A proxy serving its own packaged default.conf answers exactly what run
+            # 35582123718 saw — 200 on / (the welcome page) and 404 on every route — so the
+            # config has to be read back rather than assumed from the file we wrote.
+            echo "<details><summary>proxy config and access log</summary>"
+            echo ""
+            echo '```'
+            docker exec e2e-proxy nginx -T 2>&1 | sed -n '/^server {/,/^}/p' | head -30
+            docker logs --tail 20 e2e-proxy 2>&1
+            echo '```'
+            echo "</details>"
+            echo ""
+            echo "| Container | Image |"
+            echo "| --- | --- |"
+            docker ps --format '| `{{.Names}}` | `{{.Image}}` |'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Take the stack down
+        # Always, including on a cancelled run: a runner is reused, and a stack left behind
+        # would meet the next job as a set of occupied ports.
+        if: ${{ always() && !inputs.keep_up }}
+        env:
+          E2E_STACK_FAILED: ${{ job.status == 'success' && '0' || '1' }}
+        run: ./.github/actions/e2e-stack/stack.sh down

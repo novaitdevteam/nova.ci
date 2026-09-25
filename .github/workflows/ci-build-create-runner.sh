@@ -57,18 +57,59 @@ if [[ "$REPO" == "novatalks.core" ]]; then
     else
         REQUIRED_SIZE="small"
     fi
+elif [[ "$REPO" == "novatalks.tests" ]]; then
+    # The E2E suite is dispatched from a form, so the size is asked for, not inferred
+    # from a tag: the form's runner_size input, read from the event payload the same way
+    # base_ref is. Only the three known sizes pass — a typo or an empty field falls back
+    # to small rather than to a bigger VM, and a push or pull request (no inputs at all)
+    # stays small as before. Exists to measure how many Playwright workers each size
+    # carries; the suite has never needed more than small in routine runs.
+    case "$(jq -r '.inputs.runner_size // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)" in
+        medium) REQUIRED_SIZE="medium" ;;
+        large)  REQUIRED_SIZE="large" ;;
+        *)      REQUIRED_SIZE="small" ;;
+    esac
+    # An ephemeral run boots the whole product on this VM before a browser starts — engine,
+    # postgres, botflow, ui, redis, dialer and NATS measured at about 3.5 CPU and 7 GB, plus
+    # roughly 2 GB for four Chromium workers (spec D11). A 4-vCPU VM is at its limit before
+    # the suite begins, so the target raises the floor rather than trusting the form: the
+    # size is a consequence of what the run does, and a small one here is a suite that dies
+    # on memory pressure and reads as flaky.
+    if [ "$(jq -r '.inputs.target // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)" = "ephemeral" ] \
+       && [ "$REQUIRED_SIZE" = "small" ]; then
+        REQUIRED_SIZE="medium"
+    fi
 else
     REQUIRED_SIZE="small"
 fi
 
-# Size ordering, declared once: index in this list is the priority, and the matching
-# Hetzner server type is looked up from the same case below. The jq reuse filter reads
-# the same list, so "which runner is big enough" has a single definition.
-SIZE_ORDER='["small","medium","large"]'
+# Two pools, counted and capped separately, because they carry different work with
+# different shapes. Builds are minutes long and bursty; an E2E run holds its VM for the
+# length of a suite — the @e2e regression measured 1.2 h on 2026-09-18. Sharing one pool
+# means a regression parks on one of the two small runners for over an hour and every
+# other repository's build queues behind it. The pools never borrow from each other:
+# their VM names differ, so each counts only its own, and the reuse filter below matches
+# labels within one pool only — a build can never pick up an idle E2E runner, or the
+# other way round.
+if [ "$REPO" = "novatalks.tests" ]; then
+    RUNNER_POOL="e2e"
+    # Still under dev-00-gh-runner-, so the leak watchdog and the global total keep
+    # seeing these VMs; the extra segment is what separates the pools.
+    NAME_PREFIX="dev-00-gh-runner-e2e-"
+    SIZE_ORDER='["e2e-small","e2e-medium"]'
+    case "$REQUIRED_SIZE" in
+        small)         REQUIRED_SIZE="e2e-small" ;;
+        medium|large)  REQUIRED_SIZE="e2e-medium" ;;
+    esac
+else
+    RUNNER_POOL="build"
+    NAME_PREFIX="dev-00-gh-runner-"
+    SIZE_ORDER='["small","medium","large"]'
+fi
 
 case "$REQUIRED_SIZE" in
-    small) REQUIRED_TYPE=cx33 ;;
-    medium) REQUIRED_TYPE=cx43 ;;
+    small|e2e-small) REQUIRED_TYPE=cx33 ;;
+    medium|e2e-medium) REQUIRED_TYPE=cx43 ;;
     large) REQUIRED_TYPE=cx53 ;;
     *) echo "::error::Unknown runner size: $REQUIRED_SIZE" >&2; exit 1 ;;
 esac
@@ -86,10 +127,28 @@ esac
 # `small` and `large` have no such fan-out: small is one feature build at a time, and
 # large is int-test, which is one long job by construction. They stay at 2, where a
 # third VM would idle.
+#
+# The E2E pool is 4. It was 2, on the reasoning that a third suite would only queue behind
+# the shared account the stand gives every run — true while every run needed the stand, and
+# no longer true: an ephemeral run brings its own stack up on its own VM and shares nothing
+# with any other run, so nothing serialises them but this number. Lab runs are still one at
+# a time, held there by the concurrency group on env_url rather than by the cap.
+#
+# 4 rather than more because that is what the contention actually was on 2026-09-21: two
+# suites and a stuck run were enough to queue everything for an hour, and a VM that idles
+# still costs. The pool counts and caps itself — MAX_TOTAL_RUNNERS becomes this number for
+# the E2E pool below — so raising it cannot take runners away from product builds.
 case "$REQUIRED_SIZE" in
     medium) MAX_PER_SIZE="${MAX_MEDIUM_RUNNERS:-4}" ;;
+    e2e-*)  MAX_PER_SIZE="${MAX_E2E_RUNNERS:-4}" ;;
     *)      MAX_PER_SIZE="${MAX_PER_SIZE:-2}" ;;
 esac
+
+# Counted within the pool, so an E2E run can never exhaust the build budget and a busy
+# build day can never starve the suite.
+if [ "$RUNNER_POOL" = "e2e" ]; then
+    MAX_TOTAL_RUNNERS="${MAX_E2E_RUNNERS:-4}"
+fi
 
 DELAY=$((RANDOM % 10))
 
@@ -132,27 +191,28 @@ done
 # keep working on one response object.
 HETZNER_RESPONSE=$(echo "$HETZNER_PAGES" | jq -s '{servers: (map(.servers // []) | add)}')
 
-# Every filter below skips dev-00-gh-runner-e2e-*: novatalks.tests creates those from
-# nova.ci e2e-dev as its own pool, labelled e2e-small/e2e-medium, which no build job asks
-# for. Counted here they filled the small cap and queued every build behind them.
-TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
+TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r \
+    --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
     ] | length
 ')
 
-echo "Total dev-00-gh-runner-* Hetzner servers (any status/size): $TOTAL_ALL"
+echo "Total $RUNNER_POOL-pool Hetzner servers (${NAME_PREFIX}*, any status/size): $TOTAL_ALL"
 
 # Count per-size directly from Hetzner server state (starting/initializing/running of
 # the required server_type), not from GitHub-registered runners. This covers VMs that
 # were just created but haven't registered as a GitHub runner yet, and excludes offline
 # "ghost" GitHub registrations left over from failed creates that have no backing VM.
 TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
-    --arg required_type "$REQUIRED_TYPE" '
+    --arg required_type "$REQUIRED_TYPE" \
+    --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
         | select(.server_type.name == $required_type)
         | select(.status == "starting" or .status == "initializing" or .status == "running")
     ] | length
@@ -204,9 +264,11 @@ while true; do
         echo "::error::Unexpected GitHub API response shape (page $GH_PAGE, no .runners array): ${RESPONSE:0:300}"
         exit 1
     fi
-    PAGE_RUNNERS=$(echo "$RESPONSE" | jq '
+    PAGE_RUNNERS=$(echo "$RESPONSE" | jq \
+        --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
         [.runners[]?
-        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
         ]')
     RUNNERS=$(jq -n --argjson acc "$RUNNERS" --argjson page "${PAGE_RUNNERS:-[]}" '$acc + $page')
     PAGE_COUNT=$(echo "$RESPONSE" | jq -r '.runners | length')
@@ -225,10 +287,12 @@ echo "GitHub-registered dev-00-gh-runner-* runners (any status): $COUNT"
 # watchdog cleanup) or gone entirely (ghost registration). Reusing one queues the job
 # on a runner that will never pick it up, so only trust runners whose backing Hetzner
 # VM is actually running. Of those, take the largest that still meets the required size.
-ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq '
+ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq \
+    --arg prefix "$NAME_PREFIX" --arg pool "$RUNNER_POOL" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
+        | select(.name | startswith($prefix))
+        | select($pool == "e2e" or (.name | startswith("dev-00-gh-runner-e2e-") | not))
         | select(.status == "running")
         | .name
     ]')
@@ -249,11 +313,32 @@ BEST_MATCH=$(echo "$RUNNERS" | jq -r \
     | last // empty
 ')
 
-if [ -n "$BEST_MATCH" ]; then
+# Reuse is a snapshot, and what it returns is a *label*, not a reservation. Two runs
+# dispatched seconds apart both see the same idle runner — it is not busy yet, because
+# neither job has started — both decide no VM is needed, and both queue on one machine. The
+# same happens when the runner disappears between this check and the assignment. Nothing
+# retries: the job simply waits. On 2026-09-21 a suite sat queued for 50 minutes that way
+# while the pool had room for three more VMs.
+#
+# For the build pool that trade is still worth it: jobs are minutes long, so a job that waits
+# a little for a warm runner costs less than a two-minute boot. For the E2E pool it is not.
+# A suite holds its runner for up to an hour, so the wait is an hour, not a minute — and the
+# boot it saves is the same two minutes either way. Below the cap, an E2E run gets its own
+# VM; at the cap there is nothing to create and an idle runner is exactly what to wait for.
+REUSE_OK=yes
+if [ "$RUNNER_POOL" = "e2e" ] && [ "$TOTAL_ALL" -lt "$MAX_TOTAL_RUNNERS" ]; then
+    REUSE_OK=no
+fi
+
+if [ -n "$BEST_MATCH" ] && [ "$REUSE_OK" = "yes" ]; then
     echo "Using existing runner: $BEST_MATCH"
     echo "runner_need=false" >> "$GITHUB_OUTPUT"
     echo "runner_labels=$BEST_MATCH" >> "$GITHUB_OUTPUT"
     exit 0
+fi
+
+if [ -n "$BEST_MATCH" ]; then
+    echo "Idle runner $BEST_MATCH exists, but the E2E pool is below its cap ($TOTAL_ALL/$MAX_TOTAL_RUNNERS) → creating a dedicated one rather than queueing behind a label"
 fi
 
 if [ "$TOTAL_ALL" -ge "$MAX_TOTAL_RUNNERS" ]; then
@@ -283,6 +368,8 @@ fi
 # the lock machinery itself fails OPEN (proceed without the lock, with a ::warning::):
 # an API problem must degrade to the small race window, never block all creation.
 RUNNER_LOCK_TTL_SECONDS="${RUNNER_LOCK_TTL_SECONDS:-60}"
+# Keyed by size, and the E2E sizes are their own names, so the pools cannot block
+# each other's creates.
 LOCK_NAME="runner-create-lock-$REQUIRED_SIZE"
 HC_API_BODY=$(mktemp)
 
@@ -362,7 +449,7 @@ if [ "$TOTAL_SIZE" -lt "$MAX_PER_SIZE" ]; then
         echo "Create new runner ($REQUIRED_SIZE)"
         echo "runner_size=$REQUIRED_TYPE" >> "$GITHUB_OUTPUT"
         # %3N (milliseconds) is GNU date only -- fine on the ubuntu runners this runs on.
-        echo "runner_name=dev-00-gh-runner-$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
+        echo "runner_name=${NAME_PREFIX}$(TZ=Europe/Kyiv date +%Y%m%d-%H%M%S-%3N)" >> "$GITHUB_OUTPUT"
         echo "runner_labels=$REQUIRED_SIZE" >> "$GITHUB_OUTPUT"
         echo "runner_need=true" >> "$GITHUB_OUTPUT"
     else

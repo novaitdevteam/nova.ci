@@ -263,6 +263,152 @@ runner_name=<generated>
 runner_labels=small
 runner_need=true'
 
+printf '{"inputs":{"runner_size":"large"}}' > "$WORK/dispatch-large.json"
+printf '{"inputs":{"runner_size":"xl"}}' > "$WORK/dispatch-typo.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "novatalks.tests dispatch asking for large lands in the E2E pool" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-large.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "novatalks.tests with an unknown size falls back to the small E2E runner, never up" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true' \
+    "" "$WORK/dispatch-typo.json"
+
+# target: ephemeral boots the whole product on the VM before a browser starts, so it raises
+# the floor to medium whatever the form asked for — but never lowers a size somebody chose
+# deliberately, which is what the third scenario holds.
+printf '{"inputs":{"runner_size":"small","target":"ephemeral"}}' > "$WORK/dispatch-ephemeral.json"
+printf '{"inputs":{"target":"ephemeral"}}' > "$WORK/dispatch-ephemeral-nosize.json"
+printf '{"inputs":{"runner_size":"large","target":"ephemeral"}}' > "$WORK/dispatch-ephemeral-large.json"
+printf '{"inputs":{"runner_size":"small","target":"lab"}}' > "$WORK/dispatch-lab-small.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "an ephemeral E2E run is raised to the medium E2E runner even when the form said small" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-ephemeral.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "an ephemeral E2E run with no size at all is medium, not the small default" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-ephemeral-nosize.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "an ephemeral E2E run that asked for large still gets the E2E pool, not a build size" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx43
+runner_name=<generated>
+runner_labels=e2e-medium
+runner_need=true' \
+    "" "$WORK/dispatch-ephemeral-large.json"
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "target: lab is untouched by the ephemeral floor" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true' \
+    "" "$WORK/dispatch-lab-small.json"
+
+# Pool isolation. The two pools share Hetzner server types, so only the name tells them
+# apart — these four scenarios are what keep a long E2E suite from parking on a build
+# runner, and a build burst from starving the suite.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-1:online:false:e2e-small) \
+check "a build does not reuse an idle E2E runner" \
+    refs/tags/build-NC2-1 novatalks.ui \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-1:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-1:online:false:small) \
+check "an E2E run does not reuse an idle build runner" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+# Below the cap an E2E run takes a VM of its own rather than queueing on a label somebody
+# else may take first. The build pool keeps reusing (the scenarios near the top of this file
+# cover that): its jobs are minutes long, so a short wait for a warm runner beats a boot,
+# while a suite that guesses wrong waits for the length of another suite.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-1:online:false:e2e-small) \
+check "an idle E2E runner is not reused while the pool is below its cap" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+# At the cap there is nothing to create, so an idle runner is exactly what to wait for.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running \
+    dev-00-gh-runner-e2e-3:cx33:running dev-00-gh-runner-e2e-4:cx33:running) \
+SHIM_RUNNERS=$(runners dev-00-gh-runner-e2e-1:online:false:e2e-small) \
+check "at the cap an idle E2E runner is reused rather than queued behind a new one" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_need=false
+runner_labels=e2e-small'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-1:cx33:running dev-00-gh-runner-2:cx33:running) \
+SHIM_RUNNERS=$(runners) \
+check "a full build pool does not block an E2E run" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running \
+    dev-00-gh-runner-e2e-3:cx33:running dev-00-gh-runner-e2e-4:cx33:running) \
+SHIM_RUNNERS=$(runners) \
+check "the E2E pool waits at its own cap of 4" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_need=false
+runner_labels=e2e-small'
+
+# The cap moved from 2 to 4 on 2026-09-21; three busy VMs must still create a fourth, or
+# the raise is a number nobody gets to use.
+SHIM_SERVERS=$(servers dev-00-gh-runner-e2e-1:cx33:running dev-00-gh-runner-e2e-2:cx33:running \
+    dev-00-gh-runner-e2e-3:cx33:running) \
+SHIM_RUNNERS=$(runners) \
+check "three busy E2E runners still leave room for a fourth" \
+    refs/heads/CI-update novatalks.tests \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=e2e-small
+runner_need=true'
+
+SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
+check "runner_size is ignored outside novatalks.tests" \
+    refs/heads/main novatalks.ui \
+    'runner_size=cx33
+runner_name=<generated>
+runner_labels=small
+runner_need=true' \
+    "" "$WORK/dispatch-large.json"
+
 SHIM_SERVERS=$(servers) SHIM_RUNNERS=$(runners) \
 SHIM_PG_GET="{\"placement_groups\":[{\"id\":7,\"labels\":{\"epoch\":\"$(date +%s)\"}}]}" \
 check "waits while another run holds the create lock" \

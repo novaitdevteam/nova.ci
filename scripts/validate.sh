@@ -477,6 +477,19 @@ else
   fail=1
 fi
 
+section "E2E stack masks"
+# stack.sh also runs on a laptop through local.sh, where a bare ::add-mask:: line is not a mask:
+# it is the token, printed. It leaked the lab BotFlow's admin session that way on 2026-09-23.
+# Every mask goes through stack.sh's mask(), which only prints under GitHub Actions.
+bare_masks="$(grep -n '::add-mask::' .github/actions/e2e-stack/*.sh | grep -v 'mask() {' || true)"
+if [ -z "$bare_masks" ]; then
+  echo "OK: every e2e-stack token is masked through mask()"
+else
+  printf '%s\n' "$bare_masks" | sed 's/^/       /'
+  echo "ERROR: bare ::add-mask:: in e2e-stack; use mask \"\$value\" instead."
+  fail=1
+fi
+
 section "actionlint"
 # actionlint is advisory by default: the repo's workflows carry a large pre-existing
 # backlog of shellcheck-info / expression findings. We surface them but do not fail the

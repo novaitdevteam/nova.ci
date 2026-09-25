@@ -14,7 +14,7 @@ One harness runs every check:
 
 ## Runner script self-check
 
-[`scripts/test-create-runner.sh`](../scripts/test-create-runner.sh) runs `ci-build-create-runner.sh` offline against 27 checks: a `curl` shim on `PATH` answers the Hetzner and GitHub calls from canned JSON, `sleep` is stubbed out, and each scenario asserts the emitted `$GITHUB_OUTPUT`. It touches no network, no credentials and no Hetzner project, and covers reuse, ghost registrations, E2E VMs staying out of the build pool, both caps, the sizing matrix (including the `base_ref`-scoped DAST branch and a missing or unreadable event payload), and all four create-lock outcomes (free, held, stale, API failure).
+[`scripts/test-create-runner.sh`](../scripts/test-create-runner.sh) runs `ci-build-create-runner.sh` offline against 41 checks: a `curl` shim on `PATH` answers the Hetzner and GitHub calls from canned JSON, `sleep` is stubbed out, and each scenario asserts the emitted `$GITHUB_OUTPUT`. It touches no network, no credentials and no Hetzner project, and covers reuse, ghost registrations, both caps, the sizing matrix (including the `base_ref`-scoped DAST branch, `novatalks.tests`'s dispatch-time `runner_size` and its fall-back to the smallest size, the medium floor an ephemeral E2E target raises even when the form asked for small, the isolation of the E2E pool from the build pool in both directions, and a missing or unreadable event payload), and all four create-lock outcomes (free, held, stale, API failure).
 
 Run it alone against any copy of the script:
 

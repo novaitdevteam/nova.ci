@@ -1,0 +1,252 @@
+# Values for rendering the product chart into environment files for the ephemeral E2E
+# stack. Not a deployment: nothing here reaches a cluster. `helm template` turns it into the
+# same ConfigMaps the stand gets, and stack.sh converts each into a --env-file.
+#
+# Rendered against the published chart package (ghcr.io/novaitdevteam/novatalks.charts/
+# novatalks-platform), so these values are the platform chart's own — not nested under a
+# `novatalks:` key the way an umbrella chart's would be.
+#
+# Derived from the stand's own values so the two run the same product (spec D7), with three
+# deliberate differences:
+#   * every password, token and key is the literal below — this repository is public, and an
+#     obviously-fake value is the only kind that can live here. The real credentials the stack
+#     needs (S3) arrive as environment overrides at run time, never from this file.
+#   * project_name is `e2e`, so container names are short and predictable.
+#   * the FQDNs are localhost:18080, the single origin the front proxy serves (spec D15).
+#
+# Regenerate after a chart upgrade rather than hand-editing: the point of rendering is that
+# this file only carries choices, and the chart carries the keys.
+global:
+  project_name: e2e
+  customer_name: dev-e2e-test
+  customer_fqdn: localhost:18080
+  customer_fqdn_int: localhost:18080
+  customer_fqdn_ws: localhost:18080
+  createNamespace: 'false'
+  routing:
+    namespace: ingress-gateways
+    internalTlsSecretName: e2e-ephemeral-not-a-real-secret
+  dnsProvider:
+    default:
+      enabled: 'true'
+    cloudflare:
+      enabled: 'false'
+  serviceMonitor:
+    enabled: 'false'
+  gatus:
+    enabled: 'false'
+  securityContext:
+    enabled: 'false'
+  noderedSwaggerStats:
+    enabled: 'true'
+  getFlowsJob: 'false'
+  maintenance:
+    enabled: 'false'
+  auth:
+    jwt:
+      value: e2e-ephemeral-not-a-real-secret
+  nats:
+    manageClientTlsSecret: e2e-ephemeral-not-a-real-secret
+  nodeBind:
+    node0: dev-01-k3sa01d.dev.novait.local
+    node1: dev-01-k3sa02d.dev.novait.local
+    node2: dev-01-k3sa01d.dev.novait.local
+    node3: dev-01-k3sa02d.dev.novait.local
+    node4: dev-01-k3sa01d.dev.novait.local
+    node5: dev-01-k3sa02d.dev.novait.local
+    node6: dev-01-k3sa01d.dev.novait.local
+    node7: dev-01-k3sa02d.dev.novait.local
+  nodePool:
+    labelKey: e2e-ephemeral-not-a-real-secret
+    labelValues: []
+  topologySpread:
+    enabled: 'false'
+  datastore:
+    postgres:
+      is_set: 'true'
+      type: longhorn
+      size: 10Gi
+      access: ReadWriteOnce
+    redis:
+      is_set: 'true'
+      type: longhorn
+      size: 512Mi
+      access: ReadWriteOnce
+    botflow:
+      is_set: 'false'
+      type: longhorn
+      size: 512Mi
+      access: ReadWriteOnce
+    static:
+      is_set: 'false'
+  tests:
+    smoke:
+      enabled: 'true'
+      image: busybox:1.36.1
+      imagePullPolicy: IfNotPresent
+  lokiLogs: ''
+secrets:
+  sealed: 'false'
+  db:
+    pass: e2e-ephemeral-not-a-real-secret
+  redis:
+    pass: ''
+  botflow:
+    # Node-RED's adminAuth compares with bcrypt, so these have to be real hashes or every
+    # login fails and /redbot/auth/token answers 401 for the life of the container — which
+    # is the suite's very first call in global-setup.ts, and how the flows get deployed.
+    # Both are hashes of the same fixed, obviously-fake password used everywhere in this
+    # file: e2e-ephemeral-not-a-real-secret. Publishing them is not a leak in any useful
+    # sense — the container they admit you to lives for one run, on the loopback interface
+    # of a single-tenant VM, and is deleted with it. The plaintext stays visible on purpose:
+    # a hash whose password nobody can see reads like a real credential to the next person.
+    admin:
+      username: support@novatalks.ai
+      password: $2b$08$./y7M9udtdtTvGOsIKbEWuwXAo8g0XiJixZWc1YlmyJ23ZO2mG1Uq
+    user:
+      username: presales@novait.com.ua
+      password: $2b$08$bfcoWLYzPmr6YdkW6jvZzOG4MWFNKRSPKLRf8Y8aBDOv/KwRC9Ioa
+    tokens: {}
+  engine:
+    env:
+      # Obviously fake, and compliant with the engine's DEFAULT_PASSWORD_POLICY: at least 8
+      # characters with an upper, a lower, a digit and a special. The suite hands this same
+      # password to every agent it creates (ui/fixtures/models/user.ts), and the plain
+      # placeholder used everywhere else in this file has no uppercase — so POST
+      # /accounts/1/agents answered 422 password_policy_violation and the test blamed the
+      # product for an input. Same shape as the @local admin address in CLAUDE.md.
+      DEFAULT_USER_PASSWORD: E2e-Ephemeral-Not-A-Real-Secret-1!
+    firebaseData: {}
+  objectStorage:
+    Endpoint: https://s3.example.invalid
+    AccessKeyID: e2e-ephemeral-not-a-real-secret
+    AccessKey: e2e-ephemeral-not-a-real-secret
+    CF_API_TOKEN: ''
+    CA: ''
+  objectStorageBackup:
+    Endpoint: https://s3.example.invalid
+    AccessKeyID: e2e-ephemeral-not-a-real-secret
+    AccessKey: e2e-ephemeral-not-a-real-secret
+    BackupRegion: eeur
+    CA: ''
+objectStorage:
+  manageBucket: 'false'
+  bucketName: ntk-dev-e2e-test
+  bucketRegion: eeur
+  publicUrl: https://ntk-dev-e2e-test.novatalks.xyz
+postgres:
+  cnpgCluster: 'false'
+  image: postgres:17
+  replica: 1
+  sizing: small
+  jobType: cron
+  jobToS3: 'true'
+  jobReindexSchedule: 30 5 * * *
+  partitioningBootstrap:
+    enabled: 'false'
+redis:
+  sizing: small
+  jobType: cron
+  jobBackupSchedule: 30 4 * * *
+ui:
+  replica: 1
+  sizing: small
+  probes: 'true'
+  resources:
+    small:
+      cpu: 500m
+      memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+engine:
+  replica: 1
+  probes: 'true'
+  sizing: medium
+  # Campaigns need a JetStream consumer, and this flag is what makes the chart render the
+  # keys that build one — NATS_DURABLE, NATS_DELIVER_TO, NATS_SUBJECTS. Turning the feature
+  # on without it (an -e on the container, which is how this was first tried) leaves the
+  # engine building a consumer out of undefined, and it never reaches app.listen(). The
+  # server address is the one thing stack.sh overrides, like every other host and port.
+  nats:
+    enabled: 'true'
+    tls: 'false'
+botflow:
+  replica: 1
+  probes: 'false'
+  sizing: large
+  resources:
+    large:
+      cpu: '1'
+      memory: 1536Mi
+      requests:
+        cpu: 200m
+        memory: 640Mi
+telegram_client:
+  enabled: 'false'
+whatsapp_client:
+  enabled: 'false'
+signal_client:
+  enabled: 'false'
+dialer:
+  enabled: 'false'
+reporting_services:
+  enabled: 'false'
+env:
+  ENGINE_ENCRYPTION_SECRET: e2e-ephemeral-not-a-real-secret
+  ENGINE_NODE_ENV: production
+  ENGINE_LOG_LEVEL: debug
+  ENGINE_FRONTEND_URL: https://localhost:18080
+  ENGINE_STORE_URL: https://localhost:18080
+  ENGINE_AUTH_ACTIVE_PROVIDERS: email,ldap
+  # A duration, not a credential — the name ends in TOKEN_EXPIRES_IN and the placeholder
+  # landed here because of it. The lab runs 7d; a run lasts under two hours, so anything
+  # sane works, but a non-duration string does not.
+  ENGINE_AUTH_JWT_TOKEN_EXPIRES_IN: 7d
+  ENGINE_AUTH_LOGOUT_TIMEOUT: '54000000'
+  ENGINE_AUTH_AGENT_INACTIVE_TIMEOUT: '300000'
+  ENGINE_REDIS_DB: '1'
+  ENGINE_THROTTLE_ENABLE: 'false'
+  ENGINE_CSAT_START_MESSAGE_TIME: '1800'
+  ENGINE_MAIL_HOST: maildev
+  ENGINE_MAIL_PORT: '1025'
+  ENGINE_MAIL_CLIENT_PORT: '1080'
+  ENGINE_MAIL_DEFAULT_EMAIL: noreply@example.com
+  ENGINE_MAIL_DEFAULT_NAME: Api
+  ENGINE_MAIL_IGNORE_TLS: 'true'
+  ENGINE_MAIL_REQUIRE_TLS: 'false'
+  ENGINE_MAIL_SECURE: 'false'
+  ENGINE_APPLICATION_CAMPAIGN_ENABLE: 'true'
+  ENGINE_NATS_SERVERS: 127.0.0.1:4222
+  ENGINE_AWS_S3_BUCKET: ntk-dev-e2e-test
+  ENGINE_AWS_S3_PUBLIC_URL: https://ntk-dev-e2e-test.novatalks.xyz
+  ENGINE_AWS_S3_REGION: eeur
+  ENGINE_AWS_S3_FORCE_PATH_STYLE: 'true'
+  UI_VITE_APP_INFO_PANEL_TECH_SUPPORT_URL: https://localhost:18080/app/accounts/1/profile/settings
+  UI_VITE_APP_WEBSOCKET_URL: https://localhost:18080
+  UI_VITE_APP_VAPID_PUBLIC_KEY: e2e-ephemeral-not-a-real-secret
+  UI_VITE_APP_CONVERSATION_LIST_LIMIT: '50'
+  UI_VITE_APP_PINNED_MESSAGES_LIMIT: '150'
+  UI_VITE_APP_PRESENCE_INTERVAL: '10000'
+  UI_VITE_APP_REFRESH_REPORT_INTERVAL: '30000'
+  UI_VITE_APP_ACTIVITY_TIME_STYLE: 'true'
+  UI_VITE_APP_IMPORT_CONTACTS: 'true'
+  UI_VITE_APP_DELETE_CONTACT: 'false'
+  UI_VITE_APP_MESSAGE_DYNAMIC_TIME: 'false'
+  UI_NODE_TLS_REJECT_UNAUTHORIZED: '0'
+  # Two different tokens, as on the lab, and deliberately not the same string: BotFlow
+  # presents the first as the agent bot and the second from the NovaTalks connector, and
+  # while both held the identical placeholder the connector authenticated against the agent
+  # bot's row by coincidence. A coincidence that works is worse than a fault that shows.
+  BF_NOVATALKS_BOTAGENT_TOKEN: e2e-ephemeral-botagent-not-a-real-secret
+  BF_NOVATALKS_ENGINE_TOKEN: e2e-ephemeral-engine-not-a-real-secret
+  BF_NODE_RED_CREDENTIAL_SECRET: e2e-ephemeral-not-a-real-secret
+  BF_CONFIG_STORAGE_TYPE: redis
+  BF_MULTINODE_SYNC: 'true'
+  BF_MESSAGE_ID_PREFIX: ntid
+  BF_MESSAGE_ID_EX_TIME: '604800'
+  BF_WHATSAPP_MAX_UNREAD_CHATS: '3'
+  BF_WHATSAPP_MAX_UNREAD_CHATS_DELAY: '60000'
+  BF_TELEGRAM_CHANNEL_1_WEBHOOK: https://localhost:18080/redbot/telegram/1
+  BF_VIBER_CHANNEL_1_WEBHOOK: https://localhost:18080/redbot/viber/1
+  BF_FB_MESSENGER_CHANNEL_1_WEBHOOK: https://localhost:18080/redbot/messenger/channel-messenger/1
