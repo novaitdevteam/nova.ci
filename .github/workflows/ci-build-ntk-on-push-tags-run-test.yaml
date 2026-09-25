@@ -124,6 +124,9 @@ jobs:
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7
+        # A full organisation-wide artifact quota must not red a test run: the job's result is
+        # the tests', and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         if: ${{ !cancelled() }}
         id: report
         with:
@@ -277,6 +280,9 @@ jobs:
 
       - name: Save Artifact
         uses: actions/upload-artifact@v7
+        # A full organisation-wide artifact quota must not red a test run: the job's result is
+        # the tests', and the failed upload stays visible as this step's annotation.
+        continue-on-error: true
         if: ${{ !cancelled() }}
         id: report
         with:
@@ -323,11 +329,11 @@ jobs:
           lines=""
           if [[ "${UNIT_RESULT:-}" != "skipped" ]]; then
             lines="${lines}🧪 Unit: $(label "${UNIT_RESULT:-}") — ${UNIT_SUMMARY:-n/a}"$'\n'
-            lines="${lines}   ▶️ Report: ${UNIT_URL:-}"$'\n\n'
+            lines="${lines}   ▶️ Report: ${UNIT_URL:-not stored, see the run}"$'\n\n'
           fi
           if [[ "${INT_RESULT:-}" != "skipped" ]]; then
             lines="${lines}🧩 Integration: $(label "${INT_RESULT:-}") — ${INT_SUMMARY:-n/a}"$'\n'
-            lines="${lines}   ▶️ Report: ${INT_URL:-}"$'\n\n'
+            lines="${lines}   ▶️ Report: ${INT_URL:-not stored, see the run}"$'\n\n'
           fi
           {
             echo "value<<EOF"
