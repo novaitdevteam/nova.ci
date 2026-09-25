@@ -68,7 +68,7 @@ one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 | Comes from | whatever is deployed there | the release builds the lab runs, unless the form names another tag for an image; a chart version |
 | Runs at a time | one — a lease on the stand's own reset service, behind a `concurrency` group on `env_url` | as many as the pool allows; the group keys on the run id |
 | State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
-| Campaigns | cannot run: the engine awaits NATS at boot and the lab has none | run, because the stack brings its own NATS and dialer |
+| Campaigns | run: since 2026-09-21 the lab's engine has a user on the cluster's NATS (`values.nats.yaml` in the lab's values, copied from `lab-evo` — those values are gitignored in `novatalks.charts`, so this lives only in a working copy and the Helm release, not in version control) | run, because the stack brings its own NATS and dialer |
 | Costs | a `drop` when asked for one (121 s, run 36062984485) | 139 s of bring-up (run 36062979251), on an `e2e-medium` runner |
 
 One lab run at a time is held by the stand, not only by the workflow. The `concurrency` group
@@ -109,14 +109,16 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 
 | Input | Empty means |
 | --- | --- |
+| `target` | `lab`. `ephemeral` boots the stack on the runner and needs `reset_stand: off` |
+| `engine_tag`, `ui_tag`, `botflow_tag`, `dialer_tag` | the release build. Ephemeral only — a lab run with any of them set is refused before anything else runs (`Refuse image tags for a stand that runs its own`, the third step) |
 | `tests_ref` | the branch picked in "Use workflow from" |
 | `test_tags` | all tests. Otherwise Playwright tags, `@smoke` or `@smoke + @regression` (each ` + ` becomes a `--grep` alternative) |
 | `env_url` | required — the stand's base URL |
 | `botflow_url` | required — base URL + adminPath, e.g. `…/redbot` |
 | `exclude_tags` | skip nothing. Otherwise tags to leave out, `@campaigns`, applied as `--grep-invert` |
-| `workers` | two. One Node-RED channel slot per worker; the slots are reconciled against the stand at run start, so a worker count with no slot yet gets one |
+| `workers` | two by default; every measurement on this page is at four, the working setting. One Node-RED channel slot per worker; the slots are reconciled against the stand at run start, so a worker count with no slot yet gets one |
 | `runner_size` | `small`. `medium`/`large` exist for measuring — see the table below for why routine runs stay on `small` |
-| `reset_stand` | `prune` — the run deletes what earlier runs left, through the Engine API, before it starts. `deep` also calls the stand's own SQL reset for the residue the API cannot touch. `off` keeps everything, for investigating a failure |
+| `reset_stand` | `prune` — the run deletes what earlier runs left, through the Engine API, before it starts. `deep` also calls the stand's own SQL reset for the residue the API cannot touch. `drop` recreates both databases (about two minutes, the stand unusable meanwhile). `off` keeps everything, for investigating a failure, and is the only value `ephemeral` accepts |
 | `report_base_url` | no link in the notification; otherwise the public base of the report bucket |
 | `suite_timeout_minutes` | 120, which leaves room for the slowest legitimate run — the `@e2e` regression takes about 40 minutes at four workers (it took 75 before the flake fixes of 2026-09-24). Lower it for a smoke run |
 
@@ -129,15 +131,17 @@ down, where a job timeout cancels everything and leaves much less to read. Playw
 own `globalTimeout` on CI, set slightly under the step, so the usual outcome is a report that
 says where the run stopped.
 
-Without them the default is GitHub's six hours. The E2E pool holds two runners, so one hung
-run halves it: run 35583263280 sat in the suite step for 90 minutes and every E2E run queued
+Without them the default is GitHub's six hours. The E2E pool held two runners then (four since
+2026-09-21), so one hung run halved it: run 35583263280 sat in the suite step for 90 minutes and every E2E run queued
 behind it. The gap that produced it is worth knowing — `globalSetup` (the Node-RED token, the
 prune, the slot reconcile) is covered by no per-test timeout at all, so a request there that
 never returns hangs a run with nothing else to stop it.
 
 The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 
-One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs. The email-channel specs (`QANT-02`–`05`, `56`–`59`) send their inbound letter through Mailgun, so its key and domain are passed as well (`E2E_MAILGUN_API_KEY`, `E2E_MAILGUN_DOMAIN`). Without them the client throws `Parameter "key" is required` before anything is sent, and all eight fail at their first step. Those secrets serve the lab only.
+One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs. The email-channel specs (`QANT-02`–`05`, `56`–`59`) send their inbound letter through Mailgun, so its key and domain are passed as well (`E2E_MAILGUN_API_KEY`, `E2E_MAILGUN_DOMAIN`). Without them the client throws `Parameter "key" is required` before anything is sent, and all eight fail at their first step. Those secrets are the fallback: a lab whose reset service has the `/mail` routes uses its own mail server instead (below), and the workflow keeps this external path, with a warning, only on a stand where `/mail/read` answers 404 or 501.
+
+**The lab has its own mail server too.** GreenMail runs in the lab's namespace (`novatalks.tests/tools/mail`), both engine mailers point at it through the lab's values, and the suite reaches it through the reset service's `/mail/append`, `/mail/read` and `/mail/clear` routes, because the cluster serves no IMAP from outside. The workflow's `Point the suite at the lab's mail server` step turns this on once `/mail/read` answers 200. QA's ukr.net mailbox is not touched.
 
 **On the ephemeral target no letter leaves the machine.** The stack runs its own mail server
 (GreenMail: SMTP and IMAP, any address, any password), points both of the engine's mailers at it,
@@ -208,7 +212,7 @@ at one worker on a stack nothing else was touching: that was the account setting
 fixed 10-second sleep in the spec racing a 20-second `wrapup_timeout`. Four workers had been
 *hiding* it — another worker's traffic was the event that drained the queue.
 
-Two conclusions, both measured rather than preferred. **A bigger VM buys nothing**: doubling the cores halved the load and moved the regression's wall time by zero, because that time is spent waiting on the application and on fixed timeouts (30 s per click, 60 s per `expect`, 360 s per test), not on CPU. And **more workers cost stability faster than they buy time**: 4 → 8 workers on the smoke suite saved 1.5 minutes and turned five passing tests into one, because the suite shares one account and its `afterEach` cleanups delete entities belonging to whichever worker is running alongside. Four workers on `small` is the working setting until that isolation is fixed; the per-worker channel slots, generated on demand against the stand, are the other ceiling.
+Two conclusions, both measured rather than preferred. **A bigger VM buys nothing**: doubling the cores halved the load and moved the regression's wall time by zero, because that time is spent waiting on the application and on fixed timeouts (30 s per click, 60 s per `expect`, 360 s per test), not on CPU. And **more workers cost stability faster than they buy time**: 4 → 8 workers on the smoke suite saved 1.5 minutes and turned five passing tests into one, because the suite shares one account and its `afterEach` cleanups delete entities belonging to whichever worker is running alongside. Four workers on `small` is the working setting until that isolation is fixed; the per-worker channel slots, generated on demand against the stand, are the other ceiling. Part of it has been fixed since (below); the 4 → 8 measurement predates that and has not been repeated.
 
 **The full regression on both targets, 2026-09-24/25** — `@e2e`, four workers, every run a CI run:
 
@@ -220,15 +224,57 @@ Two conclusions, both measured rather than preferred. **A bigger VM buys nothing
 | 36046595792 | lab | 404 | 4 | 0 | 38.6 min | |
 | 36062979251 | ephemeral | 406 | 2 | 0 | 36.8 min | 139 s bring-up |
 | 36062984485 | lab | 403 | 5 | 0 | 39.6 min | 121 s `drop` |
+| 36142473260 | ephemeral | 408 | 0 | 0 | 36.1 min | |
+| 36142478732 | lab | 406 | 2 | 0 | 45.4 min | |
 
-The last pair is the first where both concluded `success` with no test needing a second retry.
-What it says for choosing a target: the two now cost the same — the ephemeral bring-up and the
-lab's `drop` are two minutes each, and the suite runs within three minutes of each other — and
-they are equally stable. What still separates them is not time. The lab runs one suite at a time
+The 36062… pair is the first where both concluded `success` with no test needing a second retry;
+in the 36142… pair, on 2026-09-25 after the fixes described below, the ephemeral run had no flaky
+test at all. The lab's 45 minutes there is one run and has not been looked into.
+What the runs say for choosing a target: setting either up costs the same — the ephemeral
+bring-up and the lab's `drop` are two minutes each — and the suite takes 36–45 minutes on either;
+the lab has been the slower and the one with the odd flaky test (0 flaky on the last two ephemeral
+runs, 1–2 on the lab), mostly from things it shares, such as its mail server and chatbots. What still separates them is not time. The lab runs one suite at a time
 and keeps its state for somebody to look at afterwards; the ephemeral stack runs as many as the
 pool allows, shares nothing, and can boot a build that is not on the lab yet. `lab` stays the
-default — the owner's decision on 2026-09-25, taken on these numbers — and `ephemeral` is chosen
+default — the owner's decision on 2026-09-25, taken on the 36062… numbers, when the two were within three minutes of each other — and `ephemeral` is chosen
 on the form when a run needs one of those.
+
+**What the flakiness was.** Between 2026-09-18 (343 passed, 14 flaky, 28 failed) and the table
+above, almost nothing that was fixed turned out to be the product being unstable. Three classes,
+each of which had been read as "flaky" until its cause was found:
+
+- **Workers sharing one thing.** The engine keeps one session per device type, so parallel
+  workers signing in as the one seeded admin signed each other out — now one admin per worker.
+  Cleanups deleted every entity of a kind rather than their own (QANT-21 every agent,
+  `removeEmailInboxes` every email inbox) — now scoped to what the spec created. And specs that
+  need a shared collection to hold still (canned responses, labels, account settings and
+  language, the inbox count, custom attributes, the shared chatbot 2, the email inboxes) now run
+  one at a time in their own Playwright projects (`workers: 1`) alongside everything else.
+  `fullyParallel: false`, which the old "serial" projects relied on, only orders the tests
+  inside one file; different files still ran at once.
+- **The stand missing a service**, read as a failing spec: no mail server of its own (ukr.net
+  answering Mailgun with `421`, no system SMTP password), no PrivateBin, no GeoIP, automatic
+  assignment off. Each is now part of both targets, as described above.
+- **The UI answering a click it was not ready for.** Most were fixed in the suite by waiting for
+  the request or the render the click depends on; the rest are product bugs, below.
+
+**Product bugs the suite leaves visible.** Five, confirmed in the product's own code. By the
+owner's decision on 2026-09-25, the three "clicked too soon" races are waited out the way a
+person would, and the two stale-event bugs are **left unmasked**: a spec that flakes on them is
+reporting a real fault, and a retry or a wait around it would hide it from the people who can fix
+it. They are the reason a green run can still show one or two flaky tests.
+
+| Bug | Where | Seen as | Suite |
+| --- | --- | --- | --- |
+| Conversation events applied in arrival order: every `status_changed` / `assignee.changed` snapshot is spread over the stored conversation with no ordering check, so an older snapshot arriving last wins | `novatalks.ui` `src/store/conversations/mutations.js`, `UPDATE_CONVERSATION` | assignee still shown after Resolve (QANT-03, 63, 73) | unmasked |
+| The same event rewrites the contact from its `meta.sender` | `novatalks.ui` `src/store/conversations/actions.js`, `updateConversation` | a deleted contact attribute comes back (QANT-54) | unmasked |
+| After a reload the account id is set only after `accounts/get` returns, so sidebar links are built with `null` | `novatalks.ui` `src/router/dashboard/Dashboard.vue`, `initializeAccount()` | a request to `/api/v1/accounts/null/...` answering `400` (QANT-52) | waits for the sidebar to know its account |
+| A list's Active and Deleted tabs each fetch, and the store keeps whichever answer lands last | `novatalks.ui` `src/store/inboxes/actions.js`, `GetInboxes` | a tab showing the other tab's rows (QANT-84, 86, 96, 100) | waits for the page's requests to finish |
+| An offer is announced before the engine has stored it, so an accept inside the gap is refused | `novatalks.core` `conversation.service.ts` (`…substatus is not alerting`) | `403` and a card spinning for good (QANT-65, 76) | accepts a second after the offer shows, once more on a fresh page |
+
+The fix for the first two is an `updated_at` (or sequence) comparison in the UI, or snapshots
+built after commit in the engine; for the third, setting the id from the path before the fetch
+— it is already known.
 
 The run needs seven environment variables for the stand itself — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
 
@@ -238,7 +284,7 @@ Pruning happens **before** the suite, never after. A cancelled or crashed run ne
 
 The workflow used to restore the lab database from an R2 dump, reload Redis and restart the engine before running. Those steps were removed on 2026-09-17: they reached the cluster from an in-cluster runner, that runner track is retired, and Hetzner runners have no route into k3s. Seeding the stand is now the stand's own business. Two rules survive from that era: never `FLUSHALL` the stand's Redis (DB 15 holds `nr:flows`, the chatbot logic, which no Postgres dump contains), and runs against one stand stay serialized — the `concurrency` group keys on `env_url`, because concurrent runs create and delete each other's entities.
 
-The notification reports the tests' own result, the stand, the branch and commit that ran, the tags and who dispatched it.
+The notification reports the tests' own result, the report link (or `not published, see the run`), a link to the run attempt itself, the stand — the lab's URL, or `ephemeral stack` — and, for an ephemeral run, the tag given on the form for each of the four images, or `release` for the release build written in the bring-up step, then the branch and commit that ran, the tags and who dispatched it. `env_url` alone could not say which target ran: it holds the lab's address on an ephemeral run too, and two notifications that differed only in their run could not be told apart.
 
 ## Reading failures
 
