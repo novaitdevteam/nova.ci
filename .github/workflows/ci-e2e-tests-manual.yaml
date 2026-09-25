@@ -95,7 +95,7 @@ on:
         type: string
         default: ""
       suite_timeout_minutes:
-        # A hung suite parks one of the two E2E runners, and with no timeout at all it does
+        # A hung suite parks one of the E2E pool's four runners, and with no timeout at all it does
         # that for GitHub's default of six hours: run 35583263280 sat in Run Playwright Tests
         # for 90 minutes and queued every E2E run behind it. The @e2e regression measured
         # 1.2 h on 2026-09-18, so 120 leaves room for the slowest legitimate run; a smoke run
@@ -149,6 +149,23 @@ jobs:
         if: ${{ inputs.target != 'ephemeral' && format('{0}{1}{2}{3}', inputs.engine_tag, inputs.ui_tag, inputs.botflow_tag, inputs.dialer_tag) != '' }}
         run: |
           echo "::error::image tags only apply to target: ephemeral — the lab runs the builds deployed on it. Clear the tag fields or choose ephemeral."
+          exit 1
+
+      - name: Refuse a stand reset for a stack that has no stand
+        # Spec D14. The database is new, so there is nothing to prune — but silently ignoring
+        # an input somebody set on the form is how a run ends up not doing what it was asked.
+        # First, before anything touches a stand: it used to sit after the lab's deep and drop
+        # steps, so an ephemeral run with reset_stand: drop rebuilt the lab and only then failed.
+        if: ${{ inputs.target == 'ephemeral' && inputs.reset_stand != 'off' }}
+        env:
+          RESET_STAND: ${{ inputs.reset_stand }}
+          # The same number that bounds the step, so Playwright stops first and still writes
+          # a report. They used to disagree — the config's own 110 minutes cut a run off at
+          # 264 of 418 tests while the step was allowed 120, and the 154 that never ran were
+          # reported as a suite result rather than as a budget.
+          SUITE_TIMEOUT_MINUTES: ${{ inputs.suite_timeout_minutes }}
+        run: |
+          echo "::error::reset_stand=${RESET_STAND} has no meaning for target: ephemeral — the stack is created for this run. Set reset_stand to off."
           exit 1
 
       - name: 💿 Setup NODEJS
@@ -238,7 +255,7 @@ jobs:
       # never be cleared through the API. The stand answers one route for that, on its
       # own host under /stand-reset, taking no parameters: there is nothing to aim.
       - name: Reset the stand
-        if: ${{ inputs.reset_stand == 'deep' }}
+        if: ${{ inputs.target != 'ephemeral' && inputs.reset_stand == 'deep' }}
         working-directory: ./
         env:
           RESET_URL: ${{ secrets.E2E_RESET_URL }}
@@ -263,7 +280,7 @@ jobs:
       # The body names the stand. A token can be pasted from a secret by a job that meant to
       # prune; a name cannot be supplied by accident, and the service refuses anything else.
       - name: Drop and rebuild the stand
-        if: ${{ inputs.reset_stand == 'drop' }}
+        if: ${{ inputs.target != 'ephemeral' && inputs.reset_stand == 'drop' }}
         working-directory: ./
         env:
           RESET_URL: ${{ secrets.E2E_RESET_URL }}
@@ -359,21 +376,6 @@ jobs:
             exit 1
           fi
           printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-
-      - name: Refuse a stand reset for a stack that has no stand
-        # Spec D14. The database is new, so there is nothing to prune — but silently ignoring
-        # an input somebody set on the form is how a run ends up not doing what it was asked.
-        if: ${{ inputs.target == 'ephemeral' && inputs.reset_stand != 'off' }}
-        env:
-          RESET_STAND: ${{ inputs.reset_stand }}
-          # The same number that bounds the step, so Playwright stops first and still writes
-          # a report. They used to disagree — the config's own 110 minutes cut a run off at
-          # 264 of 418 tests while the step was allowed 120, and the 154 that never ran were
-          # reported as a suite result rather than as a budget.
-          SUITE_TIMEOUT_MINUTES: ${{ inputs.suite_timeout_minutes }}
-        run: |
-          echo "::error::reset_stand=${RESET_STAND} has no meaning for target: ephemeral — the stack is created for this run. Set reset_stand to off."
-          exit 1
 
       - name: Bring the ephemeral stack up
         if: ${{ inputs.target == 'ephemeral' }}

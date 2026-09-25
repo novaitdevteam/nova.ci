@@ -68,7 +68,7 @@ one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 | Comes from | whatever is deployed there | the release builds the lab runs, unless the form names another tag for an image; a chart version |
 | Runs at a time | one — a lease on the stand's own reset service, behind a `concurrency` group on `env_url` | as many as the pool allows; the group keys on the run id |
 | State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
-| Campaigns | run: since 2026-09-21 the lab's engine has a user on the cluster's NATS (`values.nats.yaml` in the lab's gitignored values, copied from `lab-evo`) | run, because the stack brings its own NATS and dialer |
+| Campaigns | run: since 2026-09-21 the lab's engine has a user on the cluster's NATS (`values.nats.yaml` in the lab's values, copied from `lab-evo` — those values are gitignored in `novatalks.charts`, so this lives only in a working copy and the Helm release, not in version control) | run, because the stack brings its own NATS and dialer |
 | Costs | a `drop` when asked for one (121 s, run 36062984485) | 139 s of bring-up (run 36062979251), on an `e2e-medium` runner |
 
 One lab run at a time is held by the stand, not only by the workflow. The `concurrency` group
@@ -110,13 +110,13 @@ It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigg
 | Input | Empty means |
 | --- | --- |
 | `target` | `lab`. `ephemeral` boots the stack on the runner and needs `reset_stand: off` |
-| `engine_tag`, `ui_tag`, `botflow_tag`, `dialer_tag` | the release build. Ephemeral only — a lab run with any of them set fails at its first step |
+| `engine_tag`, `ui_tag`, `botflow_tag`, `dialer_tag` | the release build. Ephemeral only — a lab run with any of them set is refused before anything else runs (`Refuse image tags for a stand that runs its own`, the third step) |
 | `tests_ref` | the branch picked in "Use workflow from" |
 | `test_tags` | all tests. Otherwise Playwright tags, `@smoke` or `@smoke + @regression` (each ` + ` becomes a `--grep` alternative) |
 | `env_url` | required — the stand's base URL |
 | `botflow_url` | required — base URL + adminPath, e.g. `…/redbot` |
 | `exclude_tags` | skip nothing. Otherwise tags to leave out, `@campaigns`, applied as `--grep-invert` |
-| `workers` | two. One Node-RED channel slot per worker; the slots are reconciled against the stand at run start, so a worker count with no slot yet gets one |
+| `workers` | two by default; every measurement on this page is at four, the working setting. One Node-RED channel slot per worker; the slots are reconciled against the stand at run start, so a worker count with no slot yet gets one |
 | `runner_size` | `small`. `medium`/`large` exist for measuring — see the table below for why routine runs stay on `small` |
 | `reset_stand` | `prune` — the run deletes what earlier runs left, through the Engine API, before it starts. `deep` also calls the stand's own SQL reset for the residue the API cannot touch. `drop` recreates both databases (about two minutes, the stand unusable meanwhile). `off` keeps everything, for investigating a failure, and is the only value `ephemeral` accepts |
 | `report_base_url` | no link in the notification; otherwise the public base of the report bucket |
@@ -139,7 +139,9 @@ never returns hangs a run with nothing else to stop it.
 
 The two URLs are **inputs, not secrets**: they are public, and keeping them in the form is what lets the same workflow point at another stand. Only the four credentials and the API token are secrets, and they are named `E2E_*` rather than after any one stand.
 
-One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs. The email-channel specs (`QANT-02`–`05`, `56`–`59`) send their inbound letter through Mailgun, so its key and domain are passed as well (`E2E_MAILGUN_API_KEY`, `E2E_MAILGUN_DOMAIN`). Without them the client throws `Parameter "key" is required` before anything is sent, and all eight fail at their first step. Those secrets serve the lab only.
+One spec (`QANT-21`) waits for an invitation mail, so the mailbox it reads over IMAP is passed too (`E2E_IMAP_*`, `E2E_TEST_EMAIL_ADDRESS`) — a real account's password, hence secrets rather than inputs. The email-channel specs (`QANT-02`–`05`, `56`–`59`) send their inbound letter through Mailgun, so its key and domain are passed as well (`E2E_MAILGUN_API_KEY`, `E2E_MAILGUN_DOMAIN`). Without them the client throws `Parameter "key" is required` before anything is sent, and all eight fail at their first step. Those secrets are the fallback: a lab whose reset service has the `/mail` routes uses its own mail server instead (below), and the workflow keeps this external path, with a warning, only on a stand where `/mail/read` answers 404 or 501.
+
+**The lab has its own mail server too.** GreenMail runs in the lab's namespace (`novatalks.tests/tools/mail`), both engine mailers point at it through the lab's values, and the suite reaches it through the reset service's `/mail/append`, `/mail/read` and `/mail/clear` routes, because the cluster serves no IMAP from outside. The workflow's `Point the suite at the lab's mail server` step turns this on once `/mail/read` answers 200. QA's ukr.net mailbox is not touched.
 
 **On the ephemeral target no letter leaves the machine.** The stack runs its own mail server
 (GreenMail: SMTP and IMAP, any address, any password), points both of the engine's mailers at it,
@@ -228,12 +230,13 @@ Two conclusions, both measured rather than preferred. **A bigger VM buys nothing
 The 36062… pair is the first where both concluded `success` with no test needing a second retry;
 in the 36142… pair, on 2026-09-25 after the fixes described below, the ephemeral run had no flaky
 test at all. The lab's 45 minutes there is one run and has not been looked into.
-What the 36062… pair says for choosing a target: the two now cost the same — the ephemeral bring-up and the
-lab's `drop` are two minutes each, and the suite runs within three minutes of each other — and
-they are equally stable. What still separates them is not time. The lab runs one suite at a time
+What the runs say for choosing a target: setting either up costs the same — the ephemeral
+bring-up and the lab's `drop` are two minutes each — and the suite takes 36–45 minutes on either;
+the lab has been the slower and the one with the odd flaky test (0 flaky on the last two ephemeral
+runs, 1–2 on the lab), mostly from things it shares, such as its mail server and chatbots. What still separates them is not time. The lab runs one suite at a time
 and keeps its state for somebody to look at afterwards; the ephemeral stack runs as many as the
 pool allows, shares nothing, and can boot a build that is not on the lab yet. `lab` stays the
-default — the owner's decision on 2026-09-25, taken on these numbers — and `ephemeral` is chosen
+default — the owner's decision on 2026-09-25, taken on the 36062… numbers, when the two were within three minutes of each other — and `ephemeral` is chosen
 on the form when a run needs one of those.
 
 **What the flakiness was.** Between 2026-09-18 (343 passed, 14 flaky, 28 failed) and the table
@@ -281,7 +284,7 @@ Pruning happens **before** the suite, never after. A cancelled or crashed run ne
 
 The workflow used to restore the lab database from an R2 dump, reload Redis and restart the engine before running. Those steps were removed on 2026-09-17: they reached the cluster from an in-cluster runner, that runner track is retired, and Hetzner runners have no route into k3s. Seeding the stand is now the stand's own business. Two rules survive from that era: never `FLUSHALL` the stand's Redis (DB 15 holds `nr:flows`, the chatbot logic, which no Postgres dump contains), and runs against one stand stay serialized — the `concurrency` group keys on `env_url`, because concurrent runs create and delete each other's entities.
 
-The notification reports the tests' own result, the report link (or `not published, see the run`), a link to the run attempt itself, the stand — the lab's URL, or `ephemeral stack` — and, for an ephemeral run, which build of each of the four images it booted, then the branch and commit that ran, the tags and who dispatched it. `env_url` alone could not say which target ran: it holds the lab's address on an ephemeral run too, and two notifications that differed only in their run could not be told apart.
+The notification reports the tests' own result, the report link (or `not published, see the run`), a link to the run attempt itself, the stand — the lab's URL, or `ephemeral stack` — and, for an ephemeral run, the tag given on the form for each of the four images, or `release` for the release build written in the bring-up step, then the branch and commit that ran, the tags and who dispatched it. `env_url` alone could not say which target ran: it holds the lab's address on an ephemeral run too, and two notifications that differed only in their run could not be told apart.
 
 ## Reading failures
 
