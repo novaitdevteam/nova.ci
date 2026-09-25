@@ -740,6 +740,7 @@ jobs:
             👷 Tests triggered manually have been completed ✅
 
             ▶️ Web View Report: ${{ needs.build-tests.outputs.REPORT_PUBLISHED == 'true' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published, see the run' }}
+            ▶️ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
 
             Repository: ${{ github.repository }}
             Stand: ${{ inputs.target == 'ephemeral' && 'ephemeral stack, booted and destroyed by this run' || inputs.env_url }}
@@ -751,6 +752,7 @@ jobs:
             👷 Tests triggered manually have been failed
 
             ▶️ Web View Report: ${{ needs.build-tests.outputs.REPORT_PUBLISHED == 'true' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published, see the run' }}
+            ▶️ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
 
             Repository: ${{ github.repository }}
             Stand: ${{ inputs.target == 'ephemeral' && 'ephemeral stack, booted and destroyed by this run' || inputs.env_url }}
