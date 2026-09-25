@@ -126,8 +126,7 @@ jobs:
     outputs:
       TESTS_REF: ${{ steps.prep.outputs.TESTS_REF }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
-      REPORT: ${{ steps.report.outputs.artifact-url }}
-      REPORT_ID: ${{ steps.report.outputs.artifact-id }}
+      REPORT_PUBLISHED: ${{ steps.publish.outcome == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -684,57 +683,30 @@ jobs:
             || echo "::warning::could not release the stand; its lease runs out on its own"
           echo
 
-      - name: Save Artifact
-        uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() }}
-        id: report
-        with:
-          name: playwright-report
-          path: playwright-reports/playwright-report/
-          # One day: a report carries a ~20 MB trace per retried test, and the storage quota is the
-          # organisation's, so it is shared with every product build. On 2026-09-24 three days of
-          # E2E reports (6.3 GB) filled it and two green runs went red on this upload.
-          retention-days: 1
-        # The artifact only carries the report to the publish job; it is not the tests' result.
-        # Three runs with no failed test went red on 2026-09-24 because the quota was full, and a
-        # red that means "the report store is full" is a red nobody can act on in the suite.
-        continue-on-error: true
-
-      - name: Say the report was not stored
-        if: ${{ !cancelled() && steps.report.outcome == 'failure' }}
-        run: echo "::warning::the report could not be uploaded (see Save Artifact; usually the organisation's artifact quota) — the test result stands, but this run has no report"
-
-  publish-report-r2:
-    name: Publish HTML Report
-    # Nothing to publish when the upload above failed.
-    if: ${{ always() && needs.build-tests.outputs.REPORT != '' }}
-    needs: [build-tests]
-    runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    continue-on-error: true
-    outputs:
-      ARTIFACT_DELETED: ${{ steps.drop.outcome == 'success' }}
-    env:
-      HTML_REPORT_URL_PATH: reports/manual/${{ github.run_id }}/${{ github.run_attempt }}
-    steps:
-      - name: Download zipped HTML report
-        uses: actions/download-artifact@v8
-        with:
-          name: playwright-report
-          path: ${{ env.HTML_REPORT_URL_PATH }}
-
+      # The report goes straight to R2, the bucket the web view serves. It used to travel to a
+      # second job as a run artifact first, and the artifact quota is the organisation's: while it
+      # was full (2026-09-24/25) no report reached R2 at all, and the runs that most needed one had
+      # none. Nothing here touches that quota now.
       - name: Install AWS CLI
+        if: ${{ !cancelled() }}
+        working-directory: ./
         run: |
-          # Runner images ship no unzip; both jobs can land on the same reused VM.
-          sudo apt-get update -qq && sudo apt-get install -y unzip
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qo awscliv2.zip
-          sudo ./aws/install --update
+          # A reused VM already has it.
+          if ! command -v aws >/dev/null 2>&1; then
+            # Runner images ship no unzip.
+            sudo apt-get update -qq && sudo apt-get install -y -qq unzip >/dev/null
+            curl -fsS --retry 5 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -qo /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install --update
+          fi
           aws --version
 
-      - name: Upload to R2
-        run: |
-          aws configure list
-          aws --endpoint-url ${{ env.AWS_ENDPOINT_URL }} s3 cp ./${{ env.HTML_REPORT_URL_PATH }} s3://${{ env.AWS_BUCKET }}/${{ env.HTML_REPORT_URL_PATH }} --recursive
+      - name: Publish the report to R2
+        if: ${{ !cancelled() }}
+        id: publish
+        working-directory: ./
+        # A report that could not be stored is not the tests' result; the notification says so.
+        continue-on-error: true
         env:
           # The stand's own attachment bucket: the old CF_R2_AWS_BUCKET still accepts
           # uploads, but nothing serves it — every published report 404ed.
@@ -743,56 +715,48 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.E2E_R2_SECRET_ACCESS_KEY }}
           AWS_BUCKET: ${{ secrets.E2E_R2_BUCKET }}
           AWS_REGION: "eeur"
-
-      # R2 now holds the report; the artifact only carried it here. At 100-250 MB it is the one
-      # artifact that fills the organisation's quota, and a full quota reds every product
-      # build's scan-report upload: on 2026-09-24 two reports (343 MB) did exactly that. A
-      # failed R2 upload skips this, so the artifact stays for its one day.
-      - name: Delete the artifact
-        id: drop
-        uses: actions/github-script@v8
-        env:
-          ARTIFACT_ID: ${{ needs.build-tests.outputs.REPORT_ID }}
-        with:
-          script: |
-            await github.rest.actions.deleteArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: Number(process.env.ARTIFACT_ID),
-            });
+          REPORT_PATH: reports/manual/${{ github.run_id }}/${{ github.run_attempt }}
+          REPORT_URL: ${{ inputs.report_base_url }}/reports/manual/${{ github.run_id }}/${{ github.run_attempt }}/index.html
+        run: |
+          aws --endpoint-url "$AWS_ENDPOINT_URL" s3 cp playwright-reports/playwright-report/ \
+              "s3://${AWS_BUCKET}/${REPORT_PATH}" --recursive --only-show-errors
+          echo "report: ${REPORT_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
-    needs: [build-tests, publish-report-r2]
+    needs: [build-tests]
     steps:
+      # Which stand the run tested: env_url is the lab's address even on an ephemeral run, and two
+      # notifications that differ only in their run cannot be told apart (2026-09-25, 15:53).
       - name: Set Telegram Message
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          # The tests' own result, not "anything succeeded": publish-report-r2 is
-          # continue-on-error and succeeds on its own when the tests failed.
+          # The tests' own result: publishing the report is continue-on-error and cannot turn it.
           cond: ${{ needs.build-tests.result == 'success' }}
           if_true: |
             👷 Tests triggered manually have been completed ✅
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.publish-report-r2.outputs.ARTIFACT_DELETED == 'true' && 'removed once published, see Web View' || needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
-            ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
+            ▶️ Web View Report: ${{ needs.build-tests.outputs.REPORT_PUBLISHED == 'true' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published, see the run' }}
+            ▶️ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
 
             Repository: ${{ github.repository }}
-            Stand: ${{ inputs.env_url }}
+            Stand: ${{ inputs.target == 'ephemeral' && 'ephemeral stack, booted and destroyed by this run' || inputs.env_url }}
+            Builds: ${{ inputs.target == 'ephemeral' && format('engine {0}, ui {1}, botflow {2}, dialer {3}', inputs.engine_tag || 'release', inputs.ui_tag || 'release', inputs.botflow_tag || 'release', inputs.dialer_tag || 'release') || 'what the lab runs' }}
             Branch: ${{ needs.build-tests.outputs.TESTS_REF }} (${{ needs.build-tests.outputs.SHORT_SHA }})
             Tags: ${{ inputs.test_tags || 'all tests' }}
             Dispatched by: ${{ github.actor }}
           if_false: |
             👷 Tests triggered manually have been failed
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.publish-report-r2.outputs.ARTIFACT_DELETED == 'true' && 'removed once published, see Web View' || needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
-            ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
+            ▶️ Web View Report: ${{ needs.build-tests.outputs.REPORT_PUBLISHED == 'true' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published, see the run' }}
+            ▶️ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
 
             Repository: ${{ github.repository }}
-            Stand: ${{ inputs.env_url }}
+            Stand: ${{ inputs.target == 'ephemeral' && 'ephemeral stack, booted and destroyed by this run' || inputs.env_url }}
+            Builds: ${{ inputs.target == 'ephemeral' && format('engine {0}, ui {1}, botflow {2}, dialer {3}', inputs.engine_tag || 'release', inputs.ui_tag || 'release', inputs.botflow_tag || 'release', inputs.dialer_tag || 'release') || 'what the lab runs' }}
             Branch: ${{ needs.build-tests.outputs.TESTS_REF }} (${{ needs.build-tests.outputs.SHORT_SHA }})
             Tags: ${{ inputs.test_tags || 'all tests' }}
             Dispatched by: ${{ github.actor }}

@@ -416,8 +416,8 @@ jobs:
 
   # A called workflow sees its caller's github context, so the dispatch form's values
   # arrive as github.event.inputs without the switcher declaring inputs of its own.
-  # Dispatch only: a tag push no longer runs the suite, because every run drops and
-  # restores the shared lab database.
+  # Dispatch only: a tag push no longer runs the suite, because runs on the lab share it and
+  # create and delete each other's entities.
   call-e2e-tests:
     name: Call Playwright Tests
     if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'workflow_dispatch' }}
@@ -433,3 +433,11 @@ jobs:
       workers: ${{ github.event.inputs.workers || '2' }}
       exclude_tags: ${{ github.event.inputs.exclude_tags }}
       reset_stand: ${{ github.event.inputs.reset_stand || 'prune' }}
+      # The rest of the form. A caller whose form lacks one gets the called workflow's own
+      # default: an empty field means the release build, lab, and a 120-minute suite.
+      target: ${{ github.event.inputs.target || 'lab' }}
+      suite_timeout_minutes: ${{ fromJSON(github.event.inputs.suite_timeout_minutes || '120') }}
+      engine_tag: ${{ github.event.inputs.engine_tag }}
+      ui_tag: ${{ github.event.inputs.ui_tag }}
+      botflow_tag: ${{ github.event.inputs.botflow_tag }}
+      dialer_tag: ${{ github.event.inputs.dialer_tag }}
