@@ -435,11 +435,11 @@ EOF
 ### Task 5: Documentation, invariants and skill mirrors
 
 **Files:**
-- Modify: `docs/sast-dast.md`
+- Modify: `docs/security/sast-dast.md`
 - Modify: `CLAUDE.md`
 - Modify: `.agents/skills/nova-ci/SKILL.md`, `.claude/skills/nova-ci/SKILL.md`
 
-- [ ] **Step 1: Document A and B in `docs/sast-dast.md`**
+- [ ] **Step 1: Document A and B in `docs/security/sast-dast.md`**
 
 A new section: what api-scan is (authenticated, safe-mode, spec-driven), that it runs on an `apiscan*` tag for `novatalks.core` only, that credentials are generated per run and never stored, and the honest reach — passive checks across real endpoints, not IDOR / privilege / business-logic, and not a pentest. A shorter section for the live baseline: what it catches (nginx/ingress headers), how to run it, the allowlist, and the SPA-200 caveat. Both open under the page's existing asset — check the diagram does not now lie about scanner count; regenerate only if it does.
 
@@ -464,7 +464,7 @@ Apply the same additions to `.agents/skills/nova-ci/SKILL.md` and `cp` to the `.
 `./scripts/validate.sh` → `VALIDATION OK`, including the mirror check.
 
 ```bash
-git add docs/sast-dast.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git add docs/security/sast-dast.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 git commit -m "$(cat <<'EOF'
 Document API scanning, the live baseline, and their invariants
 

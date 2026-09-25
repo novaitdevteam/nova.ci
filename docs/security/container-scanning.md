@@ -1,7 +1,7 @@
 # Container scanning (Trivy)
 
 <p align="center">
-  <img src="../assets/readme/scanning.gif" width="100%" alt="the scan runs on main, master, development or a scan tag: pull the built image, three Trivy passes, one report file, published as a release asset, artifact and job summary" />
+  <img src="assets/scanning.gif" width="100%" alt="the scan runs on main, master, development or a scan tag: pull the built image, three Trivy passes, one report file, published as a release asset, artifact and job summary" />
 </p>
 
 > [!NOTE]
@@ -73,4 +73,4 @@ The image is built and pushed before the scan in every mode, so a failing scan m
 
 ---
 
-[← Build pipeline](build-pipeline.md) · [Docs index](README.md) · [SAST and DAST →](sast-dast.md)
+[← Build pipeline](../pipeline/build-pipeline.md) · [Docs index](../README.md) · [SAST and DAST →](sast-dast.md)

@@ -6,7 +6,7 @@
 > `executing-plans` — the work exists on `main`. It is here so the reasoning behind each
 > commit is greppable from git history. To change this system, read
 > [the spec](../specs/2026-08-27-nc2-2742-secret-detection.md) and
-> [`docs/secret-detection.md`](../../secret-detection.md), then write a new plan.
+> [`docs/security/secret-detection.md`](../../security/secret-detection.md), then write a new plan.
 
 **Goal:** Run Gitleaks over the commits every pull request and default-branch push adds,
 across all wired NovaTalks repositories, from one implementation in `nova.ci`.
@@ -46,7 +46,7 @@ can drive every branch offline. Zero changes in product repositories.
 - Create: `.github/actions/gitleaks/scan.sh`
 - Create: `scripts/test-secret-scan.sh`
 - Create: `scripts/gitleaks-baseline.sh`
-- Create: `docs/secret-detection.md`
+- Create: `docs/security/secret-detection.md`
 - Modify: `.github/workflows/ci-build-trigger-switcher.yaml` (new `secret-scan` job)
 - Modify: `.github/workflows/ci-self-validate.yaml` (nova.ci scans itself)
 - Modify: `scripts/validate.sh`, `.gitignore`, `CLAUDE.md`, `README.md`, `docs/*`, both `SKILL.md` copies
@@ -144,7 +144,7 @@ git commit
 **Commit:** `0ea21eb`
 
 **Files:**
-- Modify: `.github/workflows/ci-build-trigger-switcher.yaml`, `scripts/gitleaks-baseline.sh`, `docs/secret-detection.md`, `CLAUDE.md`, both `SKILL.md` copies
+- Modify: `.github/workflows/ci-build-trigger-switcher.yaml`, `scripts/gitleaks-baseline.sh`, `docs/security/secret-detection.md`, `CLAUDE.md`, both `SKILL.md` copies
 
 - [x] **Step 1: Remove repositories added on my own initiative**
 
@@ -324,7 +324,7 @@ Expected: 48/48.
 **Commit:** `6985376`
 
 **Files:**
-- Modify: `docs/secret-detection.md`, `scripts/test-secret-scan.sh`
+- Modify: `docs/security/secret-detection.md`, `scripts/test-secret-scan.sh`
 
 - [x] **Step 1: Test whether a commitless fingerprint works**
 
@@ -372,7 +372,7 @@ Expected: 49/49.
 **Commit:** `c5b529c`
 
 **Files:**
-- Modify: `docs/secret-detection.md`, `CLAUDE.md`, both `SKILL.md` copies
+- Modify: `docs/security/secret-detection.md`, `CLAUDE.md`, both `SKILL.md` copies
 
 - [x] **Step 1: Mark the signal connector's default as temporary**
 
@@ -473,4 +473,4 @@ workflow-level fallback message is what makes it degrade gracefully if it is wro
 
 ---
 
-[← Spec](../specs/2026-08-27-nc2-2742-secret-detection.md) · [Secret detection docs](../../secret-detection.md)
+[← Spec](../specs/2026-08-27-nc2-2742-secret-detection.md) · [Secret detection docs](../../security/secret-detection.md)

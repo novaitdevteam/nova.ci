@@ -46,7 +46,7 @@ nor the notifier.
 `TRIVY.SCAN_<release>_<ref><suffix>_<sha>` prerelease (`softprops/action-gh-release@v2`
 appends by tag; job needs `contents: write`), plus a run-scoped artifact and a job summary.
 The `TRIVY.SCAN_` prefix is **historical** and stays — renaming breaks the stable URLs
-documented in `docs/container-scanning.md`, and one release per scanner triples the walk for
+documented in `docs/security/container-scanning.md`, and one release per scanner triples the walk for
 the quarterly evidence aggregation.
 
 **Pin both images by tag and digest**, never `latest`, for the reason the Gitleaks pin

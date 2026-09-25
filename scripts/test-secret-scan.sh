@@ -529,6 +529,18 @@ expect "notify: default_branch counts as a trunk" 1 "$r" pull_request \
     DEFAULT_BRANCH="NC2-1992_docker"
 assert_output "notify: odd default branch is not told to rebase" "rebase" --absent
 
+# Every docs page scan.sh points a developer at must exist: the docs moved into section
+# folders once, and a summary link that 404s is the one place the fix is explained.
+missing=""
+for doc in $(grep -o 'docs/[a-z/-]*\.md' "$SCAN" | sort -u); do
+    [ -f "$ROOT/$doc" ] || missing="$missing $doc"
+done
+if [ -z "$missing" ]; then
+    printf 'ok   %-56s\n' "docs: every page scan.sh links to exists"; pass=$((pass + 1))
+else
+    printf 'FAIL %-56s missing:%s\n' "docs: every page scan.sh links to exists" "$missing"; fail=$((fail + 1))
+fi
+
 echo
 # The skip is named on the tally line on purpose: validate.sh surfaces only this line, and
 # a count that quietly drops from 50 to 49 between a laptop and CI is the kind of silent

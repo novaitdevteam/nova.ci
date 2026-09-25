@@ -929,7 +929,7 @@ jobs:
 
       # Upsert into the release trivy-scan already created for this build: one release
       # per build carrying every scanner's report. The TRIVY.SCAN_ prefix is historical
-      # — see docs/container-scanning.md. Only where that release exists; see
+      # — see docs/security/container-scanning.md. Only where that release exists; see
       # PUBLISH_RELEASE above.
       - name: Publish report release
         if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}

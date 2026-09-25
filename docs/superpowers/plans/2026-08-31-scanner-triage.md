@@ -920,7 +920,7 @@ EOF
 ### Task 4: Documentation, invariants and the skill mirrors
 
 **Files:**
-- Modify: `docs/sast-dast.md`
+- Modify: `docs/security/sast-dast.md`
 - Modify: `CLAUDE.md`
 - Modify: `.agents/skills/nova-ci/SKILL.md`
 - Modify: `.claude/skills/nova-ci/SKILL.md`
@@ -929,7 +929,7 @@ EOF
 - Consumes: the behaviour delivered by Tasks 1–3.
 - Produces: nothing consumed by later tasks.
 
-- [ ] **Step 1: Rewrite the ZAP counting section in `docs/sast-dast.md`**
+- [ ] **Step 1: Rewrite the ZAP counting section in `docs/security/sast-dast.md`**
 
 Replace the whole section `### Where the ZAP warning count comes from` (heading at line 307, body running to just before `### The Semgrep canary guard`) with:
 
@@ -1049,9 +1049,9 @@ it. This is the analogue of a `.gitleaksignore` fingerprint. A path-scoped
 rather than one decision.
 ````
 
-- [ ] **Step 2: Correct the Semgrep severity claims across `docs/sast-dast.md`**
+- [ ] **Step 2: Correct the Semgrep severity claims across `docs/security/sast-dast.md`**
 
-Run `rg -n 'ERROR|severity' docs/sast-dast.md` and fix every line asserting that findings are counted at `ERROR` only. Three known sites:
+Run `rg -n 'ERROR|severity' docs/security/sast-dast.md` and fix every line asserting that findings are counted at `ERROR` only. Three known sites:
 
 - the outcomes table around line 103 — the SAST row must read that `ERROR` and `WARNING` are both counted;
 - the notification section around line 564 — the example line becomes `🔍 SAST (Semgrep): 🟡 3 error · 12 warning`;
@@ -1061,7 +1061,7 @@ Delete every mention of the `severity` input, which no longer exists. Add one se
 
 - [ ] **Step 3: Check the `docs/` page opens with an asset and that no diagram now lies**
 
-`validate.sh` fails if a page under `docs/` has no asset. This task adds sections to an existing page, so no new asset is required — confirm `docs/sast-dast.md` still opens with its existing `assets/readme/` image, and read that image to check it makes no claim about counting or severities that these changes falsify. If it does, regenerate it with the `beautify-github-readme` skill and verify by rendering at `rsvg-convert -w 900` and `-w 360`, never by computing text widths.
+`validate.sh` fails if a page under `docs/` has no asset. This task adds sections to an existing page, so no new asset is required — confirm `docs/security/sast-dast.md` still opens with its existing `assets/readme/` image, and read that image to check it makes no claim about counting or severities that these changes falsify. If it does, regenerate it with the `beautify-github-readme` skill and verify by rendering at `rsvg-convert -w 900` and `-w 360`, never by computing text widths.
 
 - [ ] **Step 4: Add the new invariants to `CLAUDE.md`**
 
@@ -1104,7 +1104,7 @@ Read it for claims that are no longer true — especially any comment or doc lin
 - [ ] **Step 9: Commit**
 
 ```bash
-git add docs/sast-dast.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git add docs/security/sast-dast.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 git commit -m "$(cat <<'EOF'
 Document the triage register and correct the scanner invariants
 

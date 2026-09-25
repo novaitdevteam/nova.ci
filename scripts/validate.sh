@@ -74,7 +74,7 @@ fi
 
 section "Documentation assets"
 # Three rules that started as prose in CLAUDE.md. Prose is exactly what got skipped when
-# docs/secret-detection.md was added without a diagram, so they are checks now.
+# docs/security/secret-detection.md was added without a diagram, so they are checks now.
 #
 # In Ruby, not Bash: the natural shell form needs a `case` inside a `$( ... )`, and bash
 # 3.2 - which macOS still ships - mis-parses the pattern's `)` as closing the
@@ -82,15 +82,15 @@ section "Documentation assets"
 if ruby -e '
   fail_count = 0
 
-  # 1. every page under docs/ opens with a diagram from assets/readme/
+  # 1. every page under docs/ opens with a diagram from the assets/ folder of its section
   Dir.glob("docs/**/*.md").sort.each do |page|
     next if File.basename(page) == "README.md"
     next if page.include?("docs/superpowers/")   # specs and plans are records, not pages
-    next if File.read(page).include?("assets/readme/")
+    next if File.read(page) =~ %r{(?<![-\w])src="[^"]*assets/[\w.-]+\.(svg|gif)"}
     puts "       #{page}"
     fail_count += 1
   end
-  abort "ERROR: these pages have no assets/readme/ diagram (CLAUDE.md, Editing style)" if fail_count > 0
+  abort "ERROR: these pages have no diagram from an assets/ folder (CLAUDE.md, Editing style)" if fail_count > 0
   puts "OK: every docs page embeds a diagram"
 
   # 2. every locally referenced asset resolves - a renamed file is an invisible diff
@@ -110,7 +110,7 @@ if ruby -e '
   puts "OK: every referenced asset resolves"
 
   # 3. below 18 SVG units a label is unreadable at GitHub content width
-  Dir.glob("assets/readme/*.svg").sort.each do |svg|
+  Dir.glob("docs/**/assets/*.svg").sort.each do |svg|
     small = File.read(svg).scan(/font-size="(\d+)"/).flatten.map(&:to_i).select { |n| n < 18 }
     next if small.empty?
     puts "       #{svg} uses font-size #{small.uniq.sort.join(", ")}"

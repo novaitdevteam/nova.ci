@@ -1,49 +1,10 @@
-# Tests
+# End-to-end tests (novatalks.tests)
 
 <p align="center">
-  <img src="../assets/readme/tests.svg" width="100%" alt="the advisory lint and unit-test gate in the build workflow, and the unit, integration and both modes of the test workflow" />
+  <img src="assets/e2e.svg" width="100%" alt="the E2E workflow: a dispatch form in novatalks.tests, the lab target held by a lease, the ephemeral stack booted for one run, and the report published to R2" />
 </p>
 
-## Unit tests (build gate)
-
-The `unit-test` job runs right after `linter`, on the same runner, on both PR and non-PR events (sequential so a single build does not occupy two runners). It runs even when lint fails (`if: !cancelled()`), and its result is advisory — it does not block `build-image`. It is repo-aware via a "Resolve test plan" step: `novatalks.core` runs `npm run test:unit` (jest `--selectProjects unit`, parallel via jest workers), and `novatalks.flowrunner` runs its own `npm test` (jest over `src/**/*.spec.ts`) after `npm ci` **and** `npx prisma generate` — its specs import `PrismaService`, and `@prisma/client` throws on import until the client is generated; generate itself needs a stub `DATABASE_URL`, because `prisma.config.ts` refuses to load without one and generate never connects with it. All other standard build repositories resolve to a no-op success, so they stay backward compatible. To enable a new repository, add a case in that step.
-
-A no-op success is reported to the notifier as `⏭️ n/a (no unit tests configured)`, **not** `✅` — the "End Unit Step" step checks whether `unit_test_command` was resolved, so a repository that ran zero tests is never shown as having passing tests. A no-op run still reports `success` as the job result.
-
-There is no `continue-on-error`.
-
-## Test workflow modes
-
-[`…-run-test.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) accepts `test_mode`:
-
-| `test_mode` | What runs | Trigger tag substring |
-| --- | --- | --- |
-| `unit` | unit tests only, no DB or Redis services | `unit-test` |
-| `integration` (default) | integration tests with postgres + redis:8 services | `int-test` |
-| `both` | unit tests, then integration tests | `full-test` |
-
-The three substrings do not collide. In `both` mode the suites run sequentially — `integration-tests` has `needs: [unit-tests]` with a `!cancelled()` condition, so integration still runs when `unit-tests` was skipped (`integration` mode) or failed (`both` mode; the suites report independently), and a `full-test` run needs only one runner.
-
-The workflow also has a `workflow_dispatch` trigger with a `test_mode` choice input, for manual runs inside `nova.ci` without pushing a tag.
-
-## Integration tests
-
-Integration tests run `npm run test:integration` (which already includes `--runInBand --forceExit --silent --verbose`) against redis:8 services shared across all steps. There is no `continue-on-error`; failures fail the job (they used to be masked). npm dependencies are cached via setup-node `cache: npm`.
-
-The Postgres service image is repository-aware:
-
-- `novatalks.core` → official `postgres:17.9-trixie` (PG 17.9 on Debian trixie), matching the production major version
-- all other repositories (e.g. `novatalks.ui`) → `postgres:16`
-
-The `POSTGRES_*` env vars, `pg_isready` health check and `CREATE EXTENSION pgcrypto` step are identical everywhere.
-
-File storage is repository-aware too. For `novatalks.core` only, a `Configure S3 (Cloudflare R2) file storage` step writes `FILE_DRIVER=s3` and the `AWS_S3_*` settings to `$GITHUB_ENV` before the run, from the repository secrets `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (region `auto`, path-style on). The step is gated on `github.event.repository.name == 'novatalks.core'`, so other repositories keep their default `FILE_DRIVER`. Secrets reach the reusable workflow through the switcher's `secrets: inherit`.
-
-**Sharding** (jest `--shard` + matrix) is intentionally not enabled. Integration tests share database state and run with `--runInBand`; each shard would need its own Postgres and Redis services plus `--shard=i/N`. Unit tests already parallelize via jest workers, and the integration bottleneck is DB I/O, not CPU.
-
-## End-to-end tests (novatalks.tests)
-
-[`ci-e2e-tests-manual.yaml`](../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand, then publishes the HTML report to R2 and notifies. The report goes to R2 straight from the job that ran the suite, at `<report_base_url>/reports/manual/<run id>/<attempt>/index.html`, linked from the job summary and the notification. It used to reach R2 through a run artifact, and the artifact quota is the organisation's: while it was full, on 2026-09-24 and 25, no report was published at all. A report that cannot be published leaves the suite's result as it is, and the notification says it was not published.
+[`ci-e2e-tests-manual.yaml`](../../.github/workflows/ci-e2e-tests-manual.yaml) runs the Playwright suite from `novatalks.tests` against a running stand, then publishes the HTML report to R2 and notifies. The report goes to R2 straight from the job that ran the suite, at `<report_base_url>/reports/manual/<run id>/<attempt>/index.html`, linked from the job summary and the notification. It used to reach R2 through a run artifact, and the artifact quota is the organisation's: while it was full, on 2026-09-24 and 25, no report was published at all. A report that cannot be published leaves the suite's result as it is, and the notification says it was not published.
 
 **Two targets, chosen per run by the `target` input.** Both stay; neither replaces the other.
 The point of having two is that the same build gives the same result on either, so each starts
@@ -96,7 +57,7 @@ Use `lab` when a human wants to open the thing afterwards and look. Use `ephemer
 particular build, to run two suites at once, or to get a failure somebody else can reproduce —
 the stand moves under you, and a run there cannot be repeated twice the same way.
 
-The ephemeral stack is [`e2e-stack/stack.sh`](../.github/actions/e2e-stack/stack.sh): postgres,
+The ephemeral stack is [`e2e-stack/stack.sh`](../../.github/actions/e2e-stack/stack.sh): postgres,
 redis, NATS, the engine, the dialer, BotFlow, the UI and one nginx serving the single origin
 `http://localhost:18080`. Its configuration is rendered from the published chart rather than
 kept here, its flows are copied from the stand at boot, and it is torn down whatever the suite
@@ -167,7 +128,7 @@ Measured on the e2e lab (`small` = 4 vCPU / 8 GB, `medium` = 8 vCPU):
 | `@e2e` | 4 | medium | 1.2 h | 2.7 | 326 passed, 25 flaky, 31 failed |
 
 **Run the ephemeral stack on your own machine** with
-[`e2e-stack/local.sh`](../.github/actions/e2e-stack/local.sh) — `up`, `down`, `env`, `test`. It runs
+[`e2e-stack/local.sh`](../../.github/actions/e2e-stack/local.sh) — `up`, `down`, `env`, `test`. It runs
 the same `stack.sh` CI runs, reads the GHCR token and the stand's BotFlow admin out of the two
 repositories' own `.env` files without printing either, and prints the variables to export
 before `npx playwright test`. `test <grep> [playwright args]` runs the suite in a container on
@@ -286,12 +247,7 @@ The workflow used to restore the lab database from an R2 dump, reload Redis and 
 
 The notification reports the tests' own result, the report link (or `not published, see the run`), a link to the run attempt itself, the stand — the lab's URL, or `ephemeral stack` — and, for an ephemeral run, the tag given on the form for each of the four images, or `release` for the release build written in the bring-up step, then the branch and commit that ran, the tags and who dispatched it. `env_url` alone could not say which target ran: it holds the lab's address on an ephemeral run too, and two notifications that differed only in their run could not be told apart.
 
-## Reading failures
-
-- **`unit-test` red** — advisory. It does not block the build, but the PR check fails and it is reported in the notifier message.
-- **`integration-tests` red** — a real integration failure (no longer hidden). Investigate via the `integration-test-report` artifact on the run.
-- **Lint red** — advisory. It does not block the build, but it is reported in the notifier message.
 
 ---
 
-[← SAST and DAST](sast-dast.md) · [Docs index](README.md) · [Secret detection →](secret-detection.md)
+[← Unit and integration tests](tests.md) · [Docs index](../README.md) · [Secret detection →](../security/secret-detection.md)

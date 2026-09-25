@@ -329,7 +329,7 @@ Preserve these behaviors:
 
 Three scanners answer three questions: Semgrep (SAST) reads our source, Trivy reads the built
 image, ZAP (DAST) probes the running app. Gitleaks covers secrets; ESLint answers none of
-them. See `docs/sast-dast.md` for the full narrative and `references/` below for the
+them. See `docs/security/sast-dast.md` for the full narrative and `references/` below for the
 reasoning and evidence behind every rule in this section — **read the invariant here first,
 its "why" lives one hop away, never dropped, only moved.**
 
@@ -472,7 +472,7 @@ Reference files, one per scanner surface:
 
 ## Documentation Assets
 
-Every page under `docs/` opens with a diagram from `assets/readme/`, and `validate.sh`
+Every page under `docs/` opens with a diagram from its section's `assets/` folder, and `validate.sh`
 fails on a page without one. A new page therefore needs a new asset — build it with the
 `beautify-github-readme` skill.
 

@@ -28,7 +28,7 @@ jobs:
   #
   # Scans the commits the event ADDS, never full history, so a legacy finding already
   # sitting in a default branch cannot block an unrelated pull request. That is what
-  # makes this safe to make mandatory on day one. See docs/secret-detection.md.
+  # makes this safe to make mandatory on day one. See docs/security/secret-detection.md.
   secret-scan:
     name: secret-scan
     # The NC2-2742 repository list, not the standard-build list: a secret does not care
@@ -36,7 +36,7 @@ jobs:
     # are in even though they are not build repositories. novatalks.tests joined on 2026-09-25:
     # it is out of the build list, but it holds the lab's tokens in flow exports and fixtures.
     #
-    # Deliberately NOT in the list, tracked in docs/secret-detection.md:
+    # Deliberately NOT in the list, tracked in docs/security/secret-detection.md:
     #   nova.ci                       - scans itself via ci-self-validate.yaml
     #   genesys...wizard.engine       - deprecated
     #   nova.ai.marketplace           - out of scope (also has no caller workflow)
@@ -160,7 +160,7 @@ jobs:
   # scanner could not prove it ran; findings leave the job green. No notifier — a
   # vulnerable transitive dependency is not the pager event a leaked credential is.
   #
-  # See docs/sast-dast.md#dependency-scanning-source-manifests for the full design,
+  # See docs/security/sast-dast.md#dependency-scanning-source-manifests for the full design,
   # including why OSV-Scanner's own JSON output is not enough on its own and the exit
   # code has to be checked too.
   deps-scan:
@@ -226,7 +226,7 @@ jobs:
           retention-days: 14
 
   # Compensating control for the free plan, where a red check cannot actually block a
-  # merge (docs/secret-detection.md#what-we-lose-without-enforcement). If nothing stops
+  # merge (docs/security/secret-detection.md#what-we-lose-without-enforcement). If nothing stops
   # the credential from landing, the least we can do is make sure a human hears about it
   # within the minute instead of at the next audit.
   #

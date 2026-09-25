@@ -164,7 +164,7 @@ B has no target and is skipped, not failed.
 | `.github/workflows/ci-build-trigger-switcher.yaml` | route `apiscan*` tags for `novatalks.core` |
 | `scripts/test-dast-api-scan.sh` | new — offline scenario harness, `docker`/`curl` stubbed |
 | `scripts/validate.sh` | register the new harness and guard |
-| `docs/sast-dast.md`, `CLAUDE.md`, both `SKILL.md` | document A, B, the safe-mode invariant and the honest-reach limit |
+| `docs/security/sast-dast.md`, `CLAUDE.md`, both `SKILL.md` | document A, B, the safe-mode invariant and the honest-reach limit |
 
 ## Sequencing
 

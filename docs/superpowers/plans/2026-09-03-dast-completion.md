@@ -25,7 +25,7 @@ Copied verbatim from `CLAUDE.md` and the spec. Every task's requirements implici
 - **Never print a credential value.** Tokens and generated passwords are `::add-mask::`ed before any container output is printed.
 - **Per-repository values are read from that repository's own code** — the Dockerfile, the guard, the schema, the chart — never inferred from a sibling. This is spec D5 and it is not negotiable: guessing has already cost two failed live runs.
 - Run `./scripts/validate.sh` after any workflow, action or documentation change. It must print `VALIDATION OK`.
-- Documentation sync is part of the task, not a follow-up: `docs/sast-dast.md`, `CLAUDE.md` when an invariant changes, and **both** `.agents/skills/nova-ci/SKILL.md` and `.claude/skills/nova-ci/SKILL.md` (byte-identical; `validate.sh` fails if they diverge).
+- Documentation sync is part of the task, not a follow-up: `docs/security/sast-dast.md`, `CLAUDE.md` when an invariant changes, and **both** `.agents/skills/nova-ci/SKILL.md` and `.claude/skills/nova-ci/SKILL.md` (byte-identical; `validate.sh` fails if they diverge).
 
 ---
 
@@ -412,7 +412,7 @@ Expected: `FAIL active mode kept -S`. If it passes, the assertion is not testing
 
 - [ ] **Step 6: Validate, document and commit**
 
-Update `docs/sast-dast.md` (the API scanning section) and the `-S` invariant in `CLAUDE.md` — it currently says `-S` is passed *always*, which stops being true here. Mirror into both `SKILL.md` files.
+Update `docs/security/sast-dast.md` (the API scanning section) and the `-S` invariant in `CLAUDE.md` — it currently says `-S` is passed *always*, which stops being true here. Mirror into both `SKILL.md` files.
 
 ```bash
 ./scripts/validate.sh
@@ -834,7 +834,7 @@ Live targets are deliberately **not** in this task. Ephemeral is the safe case; 
 
 **Files:**
 - Create: `.github/workflows/ci-dast-pentest.yaml`
-- Modify: `docs/sast-dast.md`, `docs/reference.md`
+- Modify: `docs/security/sast-dast.md`, `docs/reference/reference.md`
 - Create: `assets/readme/` entry only if a new docs page is created — it is not; this extends `sast-dast.md`.
 
 **Interfaces:**
@@ -1057,7 +1057,7 @@ Expected: a verdict that is **not** `not run`, with a non-zero operation count. 
 
 - [ ] **Step 6: Document and commit**
 
-Add a "Pentest (active scan)" section to `docs/sast-dast.md` covering: manual only, no URL input, what active means, what it still cannot find. Add the workflow to `docs/reference.md`'s inventory. Add the invariants to `CLAUDE.md` and both `SKILL.md` mirrors.
+Add a "Pentest (active scan)" section to `docs/security/sast-dast.md` covering: manual only, no URL input, what active means, what it still cannot find. Add the workflow to `docs/reference/reference.md`'s inventory. Add the invariants to `CLAUDE.md` and both `SKILL.md` mirrors.
 
 ```bash
 git add -A && git commit -m "Add ci-dast-pentest.yaml: the first scan here that actually attacks"
@@ -1069,7 +1069,7 @@ git add -A && git commit -m "Add ci-dast-pentest.yaml: the first scan here that 
 
 **Files:**
 - Modify: `.github/workflows/ci-dast-pentest.yaml`
-- Modify: `docs/sast-dast.md`, `CLAUDE.md`, both `SKILL.md`
+- Modify: `docs/security/sast-dast.md`, `CLAUDE.md`, both `SKILL.md`
 
 **This task changes data on a real host.** The allowlisted host is a dedicated security-testing instance, not production, and that assumption is what makes the whole task acceptable. Adding any other host is a separate decision, made by editing the `case` — never at runtime.
 
@@ -1350,7 +1350,7 @@ For each of the eight, on the surfaces it has, dispatch `ci-dast-pentest.yaml` w
 
 A `not run` is now always accompanied by the container's log and the failing command's output (PR #36). Diagnose from that, fix the arm or the mode, re-run. **A repository is not done until it produces a non-`not-run` verdict with a non-zero count.**
 
-- [ ] **Step 3: Write the results table into `docs/sast-dast.md`**
+- [ ] **Step 3: Write the results table into `docs/security/sast-dast.md`**
 
 Repository, surface, verdict, count, run URL, date. This is the evidence the quarterly report is assembled from, and it is also the thing that makes a future regression visible.
 
@@ -1361,5 +1361,5 @@ In the same section, plainly: no IDOR, no privilege escalation, no business-logi
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/sast-dast.md && git commit -m "Record the live DAST proof for all eight repositories"
+git add docs/security/sast-dast.md && git commit -m "Record the live DAST proof for all eight repositories"
 ```
