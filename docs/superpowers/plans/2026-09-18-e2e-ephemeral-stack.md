@@ -125,6 +125,9 @@ bring-up.
 
 ## Step 4 — Measure, then decide the default
 
+**Closed 2026-09-25:** measured in `docs/tests.md` (six full CI runs, both targets equal on time
+and stability); the owner kept `lab` as the default.
+
 - `@smoke` and `@e2e` on both targets, recording wall time, boot time, load and pass counts,
   in the table in `docs/tests.md` next to the existing measurements.
 - **Verify:** the numbers are in the docs and the default target is chosen *from* them, not

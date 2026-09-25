@@ -221,7 +221,9 @@ What it says for choosing a target: the two now cost the same — the ephemeral 
 lab's `drop` are two minutes each, and the suite runs within three minutes of each other — and
 they are equally stable. What still separates them is not time. The lab runs one suite at a time
 and keeps its state for somebody to look at afterwards; the ephemeral stack runs as many as the
-pool allows, shares nothing, and can boot a build that is not on the lab yet.
+pool allows, shares nothing, and can boot a build that is not on the lab yet. `lab` stays the
+default — the owner's decision on 2026-09-25, taken on these numbers — and `ephemeral` is chosen
+on the form when a run needs one of those.
 
 The run needs seven environment variables for the stand itself — the suite derives `CLIENT_URL` and `CLIENT_URL_API` from `ENV_URL` itself. With `USE_DB` unset it touches no database, so the workflow carries no kubeconfig, no port-forward and no database credentials. Three specs that do need SQL are tagged `@db` and excluded from the default project.
 
