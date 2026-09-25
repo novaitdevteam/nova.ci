@@ -42,7 +42,7 @@ Three concrete consequences:
 
 In: `.github/actions/semgrep/scan.sh`, `.github/actions/dast/scan.sh`,
 `.github/actions/dast/action.yml`, `.github/actions/semgrep/action.yml`, a new
-`.github/actions/dast/zap-baseline.conf`, both self-check harnesses, `docs/sast-dast.md`,
+`.github/actions/dast/zap-baseline.conf`, both self-check harnesses, `docs/security/sast-dast.md`,
 `CLAUDE.md` and both `SKILL.md` mirrors.
 
 Out: no change to which repositories are scanned, to the runner sizing, to the release
@@ -133,7 +133,7 @@ is precisely why it must be handled before one does.
 
 **D9 — bootstrapping real rule IDs is documented, not guessed.**
 `zap-baseline.py -g <file>` writes every loaded passive rule as `id\tWARN\t(name)`
-(`zap-baseline.py:608-615`). `docs/sast-dast.md` gets the one-liner that produces it. No
+(`zap-baseline.py:608-615`). `docs/security/sast-dast.md` gets the one-liner that produces it. No
 rule ID is hand-written into this repository from memory.
 
 **D10 — DAST outputs and message carry both severities.**
@@ -196,7 +196,7 @@ regression, and no build goes red for it.
 | `.github/actions/dast/scan.sh` | config copy + validation, `-c`, tally parsing, exit ladder |
 | `scripts/test-sast-scan.sh` | scenarios for two-level counting |
 | `scripts/test-dast-scan.sh` | scenarios for the config, the tally and each exit code |
-| `docs/sast-dast.md` | the triage section and the `-g` bootstrap one-liner |
+| `docs/security/sast-dast.md` | the triage section and the `-g` bootstrap one-liner |
 | `CLAUDE.md`, both `SKILL.md` | invariants for the tally guard and the exit ladder |
 
 No workflow file changes: the notifier passes `MESSAGE` through verbatim, and `scan.sh`

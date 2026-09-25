@@ -180,7 +180,7 @@ Not every repository can be wired, and inventing an arm anyway is worse than ref
 - `.github/actions/dast/targets.sh` — the table itself; read an existing arm's comments before
   writing a new one, and add rationale comments at the same density.
 - `scripts/test-dast-targets.sh` — how an arm's shape is asserted offline.
-- `docs/sast-dast.md` — the narrative reasoning, the auth-mode section in full, and the live
+- `docs/security/sast-dast.md` — the narrative reasoning, the auth-mode section in full, and the live
   proof log.
 - `CLAUDE.md`'s DAST invariants — the rules that must never be re-broken, including the
   per-repository exceptions this table encodes.

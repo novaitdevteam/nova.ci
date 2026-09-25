@@ -1,10 +1,10 @@
 # Runners
 
 <p align="center">
-  <img src="../assets/readme/runners.gif" width="100%" alt="runner selection: reuse an idle runner, check per-size and global caps, take a create lock, then either create a runner or wait" />
+  <img src="assets/runners.gif" width="100%" alt="runner selection: reuse an idle runner, check per-size and global caps, take a create lock, then either create a runner or wait" />
 </p>
 
-Connected repositories download and run [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh) from `main`. The script:
+Connected repositories download and run [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh) from `main`. The script:
 
 - fetches the full Hetzner server list with pagination (`per_page=50`), so cap counts are not truncated to the API's default first page of 25
 - lists GitHub self-hosted runners named `dev-00-gh-runner-*` (paginated, `per_page=100`, so idle runners past the first page stay visible)
@@ -34,7 +34,7 @@ Different tag types have very different resource needs, so `novatalks.core` uses
 
 | Tag substring | `base_ref` | `test_mode` | Size | Hetzner type | Why |
 | --- | --- | --- | --- | --- | --- |
-| `scan*` | any branch | — | `medium` | cx43 | runs [DAST](sast-dast.md): postgres + redis + app + ZAP |
+| `scan*` | any branch | — | `medium` | cx43 | runs [DAST](../security/sast-dast.md): postgres + redis + app + ZAP |
 | `build` | `main` / `master` / `development` | — | `medium` | cx43 | trunk builds run DAST |
 | `build` | any other branch | — | `small` | cx33 | lint + build only |
 | `unit-test` | — | `unit` | `medium` | cx43 | CPU-bound, no DB services |
@@ -74,4 +74,4 @@ The size input remains a measuring tool: four Playwright workers load a 4-core r
 
 ---
 
-[← Secret detection](secret-detection.md) · [Docs index](README.md) · [Notifications →](notifications.md)
+[← Build pipeline](build-pipeline.md) · [Docs index](../README.md) · [Notifications →](notifications.md)

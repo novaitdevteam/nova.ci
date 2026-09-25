@@ -250,9 +250,9 @@ EOF
 ### Task 3: Documentation, invariants and mirrors
 
 **Files:**
-- Modify: `docs/sast-dast.md`, `CLAUDE.md`, `.agents/skills/nova-ci/SKILL.md`, `.claude/skills/nova-ci/SKILL.md`
+- Modify: `docs/security/sast-dast.md`, `CLAUDE.md`, `.agents/skills/nova-ci/SKILL.md`, `.claude/skills/nova-ci/SKILL.md`
 
-- [ ] **Step 1: Document the two auth modes in `docs/sast-dast.md`**
+- [ ] **Step 1: Document the two auth modes in `docs/security/sast-dast.md`**
 
 In the API-scanning section, add: api-scan now covers `novatalks.core` (login) and the telegram connector (db-token), on the `apiscan*` tag. Explain the two modes — login POST vs seed-then-read-from-DB — and that the injected header/prefix are per-repo (engine `Authorization: Bearer`, telegram `api_access_token`). State the per-connector-verification rule (D7): each connector's auth is read from its own code, telegram's shape is not assumed. Note Phase 2 (whatsapp, signal, dialer) is tracked.
 
@@ -271,7 +271,7 @@ Apply the same to `.agents/skills/nova-ci/SKILL.md` and `cp` to `.claude/skills/
 Run: `./scripts/validate.sh` → `VALIDATION OK`, mirror check included.
 
 ```bash
-git add docs/sast-dast.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
+git add docs/security/sast-dast.md CLAUDE.md .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 git commit -m "$(cat <<'EOF'
 Document the two api-scan auth modes and the telegram pilot
 

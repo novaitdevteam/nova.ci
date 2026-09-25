@@ -1,7 +1,7 @@
 # Quick start
 
 <p align="center">
-  <img src="../assets/readme/quick-start.gif" width="100%" alt="three steps: add the caller workflow, push a trigger tag, shared CI runs on a Hetzner runner" />
+  <img src="assets/quick-start.gif" width="100%" alt="three steps: add the caller workflow, push a trigger tag, shared CI runs on a Hetzner runner" />
 </p>
 
 **1. Add the caller workflow** to the product repository as `.github/workflows/ci-build-trigger.yaml`. Three jobs: find a self-hosted runner, create one if none is free, then hand the original event to the switcher.
@@ -83,7 +83,7 @@ jobs:
 
 </details>
 
-Runner selection lives in [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh), downloaded from `main` — see [Runners](runners.md).
+Runner selection lives in [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), downloaded from `main` — see [Runners](../pipeline/runners.md).
 
 **2. Trigger something:**
 
@@ -98,8 +98,8 @@ Runner selection lives in [`ci-build-create-runner.sh`](../.github/workflows/ci-
 
 Trigger tags are consumed: the workflow deletes them after the run. Test tags (`unit-test`, `int-test`, `full-test`) are routed for `novatalks.core` only.
 
-**3. Keep routing centralized.** Build dispatch belongs in [`ci-build-trigger-switcher.yaml`](../.github/workflows/ci-build-trigger-switcher.yaml), not in the local caller. The caller may receive PR-related events the switcher does not route; only matched switcher jobs do shared CI work.
+**3. Keep routing centralized.** Build dispatch belongs in [`ci-build-trigger-switcher.yaml`](../../.github/workflows/ci-build-trigger-switcher.yaml), not in the local caller. The caller may receive PR-related events the switcher does not route; only matched switcher jobs do shared CI work.
 
 ---
 
-[← Docs index](README.md) · [How a trigger is routed →](routing.md)
+[← Docs index](../README.md) · [How a trigger is routed →](../pipeline/routing.md)

@@ -149,6 +149,6 @@ this; the diff review must confirm every call site passes the channels the old b
 
 ## Documentation to update
 
-- `docs/notifications.md` — describe the shared action
-- `docs/reference.md` and `assets/readme/reference.svg` — two internal actions become three
+- `docs/pipeline/notifications.md` — describe the shared action
+- `docs/reference/reference.md` and `docs/reference/assets/reference.svg` — two internal actions become three
 - `CLAUDE.md` — the "notification jobs stay Docker-free" invariant now points at the action

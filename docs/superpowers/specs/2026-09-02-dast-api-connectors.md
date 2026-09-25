@@ -139,7 +139,7 @@ now supplied by the api-scan arm rather than the removed baseline arm.
 | `.github/actions/dast-api/scan.sh` | branch on `auth-mode`; `db-token` = migrate+seed+`SELECT`; parameterise the replacer header/prefix; mask the token; discard seed stdout |
 | `.github/workflows/ci-build-ntk-on-push-tags-build.yaml` | widen `api-scan` gate to two repos; add `Resolve api-scan target` with core + telegram arms |
 | `scripts/test-dast-api-scan.sh` | scenarios for `db-token` (seed→SELECT→inject), empty-token loud skip, header/prefix parameterisation, mask emitted |
-| `docs/sast-dast.md`, `CLAUDE.md`, both `SKILL.md` | document the two auth modes, the two-repo scope, and the per-connector-verification rule |
+| `docs/security/sast-dast.md`, `CLAUDE.md`, both `SKILL.md` | document the two auth modes, the two-repo scope, and the per-connector-verification rule |
 
 ## Sequencing
 

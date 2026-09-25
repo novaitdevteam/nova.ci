@@ -117,7 +117,7 @@ editing product repository callers.
 | 11 | Central configuration and allowlist mechanism | ✅ `security/gitleaks/gitleaks.toml` |
 | 12 | Exceptions cannot disable the scanner uncontrolled | ✅ no input exists; per-finding only |
 | 13 | `secret-scan` can be a required status check | ⚠️ name is stable and the job always reports, but **enabling it needs a Team plan** for private repos |
-| 14 | Remediation process documented | ✅ [`docs/secret-detection.md`](../../secret-detection.md) |
+| 14 | Remediation process documented | ✅ [`docs/security/secret-detection.md`](../../security/secret-detection.md) |
 | 15 | Existing CI jobs and pipelines not broken | ✅ actionlint 287 on `main`, 287 on the branch |
 
 ## Baseline audit result
@@ -139,4 +139,4 @@ shifts above it. Handled reactively — the failing check prints the fingerprint
 
 ---
 
-[Implementation plan →](../plans/2026-08-27-nc2-2742-secret-detection.md) · [Secret detection docs](../../secret-detection.md)
+[Implementation plan →](../plans/2026-08-27-nc2-2742-secret-detection.md) · [Secret detection docs](../../security/secret-detection.md)

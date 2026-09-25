@@ -65,7 +65,7 @@ Its documentation rules that bear on you:
   entry point changes, and **both** `.agents/skills/nova-ci/SKILL.md` and
   `.claude/skills/nova-ci/SKILL.md` — `./scripts/validate.sh` fails if the two
   mirrors diverge.
-- Every page under `docs/` opens with an asset from `assets/readme/`; `validate.sh`
+- Every page under `docs/` opens with an asset from its section's `assets/` folder; `validate.sh`
   fails without one. A new page needs a new asset. If a diagram now states something
   false, fixing it is part of your job — verify by rendering (`rsvg-convert -w 900`
   and `-w 360`), never by computing text widths.

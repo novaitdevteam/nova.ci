@@ -38,7 +38,7 @@
 | `.github/workflows/ci-build-ntk-on-push-tags-build.yaml` | `IS_TRUNK` output, `sast-scan` job, `dast-scan` job, two notifier lines |
 | `.github/workflows/ci-build-create-runner.sh` | `medium` sizing whenever DAST will run on `novatalks.core` |
 | `scripts/validate.sh` | Register both harnesses; extend the direct-invocation guard to Semgrep and ZAP |
-| `docs/sast-dast.md` + `assets/readme/sast-dast.svg` | The human-facing page and its required diagram |
+| `docs/security/sast-dast.md` + `docs/security/assets/sast-dast.svg` | The human-facing page and its required diagram |
 
 ---
 
@@ -532,7 +532,7 @@ Insert after the `trivy-scan` job ends and before `notify-telegram`:
 
       # Upsert into the release trivy-scan already created for this build: one release
       # per build carrying every scanner's report. The TRIVY.SCAN_ prefix is historical
-      # — see docs/container-scanning.md.
+      # — see docs/security/container-scanning.md.
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
         uses: softprops/action-gh-release@v2
@@ -1594,8 +1594,8 @@ Message: `Run a ZAP baseline against the image novatalks.ui and core just built`
 ### Task 8: Documentation, diagram and invariants
 
 **Files:**
-- Create: `docs/sast-dast.md`, `assets/readme/sast-dast.svg`
-- Modify: `docs/README.md`, `docs/container-scanning.md`, `docs/runners.md`, `docs/notifications.md`, `docs/validation.md`, `docs/reference.md`, `CLAUDE.md`, `.agents/skills/nova-ci/SKILL.md`, `.claude/skills/nova-ci/SKILL.md`
+- Create: `docs/security/sast-dast.md`, `docs/security/assets/sast-dast.svg`
+- Modify: `docs/README.md`, `docs/security/container-scanning.md`, `docs/pipeline/runners.md`, `docs/pipeline/notifications.md`, `docs/reference/validation.md`, `docs/reference/reference.md`, `CLAUDE.md`, `.agents/skills/nova-ci/SKILL.md`, `.claude/skills/nova-ci/SKILL.md`
 
 **Interfaces:**
 - Consumes: everything shipped in Tasks 1-7.
@@ -1608,13 +1608,13 @@ Use the `beautify-github-readme` skill. House style is mandatory and enforced: `
 Verify by rendering, not by arithmetic — text clipping against a panel edge does not show up in a width calculation, and this exact shortcut cost a rework on `secret-detection.svg`:
 
 ```bash
-rsvg-convert -w 900 assets/readme/sast-dast.svg -o /tmp/sast-dast-900.png
-rsvg-convert -w 360 assets/readme/sast-dast.svg -o /tmp/sast-dast-360.png
+rsvg-convert -w 900 docs/security/assets/sast-dast.svg -o /tmp/sast-dast-900.png
+rsvg-convert -w 360 docs/security/assets/sast-dast.svg -o /tmp/sast-dast-360.png
 ```
 
 Open both and confirm no label is clipped or overlapping.
 
-- [ ] **Step 2: Write `docs/sast-dast.md`**
+- [ ] **Step 2: Write `docs/security/sast-dast.md`**
 
 Open with the diagram (`validate.sh` fails without it), then cover, in the voice of the existing pages: what each scanner is and is not, when each runs, the four DAST outcomes and why a failed boot is not a clean scan, where the three reports live, the Semgrep canary guard and why it exists, the two-repository DAST scope, and the runner-size consequence. Close with the `[← prev] · [Docs index](README.md) · [next →]` footer the other pages use, and insert the page into that chain.
 
@@ -1623,11 +1623,11 @@ Open with the diagram (`validate.sh` fails without it), then cover, in the voice
 | Page | Edit |
 | --- | --- |
 | `docs/README.md` | index entry for the new page |
-| `docs/container-scanning.md` | the release now carries three reports; the `TRIVY.SCAN_` prefix is historical |
-| `docs/runners.md` | new row in the sizing matrix plus the DAST reason; correct the "branch pushes always small" paragraph so it no longer reads as covering trunk build tags |
-| `docs/notifications.md` | the two new message blocks, including the not-run wording |
-| `docs/validation.md` | the two new harnesses and the renamed scanner-invocation guard |
-| `docs/reference.md` | inventory entries for both actions and both harnesses |
+| `docs/security/container-scanning.md` | the release now carries three reports; the `TRIVY.SCAN_` prefix is historical |
+| `docs/pipeline/runners.md` | new row in the sizing matrix plus the DAST reason; correct the "branch pushes always small" paragraph so it no longer reads as covering trunk build tags |
+| `docs/pipeline/notifications.md` | the two new message blocks, including the not-run wording |
+| `docs/reference/validation.md` | the two new harnesses and the renamed scanner-invocation guard |
+| `docs/reference/reference.md` | inventory entries for both actions and both harnesses |
 
 - [ ] **Step 4: Add the invariants to `CLAUDE.md`**
 
@@ -1642,7 +1642,7 @@ Under a new **Code scanning (SAST/DAST)** heading in the Invariants section:
 - Changing either `scan.sh` means adding a scenario to `scripts/test-sast-scan.sh` or `scripts/test-dast-scan.sh` in the same change.
 - No workflow may invoke Semgrep or ZAP directly; `validate.sh` fails on it.
 
-Then update the "Start here" table with a row for `docs/sast-dast.md`, and the Validation paragraph with the two new harnesses.
+Then update the "Start here" table with a row for `docs/security/sast-dast.md`, and the Validation paragraph with the two new harnesses.
 
 - [ ] **Step 5: Update both SKILL.md mirrors identically**
 
@@ -1658,7 +1658,7 @@ cp .agents/skills/nova-ci/SKILL.md .claude/skills/nova-ci/SKILL.md
 
 ```bash
 ./scripts/validate.sh
-git add docs assets/readme/sast-dast.svg CLAUDE.md .agents .claude
+git add docs docs/security/assets/sast-dast.svg CLAUDE.md .agents .claude
 git commit
 ```
 

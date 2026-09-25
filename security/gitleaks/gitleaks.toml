@@ -2,7 +2,7 @@
 #
 # Consumed by .github/actions/gitleaks, which every secret-scan run resolves from
 # this repository at the same commit the workflow itself ran from. One file, one
-# rule set, one allowlist — see docs/secret-detection.md.
+# rule set, one allowlist — see docs/security/secret-detection.md.
 
 title = "NovaTalks secret detection"
 

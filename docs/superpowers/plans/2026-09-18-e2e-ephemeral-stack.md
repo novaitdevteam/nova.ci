@@ -125,18 +125,18 @@ bring-up.
 
 ## Step 4 — Measure, then decide the default
 
-**Closed 2026-09-25:** measured in `docs/tests.md` (six full CI runs, both targets equal on time
+**Closed 2026-09-25:** measured in `docs/testing/e2e.md` (six full CI runs, both targets equal on time
 and stability); the owner kept `lab` as the default.
 
 - `@smoke` and `@e2e` on both targets, recording wall time, boot time, load and pass counts,
-  in the table in `docs/tests.md` next to the existing measurements.
+  in the table in `docs/testing/e2e.md` next to the existing measurements.
 - **Verify:** the numbers are in the docs and the default target is chosen *from* them, not
   before them. If boot costs more than it saves for a 9-test smoke run, `lab` stays the
   default for smoke and `ephemeral` becomes the default for regression.
 
 ## Step 5 — Documentation and invariants
 
-- `docs/tests.md`: both targets, what each is for, and the measured numbers.
+- `docs/testing/e2e.md`: both targets, what each is for, and the measured numbers.
 - `CLAUDE.md`: the invariants worth protecting — images by explicit tag, no dump restore, the
   three SQL settings, teardown always with logs, and that both targets stay.
 - `.agents`/`.claude` skill mirrors, then `./scripts/validate.sh`.

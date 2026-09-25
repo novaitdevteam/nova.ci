@@ -1,7 +1,7 @@
 # Secret detection (Gitleaks)
 
 <p align="center">
-  <img src="../assets/readme/secret-detection.svg" width="100%" alt="pull requests are scanned from the merge base to the head and pushes from before to after; tag and feature-branch pushes are not scanned; only the commits the change adds are read, so a finding already merged never blocks a pull request; a clean range passes, a secret fails the job and sends a redacted alert" />
+  <img src="assets/secret-detection.svg" width="100%" alt="pull requests are scanned from the merge base to the head and pushes from before to after; tag and feature-branch pushes are not scanned; only the commits the change adds are read, so a finding already merged never blocks a pull request; a clean range passes, a secret fails the job and sends a redacted alert" />
 </p>
 
 Every pull request and every default-branch push in a wired repository is scanned for
@@ -30,13 +30,13 @@ default branch cannot fail an unrelated pull request. Finding those is the
 
 | Piece | Path |
 | --- | --- |
-| Rules and allowlists | [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml) |
-| Install and scan | [`.github/actions/gitleaks/action.yml`](../.github/actions/gitleaks/action.yml) |
-| Scan logic | [`.github/actions/gitleaks/scan.sh`](../.github/actions/gitleaks/scan.sh) |
-| Dispatch for product repositories | the `secret-scan` job in [`ci-build-trigger-switcher.yaml`](../.github/workflows/ci-build-trigger-switcher.yaml) |
-| nova.ci scanning itself | the `secret-scan` job in [`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml) |
-| Scenario tests | [`scripts/test-secret-scan.sh`](../scripts/test-secret-scan.sh), run by `validate.sh` |
-| One-time history audit | [`scripts/gitleaks-baseline.sh`](../scripts/gitleaks-baseline.sh) |
+| Rules and allowlists | [`security/gitleaks/gitleaks.toml`](../../security/gitleaks/gitleaks.toml) |
+| Install and scan | [`.github/actions/gitleaks/action.yml`](../../.github/actions/gitleaks/action.yml) |
+| Scan logic | [`.github/actions/gitleaks/scan.sh`](../../.github/actions/gitleaks/scan.sh) |
+| Dispatch for product repositories | the `secret-scan` job in [`ci-build-trigger-switcher.yaml`](../../.github/workflows/ci-build-trigger-switcher.yaml) |
+| nova.ci scanning itself | the `secret-scan` job in [`ci-self-validate.yaml`](../../.github/workflows/ci-self-validate.yaml) |
+| Scenario tests | [`scripts/test-secret-scan.sh`](../../scripts/test-secret-scan.sh), run by `validate.sh` |
+| One-time history audit | [`scripts/gitleaks-baseline.sh`](../../scripts/gitleaks-baseline.sh) |
 
 The version is **pinned by release tag and by SHA-256** in `action.yml` — a tag can be
 moved and a release asset can be replaced, and `latest` would let an upstream change
@@ -81,7 +81,7 @@ An excluded repository gets **no CI coverage at all** — the
 [baseline audit](#one-time-baseline-audit) is its only cover, and it has to be pointed
 at it by hand. The last three have no `.github/workflows/ci-build-trigger.yaml`, so no
 event of theirs would reach this switcher even if they were listed. Bringing one in means adding the
-caller workflow from [Quick start](quick-start.md) **in that repository**, then adding
+caller workflow from [Quick start](../getting-started/quick-start.md) **in that repository**, then adding
 its name to the job's list here.
 
 Branch conventions vary, which is why the push gate matches
@@ -173,7 +173,7 @@ Two things reduce that exposure without changing plan:
 
 A red check nobody looks at is not a control. When `secret-scan` fails, the
 `secret-scan-notify` job sends a message to the same Telegram and Google Chat channels
-the build notifier uses, through [`notify/action.yml`](../.github/actions/notify/action.yml)
+the build notifier uses, through [`notify/action.yml`](../../.github/actions/notify/action.yml)
 (`TG_NOTIFICATION_BOT_TOKEN`, `TG_NOTIFICATION_BOT_ID`, `GC_NOTIFICATION_WEBHOOK`, all
 via `secrets: inherit`; each channel is skipped when its secret is empty).
 
@@ -203,8 +203,8 @@ not even the rule IDs** — the
 redacted detail stays in the job summary, behind repository access, because a chat group
 is a wider audience than the repository.
 
-The text is composed in [`scan.sh`](../.github/actions/gitleaks/scan.sh), not in the
-workflow, so [`test-secret-scan.sh`](../scripts/test-secret-scan.sh) covers it: a chat
+The text is composed in [`scan.sh`](../../.github/actions/gitleaks/scan.sh), not in the
+workflow, so [`test-secret-scan.sh`](../../scripts/test-secret-scan.sh) covers it: a chat
 alert that is subtly wrong is worse than no alert. If the job dies before `scan.sh` runs
 at all (runner lost, download failed), the workflow falls back to a bare
 "did not complete" line — silence would look like a clean run.
@@ -271,7 +271,7 @@ with `--redact`, which blanks the value in stdout and in every report file.
    const EXAMPLE_TOKEN = "ghp_0000000000000000000000000000000000" // gitleaks:allow
    ```
 
-3. **A rule-scoped allowlist** in [`security/gitleaks/gitleaks.toml`](../security/gitleaks/gitleaks.toml)
+3. **A rule-scoped allowlist** in [`security/gitleaks/gitleaks.toml`](../../security/gitleaks/gitleaks.toml)
    — only for a pattern that is provably never a secret in *any* repository.
 
 > [!NOTE]
@@ -314,7 +314,7 @@ positive is cheaper to allowlist per finding than a leaked credential is to rota
 ## One-time baseline audit
 
 CI never reads full history, so a credential committed before this check existed will
-not fail anything — and would not be noticed either. [`scripts/gitleaks-baseline.sh`](../scripts/gitleaks-baseline.sh)
+not fail anything — and would not be noticed either. [`scripts/gitleaks-baseline.sh`](../../scripts/gitleaks-baseline.sh)
 is the other half: it clones each repository, scans **every branch and tag**, and
 writes a redacted per-repository report.
 
@@ -345,19 +345,19 @@ job summary already carries every field remediation needs, redacted.
 This whole page is about a credential that reaches `git`. A credential can also reach
 an agent's transcript without ever being committed — read out of `.env` and echoed, or
 pasted in through an editor `@file` reference — and Gitleaks never sees either, since
-neither is a commit. [`scripts/guard-secret-echo.sh`](../scripts/guard-secret-echo.sh)
+neither is a commit. [`scripts/guard-secret-echo.sh`](../../scripts/guard-secret-echo.sh)
 covers the first case only: it runs as a `PreToolUse` hook and refuses a Bash command
 that would dump a `.env`'s contents. It cannot see an `@file` reference, a log line, or
 an API response — that is how three live credentials from this repository's own `.env`
 reached a transcript on 2026-08-31. When a value reaches the transcript anyway, rotation
 is the only remedy: this repository is public, so anything ever pushed stays fetchable
 after a force-push, and deleting the line later fixes nothing — it was readable the
-moment it appeared. See [Validation](validation.md#secret-echo-guard-self-check).
+moment it appeared. See [Validation](../reference/validation.md#secret-echo-guard-self-check).
 
 ## Changing the scan
 
 `scan.sh` decides whether a pull request may merge, so
-[`scripts/test-secret-scan.sh`](../scripts/test-secret-scan.sh) covers every decision
+[`scripts/test-secret-scan.sh`](../../scripts/test-secret-scan.sh) covers every decision
 branch with real git fixtures and the pinned binary — clean and dirty pull requests,
 follow-up deletion, branch rewrite, both allowlist mechanisms, merge-base scoping,
 push ranges, legacy findings outside the range, new branches, rewritten history, and
@@ -367,7 +367,7 @@ change as a new branch.
 The scan **fails closed**: an unresolvable range, a missing SHA, an unreadable config
 or an unexplained Gitleaks failure exits `2` and fails the job. It never falls back to
 the built-in rule set, which would silently drop the central allowlist. This is the
-opposite of the runner create lock, which [fails open](runners.md#create-lock) —
+opposite of the runner create lock, which [fails open](../pipeline/runners.md#create-lock) —
 blocking a build is cheaper than leaking a credential, and the reverse is true there.
 
 > [!NOTE]
@@ -378,10 +378,10 @@ blocking a build is cheaper than leaking a credential, and the reverse is true t
 
 ---
 
-**Background:** [spec](superpowers/specs/2026-08-27-nc2-2742-secret-detection.md) — the
+**Background:** [spec](../superpowers/specs/2026-08-27-nc2-2742-secret-detection.md) — the
 decisions and the Gitleaks behaviours verified behind them ·
-[plan](superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — how it was built.
+[plan](../superpowers/plans/2026-08-27-nc2-2742-secret-detection.md) — how it was built.
 
 ---
 
-[← Tests](tests.md) · [Docs index](README.md) · [Runners →](runners.md)
+[← End-to-end tests](../testing/e2e.md) · [Docs index](../README.md) · [Container scanning (Trivy) →](container-scanning.md)

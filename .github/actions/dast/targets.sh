@@ -253,7 +253,7 @@ S3_BUCKET=dast-dummy'
             # "the image did not come up" rather than the missing module it is. Port is 3000: app.config.ts's
             # Joi default is 3006 (matched by .env.example, a local-dev file not shipped
             # in the image) and docker/server.Dockerfile's EXPOSE says 3000, but neither
-            # is what's deployed — docs/sast-dast.md's already-verified note on the
+            # is what's deployed — docs/security/sast-dast.md's already-verified note on the
             # removed baseline arm cites the production chart (novatalks.charts,
             # novatalks_v5/values.yaml, dialer.containerPort: 3000, probing /livez and
             # /readyz) as authoritative, and this repository's own convention elsewhere
@@ -367,7 +367,7 @@ AWS_S3_ENDPOINT=http://s3.example.invalid'
         # This is a decision, not an oversight: novatalks.geoip-api gets no DAST
         # coverage at all — no baseline, no api-scan, no pentest — permanently, for the
         # two reasons above. It keeps Trivy, Semgrep and secret detection. See CLAUDE.md
-        # and docs/sast-dast.md for the recorded exclusion; it is also why it is not
+        # and docs/security/sast-dast.md for the recorded exclusion; it is also why it is not
         # offered in ci-dast-pentest.yaml's repository dropdown — a choice that always
         # fails loudly here is worse than not offering it.
         *)

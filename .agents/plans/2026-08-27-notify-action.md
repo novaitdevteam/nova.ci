@@ -393,13 +393,13 @@ Per the repository contract, a behavior change updates its docs page, the diagra
 diagram now lies, `CLAUDE.md` if an invariant changed, and both skill mirrors.
 
 **Files:**
-- Modify: `docs/notifications.md`
-- Modify: `docs/reference.md`
-- Modify: `assets/readme/reference.svg`
+- Modify: `docs/pipeline/notifications.md`
+- Modify: `docs/reference/reference.md`
+- Modify: `docs/reference/assets/reference.svg`
 - Modify: `CLAUDE.md`
 - Modify: `.agents/skills/nova-ci/SKILL.md` and `.claude/skills/nova-ci/SKILL.md`
 
-- [ ] **Step 1: Update `docs/notifications.md`**
+- [ ] **Step 1: Update `docs/pipeline/notifications.md`**
 
 Replace the sentence describing the senders with:
 
@@ -407,7 +407,7 @@ Replace the sentence describing the senders with:
 Notifier jobs use [`action-cond/action.yml`](../.github/actions/action-cond/action.yml) to select success or failure message text, then hand that text to [`notify/action.yml`](../.github/actions/notify/action.yml), which sends it to Telegram and Google Chat with `actions/github-script@v8` and Node.js `fetch`. Each channel is skipped when its credentials are empty, so a workflow that notifies one channel simply omits the other's inputs. Both sends check the response and fail the job when the API rejects the message. No Docker-based actions, and no Docker.
 ```
 
-- [ ] **Step 2: Update `docs/reference.md`**
+- [ ] **Step 2: Update `docs/reference/reference.md`**
 
 In the `INTERNAL ACTIONS` list, add after `install-docker`:
 
@@ -417,12 +417,12 @@ In the `INTERNAL ACTIONS` list, add after `install-docker`:
 
 - [ ] **Step 3: Update the diagram**
 
-In `assets/readme/reference.svg`, the `INTERNAL ACTIONS` card lists two entries and the
+In `docs/reference/assets/reference.svg`, the `INTERNAL ACTIONS` card lists two entries and the
 header reads `13 workflows · 2 actions · 1 script`. Add `notify` as a third entry and
 change the header to `13 workflows · 3 actions · 1 script`. Re-render to check:
 
 ```bash
-rsvg-convert -w 1200 assets/readme/reference.svg -o /tmp/ref.png
+rsvg-convert -w 1200 docs/reference/assets/reference.svg -o /tmp/ref.png
 ```
 
 Confirm the third line fits inside its card at GitHub width.
@@ -460,7 +460,7 @@ Expected: `VALIDATION OK`, and a diff in which no `Set Telegram Message` block a
 - [ ] **Step 7: Commit**
 
 ```bash
-git add docs CLAUDE.md .agents .claude assets/readme/reference.svg
+git add docs CLAUDE.md .agents .claude docs/reference/assets/reference.svg
 git commit -m "Document the shared notify action"
 ```
 

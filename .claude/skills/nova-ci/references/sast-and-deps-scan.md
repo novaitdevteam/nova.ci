@@ -33,13 +33,13 @@ populated and zero vulnerabilities, indistinguishable from clean in the JSON alo
 reproduced live with `docker run --network none`. Only exit `0`/`1`/`128` are acceptable;
 anything else (`127`, `129` `ErrAPIFailed`, `130`) is `error` even with parseable JSON, the
 same shape as the ZAP `0|1|2` ladder. Advisory, notifier-free, same as `sast-scan`. See
-`docs/sast-dast.md#dependency-scanning-source-manifests`.
+`docs/security/sast-dast.md#dependency-scanning-source-manifests`.
 
 `ci-build-ntk-on-push-tags-build.yaml` runs `sast-scan` (Semgrep, all standard build
 repositories, **every build on any branch**) after `trivy-scan`, delegating to the same
 composite action. Three scanners, three questions: Semgrep reads our source, Trivy reads the
 image, ZAP probes the running app. Gitleaks covers secrets; ESLint answers none of them. See
-`docs/sast-dast.md`.
+`docs/security/sast-dast.md`.
 
 `ci-build-ntk-on-push-tags-widget-build.yaml` (`novatalks.chatwidget`'s workflow, not the
 standard one) has its own `sast-scan` job mirroring the pattern above: same

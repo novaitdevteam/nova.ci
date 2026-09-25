@@ -1,7 +1,7 @@
 # Validation
 
 <p align="center">
-  <img src="../assets/readme/validation.svg" width="100%" alt="scripts/validate.sh runs a YAML parse, a whitespace check, the agents-to-claude skill mirror check, the create-runner self-check and advisory actionlint" />
+  <img src="assets/validation.svg" width="100%" alt="scripts/validate.sh runs a YAML parse, a whitespace check, the agents-to-claude skill mirror check, the create-runner self-check and advisory actionlint" />
 </p>
 
 One harness runs every check:
@@ -10,11 +10,11 @@ One harness runs every check:
 ./scripts/validate.sh   # or: make validate
 ```
 
-[`scripts/validate.sh`](../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, three documentation-asset checks (every page under `docs/` opens with a diagram, every referenced asset resolves, no asset drops below `font-size` 18), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
+[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, three documentation checks (every page under `docs/` opens with a diagram from its own section's `assets/`, every local link and asset in the docs and the root `*.md` files resolves, no asset drops below `font-size` 18), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
 
 ## Runner script self-check
 
-[`scripts/test-create-runner.sh`](../scripts/test-create-runner.sh) runs `ci-build-create-runner.sh` offline against 41 checks: a `curl` shim on `PATH` answers the Hetzner and GitHub calls from canned JSON, `sleep` is stubbed out, and each scenario asserts the emitted `$GITHUB_OUTPUT`. It touches no network, no credentials and no Hetzner project, and covers reuse, ghost registrations, both caps, the sizing matrix (including the `base_ref`-scoped DAST branch, `novatalks.tests`'s dispatch-time `runner_size` and its fall-back to the smallest size, the medium floor an ephemeral E2E target raises even when the form asked for small, the isolation of the E2E pool from the build pool in both directions, and a missing or unreadable event payload), and all four create-lock outcomes (free, held, stale, API failure).
+[`scripts/test-create-runner.sh`](../../scripts/test-create-runner.sh) runs `ci-build-create-runner.sh` offline against 41 checks: a `curl` shim on `PATH` answers the Hetzner and GitHub calls from canned JSON, `sleep` is stubbed out, and each scenario asserts the emitted `$GITHUB_OUTPUT`. It touches no network, no credentials and no Hetzner project, and covers reuse, ghost registrations, both caps, the sizing matrix (including the `base_ref`-scoped DAST branch, `novatalks.tests`'s dispatch-time `runner_size` and its fall-back to the smallest size, the medium floor an ephemeral E2E target raises even when the form asked for small, the isolation of the E2E pool from the build pool in both directions, and a missing or unreadable event payload), and all four create-lock outcomes (free, held, stale, API failure).
 
 Run it alone against any copy of the script:
 
@@ -24,19 +24,19 @@ Run it alone against any copy of the script:
 
 ## Secret scan self-check
 
-[`scripts/test-secret-scan.sh`](../scripts/test-secret-scan.sh) gives
-[`scan.sh`](../.github/actions/gitleaks/scan.sh) the same treatment, for the same
+[`scripts/test-secret-scan.sh`](../../scripts/test-secret-scan.sh) gives
+[`scan.sh`](../../.github/actions/gitleaks/scan.sh) the same treatment, for the same
 reason: it decides whether a pull request may merge. It builds throwaway git repos and
-runs the real, pinned Gitleaks binary over them — 64 checks covering clean and
+runs the real, pinned Gitleaks binary over them — 65 checks covering clean and
 dirty pull requests, follow-up deletion versus branch rewrite, both allowlist
 mechanisms, merge-base scoping, push ranges, a legacy finding outside the range, new
 branches and rewritten history, that findings stay redacted in both stdout and the
-summary, four fail-closed cases, and a self-scan of nova.ci's own commits (a real check
+summary, four fail-closed cases, that every docs page it links to exists, and a self-scan of nova.ci's own commits (a real check
 in CI; a counted skip locally, where there is no `main` ref to diff shallow-checked-out
 commits against).
 
 The version and checksum come out of
-[`action.yml`](../.github/actions/gitleaks/action.yml), so the harness can never test a
+[`action.yml`](../../.github/actions/gitleaks/action.yml), so the harness can never test a
 version CI does not run. Fixture credentials are assembled from halves at runtime, so
 no line of the harness itself trips the scanner. It uses `gitleaks` from `PATH` when
 present (`brew install gitleaks`), otherwise downloads the pinned linux_x64 build.
@@ -47,7 +47,7 @@ present (`brew install gitleaks`), otherwise downloads the pinned linux_x64 buil
 
 ## Secret-echo guard self-check
 
-[`scripts/guard-secret-echo.sh`](../scripts/guard-secret-echo.sh) is a `PreToolUse`
+[`scripts/guard-secret-echo.sh`](../../scripts/guard-secret-echo.sh) is a `PreToolUse`
 hook, not a `scan.sh` — it runs in the agent's own tool loop, before a Bash command
 executes, and refuses one it judges would dump a `.env` file's contents into the
 transcript. `validate.sh` runs its own self-test (23 checks) covering both the block
@@ -55,7 +55,7 @@ and the allow cases; it over-blocked twice during development (`open(` in a Pyth
 snippet, `tail -1` inside an unrelated command), and a check that cries wolf teaches
 people to route around it, so the allow-list is exercised as deliberately as the
 block-list. It cannot see an editor `@file` reference or a pasted log line — see
-[Secret detection](secret-detection.md#credentials-in-the-transcript) for what that
+[Secret detection](../security/secret-detection.md#credentials-in-the-transcript) for what that
 means when a credential reaches the transcript anyway.
 
 ```bash
@@ -64,12 +64,12 @@ means when a credential reaches the transcript anyway.
 
 ## SAST and DAST scan self-checks
 
-The two [SAST and DAST](sast-dast.md) actions get the same treatment, for the reason
+The two [SAST and DAST](../security/sast-dast.md) actions get the same treatment, for the reason
 that page is built around: the difference between "found nothing" and "never ran" is
 invisible in the tools' own output, so it has to be asserted.
 
-[`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh) runs the Semgrep
-[`scan.sh`](../.github/actions/semgrep/scan.sh) against 43 checks with `docker`
+[`scripts/test-sast-scan.sh`](../../scripts/test-sast-scan.sh) runs the Semgrep
+[`scan.sh`](../../.github/actions/semgrep/scan.sh) against 43 checks with `docker`
 stubbed by a shim on `PATH`, so it needs no image and no network. It covers a clean run,
 `ERROR` and `WARNING` counted and listed separately (a lone `WARNING` is a finding, not
 a clean scan), `INFO` counted in the job summary but kept out of the report body, and
@@ -84,8 +84,8 @@ assertion is about `INFO` and nothing else. The canary itself is excluded from e
 bucket unconditionally, by `check_id`, and the `canary alone is a clean scan` scenario
 holds it to that — there is no severity input to coincide with any more.
 
-[`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh) does the same for the ZAP
-[`scan.sh`](../.github/actions/dast/scan.sh) across 147 checks, with `docker` and
+[`scripts/test-dast-scan.sh`](../../scripts/test-dast-scan.sh) does the same for the ZAP
+[`scan.sh`](../../.github/actions/dast/scan.sh) across 147 checks, with `docker` and
 `curl` stubbed. It asserts the four outcomes stay distinct — `clean`, `findings`,
 `not-run` and `error` — plus the boot wait loop, teardown on every path, that a
 no-database run never starts postgres or redis, the `.env.example` seeding filters, the
@@ -105,8 +105,8 @@ outcome alone cannot tell the two guards apart, and matching the reason keeps ea
 independently falsifiable. A `FAIL`-level finding is asserted to report as a finding with
 the build green, never as a broken scanner.
 
-[`scripts/test-deps-scan.sh`](../scripts/test-deps-scan.sh) does the same for the
-dependency [`scan.sh`](../.github/actions/deps-scan/scan.sh) across 42 checks, with
+[`scripts/test-deps-scan.sh`](../../scripts/test-deps-scan.sh) does the same for the
+dependency [`scan.sh`](../../.github/actions/deps-scan/scan.sh) across 42 checks, with
 `docker` stubbed for OSV-Scanner and Trivy's JSON read from a fixture file. It covers
 all four outcomes — `clean`, `findings`, `no-manifests` (neither tool found a lockfile;
 a legitimate, loudly-reported state, never `clean`) and `error` — and both silent-zero
@@ -114,16 +114,16 @@ traps: OSV-Scanner exiting `127`/`129` while still leaving a well-formed, clean-
 JSON body behind (only exit `0`/`1`/`128` are acceptable), and Trivy's own JSON missing
 or emptying its `.Results` key.
 
-[`scripts/test-dast-targets.sh`](../scripts/test-dast-targets.sh) checks the shared
-per-repository table, [`dast/targets.sh`](../.github/actions/dast/targets.sh), across 69
+[`scripts/test-dast-targets.sh`](../../scripts/test-dast-targets.sh) checks the shared
+per-repository table, [`dast/targets.sh`](../../.github/actions/dast/targets.sh), across 69
 checks: every arm sets every `DT_*` variable (so a stale value can never leak from the
 previous caller), an unknown repository/surface pair fails loudly instead of guessing,
 and — in both directions — every `DT_*` field the table can emit is bridged to a
 consumer somewhere, and nothing a caller reads is left unset by the table.
 
-[`scripts/test-dast-api-scan.sh`](../scripts/test-dast-api-scan.sh) does the ZAP-baseline
+[`scripts/test-dast-api-scan.sh`](../../scripts/test-dast-api-scan.sh) does the ZAP-baseline
 treatment for the authenticated API scan's
-[`scan.sh`](../.github/actions/dast-api/scan.sh) across 87 checks. It covers all four
+[`scan.sh`](../../.github/actions/dast-api/scan.sh) across 87 checks. It covers all four
 `auth-mode`s (`login`, `db-token`, `db-insert`, `env-token`) and their distinct
 loud-skip/error paths, the `-S` safe-mode default versus its absence under
 `scan-mode: active`, the `::add-mask::` on the token regardless of source, and — the one
@@ -159,8 +159,8 @@ are not invocations and do not trip it.
 > per-line greps, so none of them catches an invocation split across a line-broken YAML
 > block scalar. They stop careless copy-paste, not a determined bypass.
 
-[`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml) and
-[`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml) are the
+[`ci-dast-pentest.yaml`](../../.github/workflows/ci-dast-pentest.yaml) and
+[`ci-dast-live-baseline.yaml`](../../.github/workflows/ci-dast-live-baseline.yaml) are the
 two deliberate exceptions to the ZAP-direct-invocation guard, because both attack a real
 host with no image to boot and no token to seed, so neither `dast` nor `dast-api`
 applies. `ci-dast-live-baseline.yaml` is excluded by file path — it has no other path to
@@ -184,10 +184,10 @@ red is what makes merging that state by accident impossible. This guard is about
 repository referencing itself, not about the tag-and-digest pins on Semgrep, Gitleaks,
 Trivy, ZAP or OSV-Scanner images, which are pinned on purpose for the opposite reason.
 
-[`ci-self-validate.yaml`](../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed) on every pull request and push to `main`.
+[`ci-self-validate.yaml`](../../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed) on every pull request and push to `main`.
 
-After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](../CLAUDE.md), [`AGENTS.md`](../AGENTS.md) and [`.agents/skills/nova-ci/SKILL.md`](../.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing.
+After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](../../CLAUDE.md), [`AGENTS.md`](../../AGENTS.md) and [`.agents/skills/nova-ci/SKILL.md`](../../.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing.
 
 ---
 
-[← Notifications](notifications.md) · [Docs index](README.md) · [Reference →](reference.md)
+[← SAST and DAST](../security/sast-dast.md) · [Docs index](../README.md) · [Reference →](reference.md)

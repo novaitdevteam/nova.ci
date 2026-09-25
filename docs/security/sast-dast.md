@@ -1,7 +1,7 @@
 # SAST and DAST (Semgrep and OWASP ZAP)
 
 <p align="center">
-  <img src="../assets/readme/sast-dast.svg" width="100%" alt="Semgrep reads our own source, Trivy scans the image, Trivy fs and OSV-Scanner read the checkout's lockfiles, and an OWASP ZAP baseline plus an authenticated ZAP api-scan probe the running application; each reports clean, findings or error, with a fourth not-run outcome for DAST alone, and a scanner that could not run is never reported clean; all four reports land on the one release the build already creates and each adds a line to the notification" />
+  <img src="assets/sast-dast.svg" width="100%" alt="Semgrep reads our own source, Trivy scans the image, Trivy fs and OSV-Scanner read the checkout's lockfiles, and an OWASP ZAP baseline plus an authenticated ZAP api-scan probe the running application; each reports clean, findings or error, with a fourth not-run outcome for DAST alone, and a scanner that could not run is never reported clean; all four reports land on the one release the build already creates and each adds a line to the notification" />
 </p>
 
 Two scanners join `trivy-scan` after a build: **Semgrep** reads our own source (SAST)
@@ -102,7 +102,7 @@ will actually be read.
 > identical source twice for one event. Source is source — one run per event.
 
 This costs one more job on every pull request in those repositories, queueing against
-the [per-size runner cap](runners.md#sizing-novatalkscore-only) alongside the linter, the
+the [per-size runner cap](../pipeline/runners.md#sizing-novatalkscore-only) alongside the linter, the
 unit gate and `secret-scan`. That is the price of the feedback being timely.
 
 ### Where a feature build's SAST report goes
@@ -135,7 +135,7 @@ from `build-image` to address the release. None of them needs any of the others.
 > [33614788933](https://github.com/novaitdevteam/novatalks.core/actions/runs/33614788933)
 > — 35 minutes wall clock — the jobs did **1083s of work and spent 1017s in gaps between
 > each other**, 397s of it waiting to start `dast-scan` alone. The `medium` pool went to
-> [four runners](runners.md#sizing-novatalkscore-only) in the same change, so the fan-out
+> [four runners](../pipeline/runners.md#sizing-novatalkscore-only) in the same change, so the fan-out
 > has somewhere to land.
 >
 > Publishing is race-safe by construction: three jobs may now try to create the same
@@ -194,7 +194,7 @@ neither's result is merged into the other's:
 | Tool | Database | Invocation |
 | --- | --- | --- |
 | **Trivy** (`fs` mode) | aquasecurity's own feed | `uses: aquasecurity/trivy-action@v0.36.0`, `scan-type: fs` — called directly in the `deps-scan` job, the same place every other Trivy job in this repository calls it. There is no `validate.sh` wrapper guard for Trivy the way there is for Gitleaks, Semgrep and ZAP. |
-| **OSV-Scanner** | osv.dev, which aggregates GitHub Security Advisories and the npm advisory feed among others | invoked inside [`deps-scan/scan.sh`](../.github/actions/deps-scan/scan.sh) via a pinned digest, the same shape Semgrep's `scan.sh` uses for its own `docker run` |
+| **OSV-Scanner** | osv.dev, which aggregates GitHub Security Advisories and the npm advisory feed among others | invoked inside [`deps-scan/scan.sh`](../../.github/actions/deps-scan/scan.sh) via a pinned digest, the same shape Semgrep's `scan.sh` uses for its own `docker run` |
 
 They are a genuine cross-check, not a duplicate: two independent vulnerability
 databases can (and in practice do) know about different advisories for the same
@@ -306,8 +306,8 @@ for DAST.
 
 ### Where the logic lives
 
-[`deps-scan/action.yml`](../.github/actions/deps-scan/action.yml) +
-[`scan.sh`](../.github/actions/deps-scan/scan.sh) hold the OSV-Scanner invocation and the
+[`deps-scan/action.yml`](../../.github/actions/deps-scan/action.yml) +
+[`scan.sh`](../../.github/actions/deps-scan/scan.sh) hold the OSV-Scanner invocation and the
 decision logic for both tools; Trivy itself is called directly in the `deps-scan` job in
 `ci-build-trigger-switcher.yaml`, with its JSON output path and step outcome handed to
 the action as inputs. `continue-on-error: true` on that Trivy step matters structurally:
@@ -379,7 +379,7 @@ falls back to the repository the job is running in (`GITHUB_REPOSITORY`).
 
 That fallback is exactly right for the reusable build workflow — it runs in the product
 repository's own context, so the two names are the same — and it is exactly wrong for
-[`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml), which runs in
+[`ci-dast-pentest.yaml`](../../.github/workflows/ci-dast-pentest.yaml), which runs in
 `nova.ci` and scans somebody else's published image. Two things key off the name:
 
 - **the Postgres major version.** `novatalks.core` gets `postgres:17.9-trixie`, every
@@ -444,7 +444,7 @@ the five S3 keys at module registration regardless of which surface is ever scan
 They cannot simply join `DT_EXTRA_ENV`, though: `dast/scan.sh` applies `extra-env` with
 `-e` *after* `--env-file`, so on the build workflow's own path — where the real
 `.env.example` (including the real S3 config the [`novatalks.core`-scoped R2/S3
-exception](../CLAUDE.md) documents) *is* seeded — it would override a value that is
+exception](../../CLAUDE.md) documents) *is* seeded — it would override a value that is
 already correct there, and change a scan that already works
 (`WARN-NEW: 2, PASS: 65`). A second field, `unseeded-env` (`DT_UNSEEDED_ENV` in
 `targets.sh`, `DAST_UNSEEDED_ENV` in `scan.sh`), is folded into `DAST_EXTRA_ENV` only
@@ -734,8 +734,8 @@ container booted with the product repository's own environment.
 
 | `scan-mode` | Script | Spider | Triage register |
 | --- | --- | --- | --- |
-| `baseline` (default) | `zap-baseline.py` | traditional | [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf) |
-| `full` | `zap-full-scan.py` | modern (`-j`) | [`zap-full-scan.conf`](../.github/actions/dast/zap-full-scan.conf) |
+| `baseline` (default) | `zap-baseline.py` | traditional | [`zap-baseline.conf`](../../.github/actions/dast/zap-baseline.conf) |
+| `full` | `zap-full-scan.py` | modern (`-j`) | [`zap-full-scan.conf`](../../.github/actions/dast/zap-full-scan.conf) |
 
 `zap-baseline.py` carries no active scanner at all — it only observes. `zap-full-scan.py`
 adds the whole active rule set on top of the passive one: injection, path traversal,
@@ -748,7 +748,7 @@ follow it with, so a SPA scanned without `-j` is one page regardless of which sc
 The exit ladder and the tally line are identical between the two scripts — verified
 against `zap-full-scan.py:480` (the tally) and `:511-522` (the exit codes) rather than
 assumed — which is why
-[`dast-common.sh`](../.github/actions/dast/dast-common.sh) and the `0|1|2` exit `case`
+[`dast-common.sh`](../../.github/actions/dast/dast-common.sh) and the `0|1|2` exit `case`
 are shared unchanged between both modes; see
 [Where the ZAP counts come from](#where-the-zap-counts-come-from) above. An unrecognised
 `scan-mode` is a scanner error, never a silent fallback to `baseline`.
@@ -765,7 +765,7 @@ are shared unchanged between both modes; see
 
 > [!NOTE]
 > The table's `DT_ZAP_CONTEXT` is bridged to this input by
-> [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml)'s `Resolve target`
+> [`ci-dast-pentest.yaml`](../../.github/workflows/ci-dast-pentest.yaml)'s `Resolve target`
 > step (`zap_context` output → `zap-context:` on the browser scan step). It was not, for
 > a while: the table could set a value, the harness could assert it, and the scan would
 > still have crawled anonymously with no signal anywhere. `scripts/test-dast-targets.sh`
@@ -775,7 +775,7 @@ are shared unchanged between both modes; see
 > has nothing to bridge.
 
 `dast/action.yml`'s `zap-context` input (empty by default) names a file under
-[`.github/actions/dast/contexts/`](../.github/actions/dast/contexts/). When `scan-mode` is
+[`.github/actions/dast/contexts/`](../../.github/actions/dast/contexts). When `scan-mode` is
 `full` and this is set, `scan.sh` copies that file into `RUNNER_TEMP` and appends
 `-n <file> -U nova-ci-dast` to the `zap-full-scan.py` invocation — `nova-ci-dast` is the
 one user name every context in this repository defines, never a per-repository value. A
@@ -792,10 +792,10 @@ tell the two states apart.
 > in `scan.sh` for the same reason: a context loaded with no user selected scans as
 > nobody while looking configured.
 
-[`contexts/novatalks-ui.context`](../.github/actions/dast/contexts/novatalks-ui.context)
+[`contexts/novatalks-ui.context`](../../.github/actions/dast/contexts/novatalks-ui.context)
 exists and documents the one login request this repository has verified — both against
 `novatalks.ui`'s own source and against its published image — but it is **not** wired
-into [`targets.sh`](../.github/actions/dast/targets.sh): that arm leaves `DT_ZAP_CONTEXT`
+into [`targets.sh`](../../.github/actions/dast/targets.sh): that arm leaves `DT_ZAP_CONTEXT`
 empty, and the context file's own header comment explains why in full. In short,
 `novatalks.ui` is a static SPA with no backend of its own; the ephemeral DAST scan boots
 it alone (no database, no proxy), so `/auth/sign_in` has nothing behind it — confirmed
@@ -816,8 +816,8 @@ A scanner that can only ever add to its count is one people stop reading. Both s
 have a way to write down "this is accepted" or "this must be fixed", and both keep that
 decision in version control next to a reason.
 
-**ZAP — [`zap-baseline.conf`](../.github/actions/dast/zap-baseline.conf) for `baseline`
-mode, [`zap-full-scan.conf`](../.github/actions/dast/zap-full-scan.conf) for `full`
+**ZAP — [`zap-baseline.conf`](../../.github/actions/dast/zap-baseline.conf) for `baseline`
+mode, [`zap-full-scan.conf`](../../.github/actions/dast/zap-full-scan.conf) for `full`
 mode.** The two are never interchangeable: the active scanner loads a rule set the
 passive one never reaches, so an `IGNORE` written for one is not a decision made for the
 other. Every rule defaults to `WARN`; an entry overrides that for one rule ID. The
@@ -879,7 +879,7 @@ rather than one decision.
 ### The Semgrep canary guard
 
 Semgrep exits `0` and reports an empty result set when no rules load, so
-[`scan.sh`](../.github/actions/semgrep/scan.sh) refuses to call an empty result clean
+[`scan.sh`](../../.github/actions/semgrep/scan.sh) refuses to call an empty result clean
 until six things hold:
 
 1. the container wrote an output file at all;
@@ -890,7 +890,7 @@ until six things hold:
 6. **the canary rule fired.**
 
 The canary is a one-rule config in the action directory
-([`canary.yaml`](../.github/actions/semgrep/canary.yaml)) plus a generated file it is
+([`canary.yaml`](../../.github/actions/semgrep/canary.yaml)) plus a generated file it is
 guaranteed to match, mounted alongside the real source. If it is missing, no amount of
 "zero findings" proves anything, and the outcome is `error` with exit `2`.
 
@@ -944,7 +944,7 @@ so every build it follows already has a release, feature branches included.
 
 **DAST covers three browser-surface repositories**, gated on
 `github.event.repository.name`, the same repository-scoped-exception pattern already
-used for the [integration Postgres image](tests.md) and R2 file storage:
+used for the [integration Postgres image](../testing/tests.md) and R2 file storage:
 
 | repository | port | health path | needs-db | needs-nats | extra-env |
 | --- | --- | --- | --- | --- | --- |
@@ -974,19 +974,19 @@ DAST is scoped that narrowly because, unlike the other two scanners, it has to *
 thing**. Every repository needs its own answer to: which port does the image listen on,
 what path proves it is up, how long does it need, and does it need postgres and redis
 first. Those are per-repository inputs on
-[`dast/action.yml`](../.github/actions/dast/action.yml), and each one has to be
+[`dast/action.yml`](../../.github/actions/dast/action.yml), and each one has to be
 established against the real runtime image — a wrong path scans an error page and
 reports it clean, which is the failure this whole design is built to avoid.
 
 These per-repository values are resolved by
-[`dast/targets.sh`](../.github/actions/dast/targets.sh)'s `dast_resolve_target <repo>
+[`dast/targets.sh`](../../.github/actions/dast/targets.sh)'s `dast_resolve_target <repo>
 <api|browser>`: a `case "${repo}/${surface}"` in bash, one arm per repository/surface
 pair, every value set explicitly (no arm inherits from another), setting `DT_PORT`,
 `DT_HEALTH_PATH`, `DT_NEEDS_DB`, `DT_NEEDS_NATS` and `DT_EXTRA_ENV` (among others) in the
 caller's scope.
 
 Every consumer reaches `targets.sh` through
-[`dast-target/action.yml`](../.github/actions/dast-target/action.yml), a composite action
+[`dast-target/action.yml`](../../.github/actions/dast-target/action.yml), a composite action
 that sources it relative to its own `github.action_path` and emits every `DT_*` value as
 a step output — `dast-scan`'s **`Resolve DAST target`** step and `api-scan`'s **`Resolve
 api-scan target`** step both call it (`uses:`, not `run:`), each reading only the outputs
@@ -1003,7 +1003,7 @@ and made `targets.sh` itself look proven. `uses:` does not have this problem: Gi
 checks out the *whole* calling repository next to the action, so `github.action_path`
 always points at `nova.ci`, at the ref the action is pinned to, regardless of whose
 checkout `GITHUB_WORKSPACE` holds — the same mechanism
-[`gitleaks/action.yml`](../.github/actions/gitleaks/action.yml)'s own comment documents
+[`gitleaks/action.yml`](../../.github/actions/gitleaks/action.yml)'s own comment documents
 for reaching the central Gitleaks config. `scripts/validate.sh`'s "GITHUB_WORKSPACE
 self-reference" guard fails any `workflow_call`-triggered workflow that sources a
 nova.ci-only path via `GITHUB_WORKSPACE`, so a regression of this shape reds the harness
@@ -1099,7 +1099,7 @@ the same absence.
 
 `novatalks.dialer` no longer reaches the baseline, so `needs-nats` has no browser-surface
 consumer today — but the input still exists on
-[`dast/action.yml`](../.github/actions/dast/action.yml), because the api-scan arm needs
+[`dast/action.yml`](../../.github/actions/dast/action.yml), because the api-scan arm needs
 it: a `novatalks.dialer` container reaches NestJS startup and then dies with
 `Error: connect ECONNREFUSED ::1:4222` without a NATS server, because
 `nats.config.ts`'s `registerAs` factory calls `NATS_SUBJECTS.split(',')` unconditionally
@@ -1107,13 +1107,13 @@ at config-load time and `main.ts` awaits `microService.listen()` — a real NATS
 connection — before `app.listen()`.
 
 `needs-nats` is now also an input on
-[`dast-api/action.yml`](../.github/actions/dast-api/action.yml), and
+[`dast-api/action.yml`](../../.github/actions/dast-api/action.yml), and
 `novatalks.dialer`'s `api` arm in `targets.sh` sets `DT_NEEDS_NATS=true`. The bring-up
 itself — `docker run nats:2.10-alpine -js -m 8222`, the readiness poll against
 `http://127.0.0.1:8222/healthz`, and creating the `campaign` JetStream stream the
 dialer's client asks `$JS.API.STREAM.NAMES` for at startup — lives in exactly one place,
 `dast_bring_up_nats` in
-[`dast-common.sh`](../.github/actions/dast/dast-common.sh), and both `dast/scan.sh` and
+[`dast-common.sh`](../../.github/actions/dast/dast-common.sh), and both `dast/scan.sh` and
 `dast-api/scan.sh` call it rather than each carrying its own copy. It mirrors
 `~/novatalks/scripts/nats-docker/scripts/js-init.sh`, the stand the team already uses
 locally — same stream, same subjects, same retention — minus its `nsc push` step, which
@@ -1157,7 +1157,7 @@ resolves to `127.0.0.1` on its own.
 
 The DAST stack is postgres + redis + the application + ZAP on one VM: the same load
 that already earns `large` for `int-test`. So on **`novatalks.core` only**,
-[`ci-build-create-runner.sh`](../.github/workflows/ci-build-create-runner.sh) resolves
+[`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh) resolves
 `medium` (cx43) whenever DAST will run:
 
 | Tag on `novatalks.core` | `base_ref` | Size |
@@ -1186,7 +1186,7 @@ caller.
 > trunk builds, the ones that actually run DAST, on `small`. Widening it to every
 > `novatalks.core` build puts ordinary feature builds into the `medium` pool, where they
 > start contending with unit-test runs. See
-> [Runners](runners.md#sizing-novatalkscore-only).
+> [Runners](../pipeline/runners.md#sizing-novatalkscore-only).
 
 `cx43` is the agreed starting point, measured on the first real run; the documented
 fallback for the same stack is `large`.
@@ -1198,8 +1198,8 @@ counterpart: it boots the built image against an ephemeral postgres and redis, r
 repository's own migrate-and-seed, acquires an auth token, and runs `zap-api-scan.py`
 against the application's **own OpenAPI spec** — the same four outcomes and the same tally
 parse as the baseline, driven a different way. It is
-[`dast-api/action.yml`](../.github/actions/dast-api/action.yml) +
-[`scan.sh`](../.github/actions/dast-api/scan.sh), run by the `api-scan` job.
+[`dast-api/action.yml`](../../.github/actions/dast-api/action.yml) +
+[`scan.sh`](../../.github/actions/dast-api/scan.sh), run by the `api-scan` job.
 
 **Opt-in, five repositories today.** It runs when the triggering tag ref starts with
 `apiscan` and the repository is `novatalks.core`, `nova.chatsconnector.telegram-client-api`,
@@ -1208,10 +1208,10 @@ repository and never automatically on a trunk build. The authenticated run again
 hundreds-of-operations scan, not something every build should pay for. Every per-repository
 value (port, health path, spec path, auth mode, header, scheme prefix, token query, setup
 command, swagger toggle) is resolved by the same
-[`dast/targets.sh`](../.github/actions/dast/targets.sh) table the baseline above uses —
+[`dast/targets.sh`](../../.github/actions/dast/targets.sh) table the baseline above uses —
 `dast_resolve_target <repo> api` — one arm per repository, read by the `Resolve api-scan
 target` step in
-[`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml);
+[`ci-build-ntk-on-push-tags-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-build.yaml);
 the default arm fails loudly rather than guessing.
 
 ```bash
@@ -1324,7 +1324,7 @@ header it is injected under is a per-repository input — a connector's is not t
 > entrypoint died on `P1012 Environment variable not found: DATABASE_URL`. Both
 > conventions are built from the values handed to the postgres container moments
 > earlier, so they cannot point at a different database — the same rule
-> [`dast/scan.sh`](../.github/actions/dast/scan.sh) follows.
+> [`dast/scan.sh`](../../.github/actions/dast/scan.sh) follows.
 
 > [!NOTE]
 > **A loud skip has to say which thing broke, and show it.** `docker exec` against a
@@ -1413,7 +1413,7 @@ for — a broken configuration, not a scan that ran without one).
 > nothing more.
 
 The report is the same shape as the baseline's and lands on the same release, and it uses
-its own triage register — [`zap-api-scan.conf`](../.github/actions/dast-api/zap-api-scan.conf),
+its own triage register — [`zap-api-scan.conf`](../../.github/actions/dast-api/zap-api-scan.conf),
 not the baseline's `zap-baseline.conf`, because the two load different rule sets and are
 never interchangeable.
 
@@ -1422,7 +1422,7 @@ never interchangeable.
 The container DAST above boots the built image in isolation, so it sees the application's
 own responses but nothing in front of them. **The live baseline** scans the deployed host
 through Cloudflare — the surface the container scan structurally cannot see. It is the
-[`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml) workflow,
+[`ci-dast-live-baseline.yaml`](../../.github/workflows/ci-dast-live-baseline.yaml) workflow,
 run by hand:
 
 ```text
@@ -1456,7 +1456,7 @@ what the container scan lacks.
   that does not exist is worse than offering none.
 
 The drift-dangerous part — the tally-line parse — is sourced from
-[`dast-common.sh`](../.github/actions/dast/dast-common.sh), never re-implemented inline,
+[`dast-common.sh`](../../.github/actions/dast/dast-common.sh), never re-implemented inline,
 so this out-of-band workflow cannot silently disagree with the two in-pipeline scanners
 about what a completed scan looks like.
 
@@ -1465,7 +1465,7 @@ about what a completed scan looks like.
 Every scan on this page so far — the baseline, the authenticated `api-scan`, the live
 baseline — is passive: it observes and comments on responses, never sends a payload
 meant to break something. **The pentest workflow** is the one exception, and it exists
-as its own file for that reason: [`ci-dast-pentest.yaml`](../.github/workflows/ci-dast-pentest.yaml)
+as its own file for that reason: [`ci-dast-pentest.yaml`](../../.github/workflows/ci-dast-pentest.yaml)
 drives the same two composite actions (`dast`, `dast-api`) with `scan-mode: full` /
 `scan-mode: active`, which drops the safe-mode guard and sends real injection,
 traversal, command-execution and `POST`/`PUT`/`DELETE` payloads against whatever it is
@@ -1480,7 +1480,7 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   branch push or a cron tick triggers on its own.
 - **No free-text URL input, anywhere.** `repository` is a `type: choice` dropdown and
   the port, health path, spec path and auth wiring are all derived from it through the
-  same [`dast_resolve_target`](../.github/actions/dast/targets.sh) table the trunk
+  same [`dast_resolve_target`](../../.github/actions/dast/targets.sh) table the trunk
   build uses — an attacking scanner that cannot be pointed anywhere cannot be pointed
   somewhere it must not go, which is a stronger guarantee than any regex on a string
   input would be. `target: live` does add a real host to the picture, but it is picked
@@ -1577,7 +1577,7 @@ runtime choice.
   no token to seed. `scripts/validate.sh`'s guard against invoking ZAP directly carries
   a second named exemption for exactly this file's live path, next to the existing one
   for `ci-dast-live-baseline.yaml`. The tally-line parse still comes from
-  [`dast-common.sh`](../.github/actions/dast/dast-common.sh)'s `zap_tally_parse`, never
+  [`dast-common.sh`](../../.github/actions/dast/dast-common.sh)'s `zap_tally_parse`, never
   re-implemented, and the exit ladder is the same `0|1|2` accepted / anything else an
   error.
 - **Unmistakable three months later.** The report's first line, the job summary
@@ -1709,7 +1709,7 @@ scanner broke.
 ## In the notification
 
 Each scanner contributes one line to the same Telegram and Google Chat message the
-build already sends — see [Notifications](notifications.md).
+build already sends — see [Notifications](../pipeline/notifications.md).
 
 | Line | When |
 | --- | --- |
@@ -1741,12 +1741,12 @@ digest pin, the canary guard and the harness at once.
 
 | Piece | Path |
 | --- | --- |
-| Semgrep action | [`.github/actions/semgrep/action.yml`](../.github/actions/semgrep/action.yml) + [`scan.sh`](../.github/actions/semgrep/scan.sh), [`canary.yaml`](../.github/actions/semgrep/canary.yaml) |
-| DAST action | [`.github/actions/dast/action.yml`](../.github/actions/dast/action.yml) + [`scan.sh`](../.github/actions/dast/scan.sh) |
-| DAST-API action | [`.github/actions/dast-api/action.yml`](../.github/actions/dast-api/action.yml) + [`scan.sh`](../.github/actions/dast-api/scan.sh) |
-| Shared tally parse | [`.github/actions/dast/dast-common.sh`](../.github/actions/dast/dast-common.sh) — sourced by all three ZAP callers |
-| Jobs | `sast-scan`, `dast-scan` and `api-scan` in [`ci-build-ntk-on-push-tags-build.yaml`](../.github/workflows/ci-build-ntk-on-push-tags-build.yaml); the live baseline is its own [`ci-dast-live-baseline.yaml`](../.github/workflows/ci-dast-live-baseline.yaml) |
-| Scenario tests | [`scripts/test-sast-scan.sh`](../scripts/test-sast-scan.sh), [`scripts/test-dast-scan.sh`](../scripts/test-dast-scan.sh), [`scripts/test-dast-api-scan.sh`](../scripts/test-dast-api-scan.sh) |
+| Semgrep action | [`.github/actions/semgrep/action.yml`](../../.github/actions/semgrep/action.yml) + [`scan.sh`](../../.github/actions/semgrep/scan.sh), [`canary.yaml`](../../.github/actions/semgrep/canary.yaml) |
+| DAST action | [`.github/actions/dast/action.yml`](../../.github/actions/dast/action.yml) + [`scan.sh`](../../.github/actions/dast/scan.sh) |
+| DAST-API action | [`.github/actions/dast-api/action.yml`](../../.github/actions/dast-api/action.yml) + [`scan.sh`](../../.github/actions/dast-api/scan.sh) |
+| Shared tally parse | [`.github/actions/dast/dast-common.sh`](../../.github/actions/dast/dast-common.sh) — sourced by all three ZAP callers |
+| Jobs | `sast-scan`, `dast-scan` and `api-scan` in [`ci-build-ntk-on-push-tags-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-build.yaml); the live baseline is its own [`ci-dast-live-baseline.yaml`](../../.github/workflows/ci-dast-live-baseline.yaml) |
+| Scenario tests | [`scripts/test-sast-scan.sh`](../../scripts/test-sast-scan.sh), [`scripts/test-dast-scan.sh`](../../scripts/test-dast-scan.sh), [`scripts/test-dast-api-scan.sh`](../../scripts/test-dast-api-scan.sh) |
 
 Both images are pinned by **tag and digest**, never `latest`, for the reason the
 Gitleaks pin exists: a tag can be moved, and an upstream change must not be able to
@@ -1760,15 +1760,15 @@ docker buildx imagetools inspect ghcr.io/zaproxy/zaproxy:stable --format '{{.Man
 
 **Changing either `scan.sh` means adding a scenario to its harness in the same change.**
 Both run offline under `./scripts/validate.sh` with `docker` (and, for DAST, `curl`)
-stubbed, so they need no image and no network — see [Validation](validation.md).
+stubbed, so they need no image and no network — see [Validation](../reference/validation.md).
 
 ---
 
-**Background:** [spec](superpowers/specs/2026-08-28-sast-dast-scanning.md) — the
+**Background:** [spec](../superpowers/specs/2026-08-28-sast-dast-scanning.md) — the
 decisions, the alternatives ruled out (CodeQL, SonarQube Community) and the assumptions
 settled during implementation ·
-[plan](superpowers/plans/2026-08-28-sast-dast-scanning.md) — how it was built.
+[plan](../superpowers/plans/2026-08-28-sast-dast-scanning.md) — how it was built.
 
 ---
 
-[← Container scanning (Trivy)](container-scanning.md) · [Docs index](README.md) · [Tests →](tests.md)
+[← Container scanning (Trivy)](container-scanning.md) · [Docs index](../README.md) · [Validation →](../reference/validation.md)

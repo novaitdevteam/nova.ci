@@ -4,7 +4,7 @@
 #
 # Scoping to the added commits, rather than full history, is what makes the check
 # safe to make mandatory: a legacy finding already in the default branch never
-# blocks an unrelated pull request. See docs/secret-detection.md.
+# blocks an unrelated pull request. See docs/security/secret-detection.md.
 #
 # The whole contract is environment variables, so scripts/test-secret-scan.sh can
 # drive every branch offline against real git fixtures:
@@ -125,7 +125,7 @@ instead: if the credential is real, rotate it at the provider now — it has bee
 reachable on ${PR_HEAD_REF:-?} since the commit(s) below. Then push a NEW commit to
 ${PR_HEAD_REF:-?} that removes it, or, if this is a false positive, allowlists the
 fingerprint (.gitleaksignore or an inline gitleaks:allow — see
-docs/secret-detection.md). Pushing to ${PR_HEAD_REF:-?} updates this pull request's
+docs/security/secret-detection.md). Pushing to ${PR_HEAD_REF:-?} updates this pull request's
 commit range automatically."
       else
         advice="Do not merge. The secret is in the pull request's commits, so merging buries it in
@@ -302,7 +302,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       echo "**Fix it:** rotate the credential first, then rewrite the branch so the secret"
       echo "leaves git history (\`git rebase -i\` / \`git commit --amend\` + force-push) — a"
       echo "follow-up delete commit leaves it in history and will not clear this check."
-      echo "False positive? See [docs/secret-detection.md](https://github.com/novaitdevteam/nova.ci/blob/main/docs/secret-detection.md)."
+      echo "False positive? See [docs/security/secret-detection.md](https://github.com/novaitdevteam/nova.ci/blob/main/docs/security/secret-detection.md)."
     fi
   } >> "$GITHUB_STEP_SUMMARY"
 fi
