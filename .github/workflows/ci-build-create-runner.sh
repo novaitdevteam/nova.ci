@@ -132,10 +132,13 @@ done
 # keep working on one response object.
 HETZNER_RESPONSE=$(echo "$HETZNER_PAGES" | jq -s '{servers: (map(.servers // []) | add)}')
 
+# Every filter below skips dev-00-gh-runner-e2e-*: novatalks.tests creates those from
+# nova.ci e2e-dev as its own pool, labelled e2e-small/e2e-medium, which no build job asks
+# for. Counted here they filled the small cap and queued every build behind them.
 TOTAL_ALL=$(echo "$HETZNER_RESPONSE" | jq -r '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
     ] | length
 ')
 
@@ -149,7 +152,7 @@ TOTAL_SIZE=$(echo "$HETZNER_RESPONSE" | jq -r \
     --arg required_type "$REQUIRED_TYPE" '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
         | select(.server_type.name == $required_type)
         | select(.status == "starting" or .status == "initializing" or .status == "running")
     ] | length
@@ -203,7 +206,7 @@ while true; do
     fi
     PAGE_RUNNERS=$(echo "$RESPONSE" | jq '
         [.runners[]?
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
         ]')
     RUNNERS=$(jq -n --argjson acc "$RUNNERS" --argjson page "${PAGE_RUNNERS:-[]}" '$acc + $page')
     PAGE_COUNT=$(echo "$RESPONSE" | jq -r '.runners | length')
@@ -225,7 +228,7 @@ echo "GitHub-registered dev-00-gh-runner-* runners (any status): $COUNT"
 ACTIVE_VM_NAMES=$(echo "$HETZNER_RESPONSE" | jq '
     [
         .servers[]
-        | select(.name | startswith("dev-00-gh-runner-"))
+        | select(.name | startswith("dev-00-gh-runner-") and (startswith("dev-00-gh-runner-e2e-") | not))
         | select(.status == "running")
         | .name
     ]')
