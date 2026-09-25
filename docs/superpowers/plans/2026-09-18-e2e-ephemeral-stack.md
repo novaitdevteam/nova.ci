@@ -375,7 +375,16 @@ to `/api/v1/accounts/null/...` and answered `400`. After a reload `Dashboard.vue
 `initializeAccount()` awaits `accounts/get` before `setCurrentAccountId`, so for that long the
 sidebar builds its links with a `null` account, a click in that window lands on
 `/app/accounts/null/...`, and `ApiClient` takes the account from the path. Setting the id from the
-path before the fetch (it is already known) closes it; the email alert specs (QANT-56/58/59) where the chatbot
+path before the fetch (it is already known) closes it. Two more, both named by the accept check
+and the stand's own code on 2026-09-25: a settings list's Active and Deleted tabs each fetch
+their page and the store keeps whichever answer lands last (`store/inboxes` `GetInboxes`), so a
+tab clicked while the list was loading showed the other tab's rows (QANT-84, 86, 96, 100); and
+the engine announces an offer before it has stored it, so an accept inside that gap answers
+`403 substatus is not alerting` and the card keeps its spinner for good (QANT-65, 76). By the
+owner's decision the suite now waits the way a person does for these three "clicked too soon"
+races — the sidebar until it knows its account, a list tab until the page's requests have
+finished, an accept a second after the offer shows, once more on a fresh page — and leaves the
+two stale-event bugs unmasked; the email alert specs (QANT-56/58/59) where the chatbot
 answered but no transfer to the team followed — the lab's engine logs had rotated before they
 could be read; QANT-52/46 (status still `Alerting`), QANT-84/96 (a delete button not found),
 QANT-117, QANT-130.
