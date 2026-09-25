@@ -127,6 +127,7 @@ jobs:
       TESTS_REF: ${{ steps.prep.outputs.TESTS_REF }}
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
+      REPORT_ID: ${{ steps.report.outputs.artifact-id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -710,6 +711,8 @@ jobs:
     needs: [build-tests]
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     continue-on-error: true
+    outputs:
+      ARTIFACT_DELETED: ${{ steps.drop.outcome == 'success' }}
     env:
       HTML_REPORT_URL_PATH: reports/manual/${{ github.run_id }}/${{ github.run_attempt }}
     steps:
@@ -741,6 +744,23 @@ jobs:
           AWS_BUCKET: ${{ secrets.E2E_R2_BUCKET }}
           AWS_REGION: "eeur"
 
+      # R2 now holds the report; the artifact only carried it here. At 100-250 MB it is the one
+      # artifact that fills the organisation's quota, and a full quota reds every product
+      # build's scan-report upload: on 2026-09-24 two reports (343 MB) did exactly that. A
+      # failed R2 upload skips this, so the artifact stays for its one day.
+      - name: Delete the artifact
+        id: drop
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_ID: ${{ needs.build-tests.outputs.REPORT_ID }}
+        with:
+          script: |
+            await github.rest.actions.deleteArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: Number(process.env.ARTIFACT_ID),
+            });
+
   notify-telegram:
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -757,7 +777,7 @@ jobs:
           if_true: |
             👷 Tests triggered manually have been completed ✅
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
+            ▶️ GitHub Playwright Artifact: ${{ needs.publish-report-r2.outputs.ARTIFACT_DELETED == 'true' && 'removed once published, see Web View' || needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
             ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
 
             Repository: ${{ github.repository }}
@@ -768,7 +788,7 @@ jobs:
           if_false: |
             👷 Tests triggered manually have been failed
 
-            ▶️ GitHub Playwright Artifact: ${{ needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
+            ▶️ GitHub Playwright Artifact: ${{ needs.publish-report-r2.outputs.ARTIFACT_DELETED == 'true' && 'removed once published, see Web View' || needs.build-tests.outputs.REPORT || 'not stored, see the run' }}
             ▶️ Web View Report: ${{ needs.publish-report-r2.result == 'success' && format('{0}/reports/manual/{1}/{2}/index.html', inputs.report_base_url, github.run_id, github.run_attempt) || 'not published' }}
 
             Repository: ${{ github.repository }}
