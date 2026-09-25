@@ -812,6 +812,17 @@ down() {
             docker logs --tail 200 "$c" 2>&1 || true
         done
     fi
+    # Always, green or red: the email specs flake one poll at a time and pass on a retry, and a
+    # run that passed that way used to leave nothing to read. The engine's mail fetches and its
+    # warnings and errors only, without the GeoIP lookups that fail for every 127.0.0.1 sign-in.
+    if docker inspect "$ENGINE" >/dev/null 2>&1; then
+        printf '\n===== %s: mail fetches, warnings and errors =====\n' "$ENGINE"
+        docker logs "$ENGINE" 2>&1 \
+            | grep -E '"context":"EmailProcessor"|"level":"(warn|error)"' \
+            | grep -vE 'Triggering email fetch|Connection established with IMAP|"context":"GeoipService"' \
+            | grep -viE 'token|password|secret|authorization' \
+            | tail -n 400 || true
+    fi
     docker rm -f "${ALL_CONTAINERS[@]}" >/dev/null 2>&1 || true
     rm -rf "$WORK" >/dev/null 2>&1 || true
     # Say so when something survived, rather than reporting a teardown that did not happen.

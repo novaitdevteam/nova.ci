@@ -100,7 +100,9 @@ The ephemeral stack is [`e2e-stack/stack.sh`](../.github/actions/e2e-stack/stack
 redis, NATS, the engine, the dialer, BotFlow, the UI and one nginx serving the single origin
 `http://localhost:18080`. Its configuration is rendered from the published chart rather than
 kept here, its flows are copied from the stand at boot, and it is torn down whatever the suite
-did — with every container's log when the suite went red. First green run against it:
+did — with every container's log when the suite went red, and on every run a digest of the
+engine's mail fetches, warnings and errors, because the email specs flake one poll at a time and
+pass on a retry, which used to leave nothing to read. First green run against it:
 2026-09-21, `@CI` in 55.8s on a stack that took about a minute to come up.
 
 It is **dispatch only**. Open `novatalks.tests` → Actions → **CI Build Trigger** → **Run workflow**; the caller creates the runner and the switcher forwards the form:
