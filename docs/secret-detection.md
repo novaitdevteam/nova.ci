@@ -60,7 +60,7 @@ Wired through the switcher — **no change needed in these repositories**:
 `novatalks.tests`
 
 `novatalks.tests` joined on 2026-09-25, out of scope until then. It builds nothing, but it holds
-the lab's tokens in flow exports and fixtures, and it now has notifier secrets. Its full-history
+the lab's tokens in flow exports and fixtures, and it now has the Telegram notifier secrets (`TG_NOTIFICATION_BOT_*`; Google Chat reaches it only if the organisation's `GC_NOTIFICATION_WEBHOOK` does). Its pushes to `main` get a Hetzner runner only once its caller passes `HCLOUD_TOKEN` to `find-runner` (novatalks.tests#137); until then they fall back to any `self-hosted` runner. Its full-history
 baseline that day found 79 hits; in the tracked tree only `botflow_fows/flows.json` (Node-RED
 `insecureToken`/`insecureAppSecret` fields) and one high-entropy string in a regression report
 remain. The gate reads only the lines a change adds, so those block nothing until a new export
