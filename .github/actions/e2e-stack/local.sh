@@ -92,8 +92,10 @@ case "${1:-up}" in
         "$0" env
         ;;
     down)
-        "${STACK_DIR}/stack.sh" down
+        # MinIO first: it is local.sh's, not stack.sh's, but it carries the stack's prefix, so
+        # stack.sh's own check reported it as left behind, failed, and it never got removed.
         docker rm -f e2e-minio >/dev/null 2>&1 || true
+        "${STACK_DIR}/stack.sh" down
         ;;
     env)
         work="${RUNNER_TEMP:-/tmp}/e2e-stack"
