@@ -15,7 +15,7 @@
 #   - scanner invocation guard (no workflow may run Gitleaks, Semgrep or OSV-Scanner itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
 #   - zizmor template-injection gate (required in CI; uvx fallback locally)
-#   - actionlint (when installed)
+#   - actionlint (enforced; required in CI)
 #
 # Usage: ./scripts/validate.sh   (works from any cwd; resolves repo root itself)
 #
@@ -600,22 +600,21 @@ else
 fi
 
 section "actionlint"
-# actionlint is advisory by default: the repo's workflows carry a large pre-existing
-# backlog of shellcheck-info / expression findings. We surface them but do not fail the
-# harness on them, so the clean gates above stay meaningful. Set STRICT_ACTIONLINT=1 to
-# enforce (use once the backlog is cleaned up).
+# Enforced since 2026-09-29, when the backlog (185 findings, mostly shellcheck quoting and
+# backticks, plus 24 expression errors such as an undeclared inputs.environment) went to
+# zero. In CI a missing actionlint fails, for the same reason as zizmor: a gate that never
+# runs passes. It has been seen to park locally on the build workflow; CI does not.
 if command -v actionlint >/dev/null 2>&1; then
   if out="$(actionlint 2>&1)"; then
     echo "OK: actionlint passed"
-  elif [[ "${STRICT_ACTIONLINT:-0}" == "1" ]]; then
-    printf '%s\n' "$out"
-    echo "ERROR: actionlint reported problems (STRICT_ACTIONLINT=1)"
-    fail=1
   else
-    n="$(printf '%s\n' "$out" | grep -cE '\[[a-z-]+\]$' || true)"
-    echo "WARN: actionlint reported ${n} finding(s) — advisory (pre-existing backlog)."
-    echo "      Run 'actionlint' for details, or set STRICT_ACTIONLINT=1 to enforce."
+    printf '%s\n' "$out"
+    echo "ERROR: actionlint reported problems"
+    fail=1
   fi
+elif [[ "${CI:-}" == "true" ]]; then
+  echo "ERROR: actionlint not installed in CI"
+  fail=1
 else
   echo "skip: actionlint not installed (https://github.com/rhysd/actionlint)"
 fi

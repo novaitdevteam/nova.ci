@@ -26,3 +26,11 @@ Added 2026-09-29.
   `novatalks.tests`'s `CI-update` branch calls `@e2e-dev`, but the switcher already
   passes `target` and the rest of the E2E form. If that job can move to `@main`, delete
   the job and the branch.
+
+## Documentation
+
+- [ ] **Redraw the guards row of `docs/reference/assets/validation.svg`.** It shows
+  "3 guards"; `validate.sh` now has five (scanner invocation, GITHUB_WORKSPACE
+  self-reference, notifier transport, self-reference pins, e2e-stack masks) plus the
+  zizmor and actionlint gates. At 900 px `self-reference-pins` touches its box edge and
+  the bottom caption runs under the left panel. Render at `-w 900` and `-w 360` after.

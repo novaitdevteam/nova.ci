@@ -83,7 +83,7 @@ Which skill or agent to reach for, and when. Launch with `make claude`: it expor
 ./scripts/validate.sh   # or: make validate
 ```
 
-Run it after any workflow, action, rule or documentation change. It parses every YAML, checks the skill mirror, resolves every docs link and asset, runs every `scripts/test-*.sh` harness offline, enforces the scanner-invocation and `GITHUB_WORKSPACE` guards, runs `zizmor` (template injection, unpinned uses, default-permission jobs and persisted checkout credentials fail at zero, the rest is advisory; required in CI, pinned by SHA-256, `uvx` fallback locally) and `actionlint` when installed (advisory; `STRICT_ACTIONLINT=1` enforces). What each check covers: [`docs/reference/validation.md`](docs/reference/validation.md). The same harness runs in CI on pull requests and pushes to `main`. A hook re-runs it after every edit under `.github/`.
+Run it after any workflow, action, rule or documentation change. It parses every YAML, checks the skill mirror, resolves every docs link and asset, runs every `scripts/test-*.sh` harness offline, enforces the scanner-invocation and `GITHUB_WORKSPACE` guards, runs `zizmor` (template injection, unpinned uses, default-permission jobs and persisted checkout credentials fail at zero, the rest is advisory; required in CI, pinned by SHA-256, `uvx` fallback locally) and `actionlint` (enforced; like zizmor, required in CI). What each check covers: [`docs/reference/validation.md`](docs/reference/validation.md). The same harness runs in CI on pull requests and pushes to `main`. A hook re-runs it after every edit under `.github/`.
 
 Then review the diff:
 
