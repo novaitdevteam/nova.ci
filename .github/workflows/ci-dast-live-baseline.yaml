@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # A free-text URL field with no allowlist is how a scanner eventually points
       # somewhere it must not — this is the whole safety mechanism of this workflow.
@@ -170,7 +170,7 @@ jobs:
       - name: Upload report artifact
         id: artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: zap-live-baseline-report
           path: report.md

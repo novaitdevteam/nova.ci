@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Every third-party action is pinned by commit SHA with its version as a comment
+  # (`@<sha> # v6.1.0`); Dependabot moves the SHA and the comment together. Without it
+  # the pins would only ever age. nova.ci's own `@main` references are branch refs,
+  # which Dependabot leaves alone.
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: weekly
+    # A release gets a week to be yanked before it is proposed here: every merge to
+    # main goes live in every caller repository at once, with no staging.
+    cooldown:
+      default-days: 7
+    groups:
+      # One PR a week for patch and minor bumps; a major gets its own PR, because
+      # it can change inputs or defaults.
+      minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "ci"
