@@ -138,7 +138,7 @@ jobs:
       # report worth keeping, and the second is the one somebody has to debug.
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -221,7 +221,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
