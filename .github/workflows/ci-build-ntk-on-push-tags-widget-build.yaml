@@ -24,14 +24,16 @@ jobs:
 
       - name: Prepare Vars
         id: prep
+        env:
+          BASE_REF: ${{ github.event.base_ref }}
         run: |
           echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          if [[ ${{ github.ref_type }} == 'branch' ]]; then
-            short_ref_name="${{ github.ref_name }}"
+          if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
+            short_ref_name="${GITHUB_REF_NAME}"
           else
-            short_ref_name="`echo ${{ github.event.base_ref }} | cut -d "/" -f3`"
+            short_ref_name="`echo ${BASE_REF} | cut -d "/" -f3`"
           fi
           echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
