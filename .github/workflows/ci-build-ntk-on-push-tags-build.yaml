@@ -23,6 +23,8 @@ on:
 
 jobs:
   linter:
+    permissions:
+      contents: read
     name: Linter
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     outputs:
@@ -203,6 +205,8 @@ jobs:
           fi
 
   unit-test:
+    permissions:
+      contents: read
     name: Unit Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     # Sequential after lint so a run occupies one runner at a time, not two.
@@ -343,11 +347,11 @@ jobs:
           fi
 
   build-image:
+    permissions:
+      contents: write
+      packages: write
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    # permissions:
-    #   contents: read
-    #   packages: write
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     needs: [linter, unit-test]
     outputs:
@@ -355,7 +359,6 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
       IS_TRUNK: ${{ steps.prep.outputs.IS_TRUNK }}
     steps:
@@ -601,11 +604,6 @@ jobs:
           docker buildx imagetools create \
             --tag ghcr.io/"${GITHUB_REPOSITORY_OWNER}"/"${REP_NAME}":latest \
             ghcr.io/"${GITHUB_REPOSITORY_OWNER}"/"${REP_NAME}":"${RELEASE}"_"${SHORT_REF_NAME}""${IMAGE_SUFFIX}"_"${SHORT_SHA}"
-
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
 
   trivy-scan:
     name: Trivy Scan
@@ -956,10 +954,9 @@ jobs:
   deps-scan:
     name: Deps Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    # No `environment:`, unlike the sibling scan jobs. They carry it because they were
-    # copied from each other; this one needs no environment secret — it reads the
-    # checkout and publishes with the default GITHUB_TOKEN. Adding it would have added
-    # one more instance of an existing actionlint finding for nothing.
+    # No `environment:`, like every job here since 2026-09-29: the siblings' old
+    # `environment: ${{ inputs.environment }}` named an input nothing declared, so it was
+    # always empty. This job reads the checkout and publishes with GITHUB_TOKEN.
     permissions:
       contents: write
     # Trunk and `scan*` only, unlike sast-scan which runs on every build. The
@@ -1267,6 +1264,8 @@ jobs:
           files: ${{ env.REPORT_FILE }}
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
@@ -1457,7 +1456,7 @@ jobs:
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
             Unit Tests Status: ${{ needs.unit-test.outputs.UNIT_CHECK }}
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

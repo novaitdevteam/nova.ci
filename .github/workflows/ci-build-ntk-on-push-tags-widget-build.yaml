@@ -77,11 +77,6 @@ jobs:
           prerelease: false
           files: ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
-
   sast-scan:
     name: SAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -153,6 +148,8 @@ jobs:
           files: ${{ env.REPORT_FILE }}
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()

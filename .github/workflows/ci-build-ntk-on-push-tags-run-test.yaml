@@ -68,7 +68,6 @@ jobs:
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: ${{ contains(fromJSON('["unit","both"]'), inputs.test_mode || 'integration') }}
     outputs:
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
       SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
@@ -139,11 +138,6 @@ jobs:
           path: ./results.txt
           retention-days: 30
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
-
   integration-tests:
     permissions:
       contents: read
@@ -156,7 +150,6 @@ jobs:
     needs: [unit-tests]
     if: ${{ !cancelled() && contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
     outputs:
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
       SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
@@ -298,11 +291,6 @@ jobs:
           path: ./results.txt
           retention-days: 30
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
-
       - name: 🧹 Tear down containers
         if: always()
         run: docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
@@ -370,7 +358,7 @@ jobs:
             ❌ Tests Failed (${{ inputs.test_mode || 'integration' }})
 
             ${{ steps.reports.outputs.value }}
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.integration-tests.outputs.END_STEP_JOB_ID || needs.unit-tests.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

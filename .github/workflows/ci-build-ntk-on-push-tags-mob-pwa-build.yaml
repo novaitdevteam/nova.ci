@@ -47,15 +47,15 @@ jobs:
   #           fi
 
   build-image:
+    permissions:
+      contents: write
+      packages: write
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     # build-push-action uploads a .dockerbuild build record per build, kept 90 days by default.
     # It is only a Docker Desktop import; the image in GHCR is the build's result.
     env:
       DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
-    # permissions:
-    #   contents: read
-    #   packages: write
     if: always()
     # needs: [linter]
     outputs:
@@ -63,7 +63,6 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       IMAGE_SUFFIX: ${{ steps.image_variant.outputs.IMAGE_SUFFIX }}
     steps:
       - name: Checkout
@@ -184,12 +183,9 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
-
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
@@ -218,7 +214,7 @@ jobs:
 
             ❌Build Failed
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

@@ -10,9 +10,6 @@ jobs:
   pushToPub:
     name: Call github API
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    # permissions:
-    #   contents: read
-    #   packages: write
     # The API writes go through CI_GITHUB_PAT; GITHUB_TOKEN only checks out and deletes the tag.
     permissions:
       contents: write

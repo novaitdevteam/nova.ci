@@ -8,6 +8,8 @@ on:
 
 jobs:
   preparation:
+    permissions:
+      contents: read
     name: CI Build Trigger Switcher Start
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     steps:

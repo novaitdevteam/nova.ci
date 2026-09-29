@@ -113,6 +113,8 @@ concurrency:
 
 jobs:
   build-tests:
+    permissions:
+      contents: read
     name: Run Playwright Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     # The backstop for everything the step timeout below does not cover — a checkout that
@@ -731,6 +733,8 @@ jobs:
           echo "report: ${REPORT_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()

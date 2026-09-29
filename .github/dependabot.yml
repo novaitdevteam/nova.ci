@@ -19,5 +19,9 @@ updates:
       # it can change inputs or defaults.
       minor-and-patch:
         update-types: [minor, patch]
+        # 0.x: a minor bump is a breaking release, and for trivy-action it also moves the
+        # Trivy binary and its DB and cache behaviour. It gets its own PR.
+        exclude-patterns:
+          - "aquasecurity/*"
     commit-message:
       prefix: "ci"
