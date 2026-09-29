@@ -21,6 +21,7 @@ Pages are grouped by section; each section keeps its diagrams in its own `assets
 | [`security/`](security/) | [Secret detection](security/secret-detection.md) | When Gitleaks runs, what to do when it fails, and how to allowlist a false positive. |
 | | [Container scanning (Trivy)](security/container-scanning.md) | When the scan runs, what it produces, and how to fail on findings. |
 | | [SAST and DAST](security/sast-dast.md) | What Semgrep, the ZAP baseline, the authenticated ZAP API scan, the dependency scan and the manual active pentest each cover, and why a failed boot is not a clean scan. |
+| | [Workflow security](security/workflow-security.md) | Which zizmor findings fail the harness and why, the token-permission ceilings, the SHA pins and the Dependabot policy. |
 | [`reference/`](reference/) | [Validation](reference/validation.md) | The one harness to run after any workflow change. |
 | | [Reference](reference/reference.md) | Every reusable workflow, internal action and agent-context file. |
 | [`superpowers/`](superpowers/) | plans and specs | Records of how larger changes were designed; not pages. |

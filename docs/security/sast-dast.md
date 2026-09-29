@@ -1669,7 +1669,7 @@ exists to refuse, not an aspiration.
 ## Where the reports are
 
 All three scanners publish onto the **one release the build already creates**, because
-`softprops/action-gh-release@v2` upserts by tag and each job can attach its own file
+`softprops/action-gh-release` upserts by tag and each job can attach its own file
 independently. Trivy and the two ZAP scans only run where that release exists; Semgrep
 runs on every build and attaches its report only there, keeping the run artifact as the
 copy elsewhere (see [above](#where-a-feature-builds-sast-report-goes)):
@@ -1771,4 +1771,4 @@ settled during implementation ·
 
 ---
 
-[← Container scanning (Trivy)](container-scanning.md) · [Docs index](../README.md) · [Validation →](../reference/validation.md)
+[← Container scanning (Trivy)](container-scanning.md) · [Docs index](../README.md) · [Workflow security →](workflow-security.md)

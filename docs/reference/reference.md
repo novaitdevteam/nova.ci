@@ -63,6 +63,16 @@ The `secret-scan` job lives inline in the switcher rather than in its own file, 
 </details>
 
 <details>
+<summary><b>Repository configuration</b> — what moves or checks the pins, and where the bootstrap runs</summary>
+
+- [`.github/zizmor.yml`](../../.github/zizmor.yml) — allows nova.ci's own `@main` references and requires a commit SHA for everything else; see [Workflow security](../security/workflow-security.md)
+- [`.github/dependabot.yml`](../../.github/dependabot.yml) — weekly SHA-pin updates with a 7-day cooldown; majors and `aquasecurity/*` in PRs of their own
+- [`infra/arc/`](../../infra/arc/README.md) — values and install commands for `nova-arc`, the in-cluster scale set behind `ci-bootstrap`; see [Runners](../pipeline/runners.md#where-the-bootstrap-runs)
+- [`todo.md`](../../todo.md) — open runner-infrastructure items outside this repository
+
+</details>
+
+<details>
 <summary><b>Specs and plans</b> — <a href="../superpowers">docs/superpowers</a></summary>
 
 Written-up specs and completed-work records, one pair per task, so the reasoning behind a

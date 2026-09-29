@@ -10,7 +10,7 @@ One harness runs every check:
 ./scripts/validate.sh   # or: make validate
 ```
 
-[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, four documentation checks (every page under `docs/` opens with a diagram from its own section's `assets/`, every local link and asset in the docs, the root `*.md` files and `.claude/rules/*.md` resolves, no asset drops below `font-size` 18, and every `paths:` glob in `.claude/rules/` — each brace alternative on its own — matches at least one file, since a rule whose glob matches nothing never loads), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, `zizmor` (pinned by version and SHA-256 in `ci-self-validate.yaml`; locally the same version through `uvx`, when `zizmor` itself is not installed) — four audits held at zero, each failing the run with `file:line` and the fix: `template-injection` (a `${{ }}` expression expanded into `run:` or a `github-script`; pass it through step `env:` instead), `unpinned-uses` (third-party actions by commit SHA; `.github/zizmor.yml` keeps nova.ci's own `@main` references allowed, and `.github/dependabot.yml` moves the pins), `excessive-permissions` (a job on default token permissions) and `artipacked` (a checkout that leaves its token in `.git/config`). The rest of its findings is an advisory backlog. `--strict-collection` makes a file zizmor cannot parse fail the run instead of being skipped, and in CI a missing `zizmor` fails rather than skips — and `actionlint`, **enforced** since 2026-09-29 when its backlog reached zero: 185 findings, 256 once removing template expressions let shellcheck see the unquoted variables they had hidden — 232 shellcheck (quoting, backticks) and 24 expression errors such as an undeclared `inputs.environment`. A separate harness check requires a `permissions:` block on every job and keeps each reusable workflow within its caller's ceiling. In CI a missing `actionlint` or `zizmor` fails the run; locally a missing one is skipped.
+[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, four documentation checks (every page under `docs/` opens with a diagram from its own section's `assets/`, every local link and asset in the docs, the root `*.md` files and `.claude/rules/*.md` resolves, no asset drops below `font-size` 18, and every `paths:` glob in `.claude/rules/` — each brace alternative on its own — matches at least one file, since a rule whose glob matches nothing never loads), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, `zizmor` (pinned by version and SHA-256 in `ci-self-validate.yaml`; locally the same version through `uvx`, when `zizmor` itself is not installed) — four audits held at zero, each failing the run with `file:line` and the fix: `template-injection` (a `${{ }}` expression expanded into `run:` or a `github-script`; pass it through step `env:` instead), `unpinned-uses` (third-party actions by commit SHA; `.github/zizmor.yml` keeps nova.ci's own `@main` references allowed, and `.github/dependabot.yml` moves the pins), `excessive-permissions` (a job on default token permissions) and `artipacked` (a checkout that leaves its token in `.git/config`); why each one is held at zero, and what stays advisory, is in [Workflow security](../security/workflow-security.md). The rest of its findings is an advisory backlog. `--strict-collection` makes a file zizmor cannot parse fail the run instead of being skipped, and in CI a missing `zizmor` fails rather than skips — and `actionlint`, **enforced** since 2026-09-29 when its backlog reached zero: 185 findings, 256 once removing template expressions let shellcheck see the unquoted variables they had hidden — 232 shellcheck (quoting, backticks) and 24 expression errors such as an undeclared `inputs.environment`. A separate harness check requires a `permissions:` block on every job and keeps each reusable workflow within its caller's ceiling. In CI a missing `actionlint` or `zizmor` fails the run; locally a missing one is skipped.
 
 ## Runner script self-check
 
@@ -85,7 +85,7 @@ bucket unconditionally, by `check_id`, and the `canary alone is a clean scan` sc
 holds it to that — there is no severity input to coincide with any more.
 
 [`scripts/test-dast-scan.sh`](../../scripts/test-dast-scan.sh) does the same for the ZAP
-[`scan.sh`](../../.github/actions/dast/scan.sh) across 147 checks, with `docker` and
+[`scan.sh`](../../.github/actions/dast/scan.sh) across 153 checks, with `docker` and
 `curl` stubbed. It asserts the four outcomes stay distinct — `clean`, `findings`,
 `not-run` and `error` — plus the boot wait loop, teardown on every path, that a
 no-database run never starts postgres or redis, the `.env.example` seeding filters, the
@@ -106,7 +106,7 @@ independently falsifiable. A `FAIL`-level finding is asserted to report as a fin
 the build green, never as a broken scanner.
 
 [`scripts/test-deps-scan.sh`](../../scripts/test-deps-scan.sh) does the same for the
-dependency [`scan.sh`](../../.github/actions/deps-scan/scan.sh) across 42 checks, with
+dependency [`scan.sh`](../../.github/actions/deps-scan/scan.sh) across 51 checks, with
 `docker` stubbed for OSV-Scanner and Trivy's JSON read from a fixture file. It covers
 all four outcomes — `clean`, `findings`, `no-manifests` (neither tool found a lockfile;
 a legitimate, loudly-reported state, never `clean`) and `error` — and both silent-zero
@@ -115,7 +115,7 @@ JSON body behind (only exit `0`/`1`/`128` are acceptable), and Trivy's own JSON 
 or emptying its `.Results` key.
 
 [`scripts/test-dast-targets.sh`](../../scripts/test-dast-targets.sh) checks the shared
-per-repository table, [`dast/targets.sh`](../../.github/actions/dast/targets.sh), across 69
+per-repository table, [`dast/targets.sh`](../../.github/actions/dast/targets.sh), across 78
 checks: every arm sets every `DT_*` variable (so a stale value can never leak from the
 previous caller), an unknown repository/surface pair fails loudly instead of guessing,
 and — in both directions — every `DT_*` field the table can emit is bridged to a
@@ -190,4 +190,4 @@ After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](
 
 ---
 
-[← SAST and DAST](../security/sast-dast.md) · [Docs index](../README.md) · [Reference →](reference.md)
+[← Workflow security](../security/workflow-security.md) · [Docs index](../README.md) · [Reference →](reference.md)

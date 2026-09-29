@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="530" viewBox="0 0 1200 530"
+     role="img" aria-labelledby="wsTitle wsDesc">
+  <title id="wsTitle">Four zizmor audits held at zero, and a token ceiling on every job</title>
+  <desc id="wsDesc">scripts/validate.sh fails on any zizmor finding of four kinds: template-injection, a template expression expanded into run: that executes whoever controls the value, fixed by passing it through env:; unpinned-uses, a tag that can be moved, fixed by pinning a commit SHA that Dependabot moves; excessive-permissions, a job without a permissions block that inherits the write-all default, fixed by an explicit block; and artipacked, a checkout that leaves its token in .git/config, fixed by persist-credentials: false. Below, the token ceiling: the product caller runs on the write-all default, the switcher's call jobs narrow it to contents: write plus packages: write where an image goes to GHCR, and lint and unit tests run with contents: read. A job may narrow its ceiling, never widen it; GitHub rejects the run before it starts.</desc>
+
+  <rect width="1200" height="530" rx="20" fill="#0B0E11"/>
+
+  <text x="40" y="46" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="19" letter-spacing="2.2" fill="#8B96A2">WORKFLOW SECURITY</text>
+  <text x="1160" y="46" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">zizmor 1.30.1 · actionlint 1.7.12</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <text x="40" y="88" font-size="18" letter-spacing="1.6" fill="#6E7A87">HELD AT ZERO — any finding fails validate.sh</text>
+    <rect x="40" y="106" width="550" height="102" rx="10" fill="#101519" stroke="#F85149" stroke-width="1.5"/>
+    <text x="64" y="140" font-size="20" fill="#F4F6F8">template-injection</text>
+    <text x="64" y="168" font-size="18" fill="#8B96A2">&#36;{{ }} in run: executes as code</text>
+    <text x="64" y="194" font-size="18" fill="#3FB950">→ pass it through env:, use &#36;VAR</text>
+    <rect x="610" y="106" width="550" height="102" rx="10" fill="#101519" stroke="#F85149" stroke-width="1.5"/>
+    <text x="634" y="140" font-size="20" fill="#F4F6F8">unpinned-uses</text>
+    <text x="634" y="168" font-size="18" fill="#8B96A2">a tag can be moved; a SHA cannot</text>
+    <text x="634" y="194" font-size="18" fill="#3FB950">→ SHA + version comment, Dependabot</text>
+    <rect x="40" y="224" width="550" height="102" rx="10" fill="#101519" stroke="#F85149" stroke-width="1.5"/>
+    <text x="64" y="258" font-size="20" fill="#F4F6F8">excessive-permissions</text>
+    <text x="64" y="286" font-size="18" fill="#8B96A2">no block inherits write-all</text>
+    <text x="64" y="312" font-size="18" fill="#3FB950">→ explicit permissions: per job</text>
+    <rect x="610" y="224" width="550" height="102" rx="10" fill="#101519" stroke="#F85149" stroke-width="1.5"/>
+    <text x="634" y="258" font-size="20" fill="#F4F6F8">artipacked</text>
+    <text x="634" y="286" font-size="18" fill="#8B96A2">checkout leaves its token behind</text>
+    <text x="634" y="312" font-size="18" fill="#3FB950">→ persist-credentials: false</text>
+    <text x="40" y="376" font-size="18" letter-spacing="1.6" fill="#6E7A87">TOKEN CEILING — each hop may narrow, never widen</text>
+    <rect x="40" y="394" width="330" height="80" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
+    <text x="64" y="427" font-size="19" fill="#F4F6F8">product caller</text>
+    <text x="64" y="456" font-size="18" fill="#9AA6B2">default: write-all</text>
+    <rect x="410" y="394" width="400" height="80" rx="10" fill="#161B20" stroke="#1F93FF" stroke-width="1.5"/>
+    <text x="434" y="427" font-size="19" fill="#F4F6F8">switcher call-* job</text>
+    <text x="434" y="456" font-size="18" fill="#9AA6B2">contents: write (+packages)</text>
+    <rect x="850" y="394" width="310" height="80" rx="10" fill="#161B20" stroke="#3FB950" stroke-width="1.5"/>
+    <text x="874" y="427" font-size="19" fill="#F4F6F8">lint · unit-test</text>
+    <text x="874" y="456" font-size="18" fill="#9AA6B2">contents: read</text>
+    <line x1="376" y1="434" x2="400" y2="434" stroke="#6E7A87" stroke-width="2"/>
+    <path d="M398 428 L406 434 L398 440 Z" fill="#6E7A87"/>
+    <line x1="816" y1="434" x2="840" y2="434" stroke="#6E7A87" stroke-width="2"/>
+    <path d="M838 428 L846 434 L838 440 Z" fill="#6E7A87"/>
+  </g>
+
+  <text x="40" y="508" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"
+        font-size="18" fill="#6E7A87">asking for more than the caller allows: GitHub rejects the run before it starts</text>
+</svg>
