@@ -13,7 +13,10 @@ scaleSetLabels:
   - self-hosted
   - ci-bootstrap
 minRunners: 1
-maxRunners: 4
+# 3, not 4: the pods share dev-01-dev with the labs, the E2E stand, argocd and longhorn. On
+# 2026-09-29 dev-01-k3sa02d went NotReady at 96% memory requests; three of these pods had just
+# started there.
+maxRunners: 3
 # dind is written out rather than `containerMode: dind`: the chart hard-codes that sidecar as an
 # unpinned `docker:dind` with IfNotPresent (templates/_helpers.tpl:113), and the nodes had a 2022
 # copy cached — Docker 20.10. This is the chart's own dind template with the image pinned.
@@ -39,6 +42,10 @@ template:
         securityContext:
           privileged: true
         restartPolicy: Always
+        # Requests are what the scheduler packs by; dind had none, so a node looked emptier than it was.
+        resources:
+          requests: { cpu: 250m, memory: 512Mi }
+          limits: { cpu: "2", memory: 4Gi }
         startupProbe:
           exec:
             command: ["docker", "info"]
@@ -70,7 +77,7 @@ template:
           - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
             value: "120"
         resources:
-          requests: { cpu: 500m, memory: 1Gi }
+          requests: { cpu: "1", memory: 2Gi }
           limits: { cpu: "3", memory: 6Gi }
         volumeMounts:
           - name: work

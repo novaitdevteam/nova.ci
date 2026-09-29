@@ -38,9 +38,9 @@ Date: 2026-09-29. Status: approved in conversation, being implemented.
   - The image has bash, curl, jq, git and the docker CLI.
   - It lacks `envsubst`, which `nova.ci.hcloud-github-runner/action.sh` calls, so the pod installs `gettext-base` at start.
   - A baked image is the upgrade path if the start time ever matters.
-- **D6. `minRunners: 1`, `maxRunners: 4`.**
+- **D6. `minRunners: 1`, `maxRunners: 3` (was 4 at install).**
   - One warm pod, so bootstrap starts as soon as a job arrives.
-  - Four keeps the load inside the cluster's two agent nodes; the legacy set had four pods.
+  - Lowered to 3 the same day, with requests raised to 1 CPU / 2Gi (runner) and 250m / 512Mi (dind), after `dev-01-k3sa02d` went `NotReady` at 96% memory requests.
 - **D7. The values live in `infra/arc/` in this repository.**
   - They were previously applied by hand, and no copy existed anywhere.
   - They contain no secret.
