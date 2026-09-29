@@ -131,7 +131,7 @@ jobs:
       REPORT_PUBLISHED: ${{ steps.publish.outcome == 'success' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ inputs.tests_ref }}
@@ -346,7 +346,7 @@ jobs:
       # is the opposite.) The workspace is left alone: the suite needs it.
       - name: Checkout the bring-up
         if: ${{ inputs.target == 'ephemeral' }}
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: novaitdevteam/nova.ci
