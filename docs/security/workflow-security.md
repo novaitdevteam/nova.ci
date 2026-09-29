@@ -34,9 +34,11 @@ Two things this does not catch on its own:
   plain variable. So `SHORT_REF_NAME` is sanitized where it is first computed, to
   `[A-Za-z0-9_.-]`. This happens in the build workflow and the mobile, widget and PWA
   workflows.
-- **Plan commands are executed on purpose.** The lint and unit plan steps resolve a
-  command from the product repository's own `package.json`, and the next step runs it
-  as `eval "$PLAN_COMMAND"`. That is repository code by design. The `eval` makes the
+- **Plan commands are executed on purpose.** The build workflow's `Resolve lint plan`
+  and `Resolve test plan` steps pick the command per repository (`npm run test:unit`,
+  flowrunner's `npm test`, …), and the next step runs it as `eval "$PLAN_COMMAND"`.
+  What that command then executes is the product repository's own `package.json`
+  scripts: its code, by design. The `eval` makes the
   execution visible; it does not make it safe.
 
 ### What stays advisory
