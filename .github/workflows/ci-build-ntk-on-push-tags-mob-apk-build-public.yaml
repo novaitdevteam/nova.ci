@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: ${{ contains(github.ref_name, 'build') && endsWith( github.ref_name, 'apk' ) }}
         with:
+          persist-credentials: false
           repository: "novaitdevteam/novatalks.ui-lite"
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
           path: ./novatalks.ui-lite
@@ -40,6 +41,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: ${{ contains(github.ref_name, 'build-apk-') }}
         with:
+          persist-credentials: false
           repository: "novaitdevteam/novatalks.ui-lite"
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
           path: ./novatalks.ui-lite

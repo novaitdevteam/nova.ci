@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Resolve lint plan
         id: lint_plan
@@ -211,6 +213,7 @@ jobs:
         # the tag in build-image, which runs in parallel with this gate.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Resolve test plan
@@ -351,6 +354,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -899,6 +904,7 @@ jobs:
         # the tag in build-image, which has already finished by the time this job runs.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
@@ -981,6 +987,7 @@ jobs:
         # build-image, which has already finished by the time this job runs.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
@@ -1068,6 +1075,7 @@ jobs:
         # the tag in build-image, which has already finished by the time this job runs.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Resolve DAST target
@@ -1180,6 +1188,7 @@ jobs:
         # the tag in build-image, which has already finished by the time this job runs.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
