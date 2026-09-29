@@ -2,6 +2,7 @@
 paths:
   - ".github/workflows/*.yaml"
   - ".github/actions/{install-docker,notify}/**"
+  - "docs/pipeline/notifications.md"
 ---
 
 # Runner environment rules

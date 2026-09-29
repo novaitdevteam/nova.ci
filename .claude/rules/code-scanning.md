@@ -7,6 +7,10 @@ paths:
   - "scripts/test-{sast,deps}-scan.sh"
   - "scripts/test-dast-*.sh"
   - "docs/security/**"
+  - ".github/workflows/ci-build-ntk-on-push-tags-run-test.yaml"
+  - ".github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml"
+  - ".github/workflows/ci-e2e-tests-manual.yaml"
+  - "scripts/validate.sh"
 ---
 
 # Trivy, SAST, DAST and dependency-scan rules
@@ -40,7 +44,6 @@ Loaded when Claude Code reads a matching file; Codex and humans read it from the
 - Keep `dast-scan` scoped by the `build-image` `IS_TRUNK` output plus the `scan*` trigger — it boots the built image next to its database, and that cost is the reason. Keep both jobs off `pull_request` entirely: `build-image` does not run there, so there is nothing to scan. `trivy-scan` keeps its own `Resolve scan policy` step on purpose; see spec D6 before "simplifying" two sources of truth into one.
 - Keep all three reports on the **one** release the build already creates. The `TRIVY.SCAN_` tag prefix is historical and stays: renaming it breaks the stable URLs in `docs/security/container-scanning.md`, and one release per scanner triples the walk for the quarterly evidence aggregation.
 - The ZAP **baseline** (`dast-scan`) is scoped to the three browser-surface repositories — `novatalks.ui`, `novatalks.core`, `nova.botflow`. The baseline is a browser tool: on a headless JSON API it finds a few response headers and nothing a browser would, so the six connectors/services that once ran it (`nova.chatsconnector.{telegram,whatsapp,signal}-client-api`, `novatalks.dialer`, `novatalks.uspacy.connector`, `novatalks.geoip-api`) were removed on 2026-09-01. Their real coverage is the authenticated `api-scan` (below) — wired for four of the six (`telegram`, `whatsapp`, `signal`, `dialer`) as its own per-repo integration each; `novatalks.uspacy.connector` and `novatalks.geoip-api` publish no OpenAPI spec, so they have no `api-scan` path either and are not tracked for one. A repository is added back only with an explicit request **and its port and health path verified against something authoritative** (the deployment chart, the Dockerfile) — never guessed. Resolve them in `.github/actions/dast/targets.sh`'s `dast_resolve_target`, one arm per repository/surface pair; the default arm fails loudly (`::error::` + non-zero exit) rather than guessing.
-- The `medium` sizing branch for `novatalks.core` exists for the DAST stack, not for faster builds: `medium` is sized for postgres, redis, the application and ZAP on one VM — the load `int-test` already gets `large` for. Narrowing it to feature-branch builds would leave trunk builds, the ones that actually run DAST, on `small`; widening it to every core build puts ordinary builds into the medium pool, where they contend with unit tests.
 - Changing any of these `scan.sh` files means adding a scenario to the matching harness in the same change: `scripts/test-sast-scan.sh`, `scripts/test-dast-scan.sh`, or `scripts/test-deps-scan.sh`.
 - No workflow may invoke Semgrep or ZAP directly; `validate.sh` fails on it, exactly as it does for Gitleaks.
 - Be honest about reach in the docs: the unauthenticated ZAP baseline finds header and cookie hygiene, not logic flaws. Nobody should read the green check as a penetration test. The authenticated `apiscan*` scan adds real logged-in endpoints but stays passive — it finds no IDOR, no privilege escalation and no business-logic flaw, and is not a penetration test either.

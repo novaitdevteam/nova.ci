@@ -7,6 +7,8 @@ paths:
   - "scripts/test-secret-scan.sh"
   - "scripts/gitleaks-baseline.sh"
   - "docs/security/secret-detection.md"
+  - "scripts/validate.sh"
+  - "docs/pipeline/notifications.md"
 ---
 
 # Secret detection rules

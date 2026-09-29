@@ -132,13 +132,15 @@ if ruby -e '
   # that matches nothing - a renamed workflow, a typo - silently unloads the invariants it holds.
   Dir.glob(".claude/rules/*.md").sort.each do |rule|
     fm = File.read(rule)[/\A---\n(.*?)\n---\n/m, 1]
-    globs = fm.to_s.scan(/^  - "([^"]+)"$/).flatten
+    globs = fm.to_s.scan(/^\s*-\s*[\x22\x27]?([^\x22\x27\n]+?)[\x22\x27]?\s*$/).flatten
     if globs.empty?
       puts "       #{rule} has no paths: frontmatter"
       fail_count += 1
     end
-    globs.each do |g|
-      next unless Dir.glob(g, File::FNM_EXTGLOB).empty?
+    # Each brace alternative on its own: Dir.glob on "{a,typo}" passes when a alone matches.
+    expand = ->(g) { m = g.match(/\{([^{}]*)\}/); m ? m[1].split(",").flat_map { |alt| expand.(m.pre_match + alt + m.post_match) } : [g] }
+    globs.flat_map(&expand).each do |g|
+      next unless Dir.glob(g).empty?
       puts "       #{rule} -> #{g} matches no file"
       fail_count += 1
     end

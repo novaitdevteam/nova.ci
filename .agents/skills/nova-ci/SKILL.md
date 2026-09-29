@@ -467,7 +467,7 @@ When changing CI behavior, update all relevant agent/human documentation in the 
 
 - the relevant page under `docs/` (`README.md` only if the landing copy changes)
 - `AGENTS.md`
-- `CLAUDE.md`, and the matching `.claude/rules/<area>.md` when an invariant changes
+- the matching `.claude/rules/<area>.md` when an invariant changes — `CLAUDE.md` only when a rule that applies everywhere does
 - `.agents/skills/nova-ci/SKILL.md` (and its mirror `.claude/skills/nova-ci/SKILL.md`)
 
 Keep `docs/` as the canonical broad reference and `README.md` as a thin landing page. Keep this skill concise and procedural.

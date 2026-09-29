@@ -4,6 +4,7 @@ paths:
   - ".github/workflows/ci-e2e-*.yaml"
   - ".github/actions/e2e-stack/**"
   - "docs/testing/e2e.md"
+  - "scripts/validate.sh"
 ---
 
 # Playwright E2E rules — lab and ephemeral stack

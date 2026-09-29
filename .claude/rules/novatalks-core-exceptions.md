@@ -5,6 +5,8 @@ paths:
   - ".github/actions/{dast,dast-api,dast-target}/**"
   - "docs/testing/tests.md"
   - "docs/security/sast-dast.md"
+  - "scripts/test-dast-scan.sh"
+  - "scripts/test-dast-api-scan.sh"
 ---
 
 # novatalks.core-only exceptions
