@@ -27,10 +27,22 @@ jobs:
           ruby-version: "3.3"
 
       - name: Install actionlint
+        # Pinned by version and SHA-256 for the same reason as zizmor below: actionlint is a
+        # gate now, and an unpinned download (a script from main, then "latest") can red
+        # every PR overnight. shellcheck still comes from the runner image, so an image
+        # update can surface new shellcheck findings; they show as the harness failing.
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          echo "${PWD}" >> "$GITHUB_PATH"
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 2 -o "${RUNNER_TEMP}/${tarball}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "${RUNNER_TEMP}/actionlint-bin" >> "$GITHUB_PATH"
 
       - name: Install zizmor
         # Pinned by version and SHA-256, like Gitleaks: a new release can add an audit
