@@ -10,7 +10,6 @@ jobs:
   pushToPub:
     name: Call github API
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     # permissions:
     #   contents: read
     #   packages: write

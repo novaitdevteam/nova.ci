@@ -10,7 +10,6 @@ jobs:
   build-apk:
     name: Build APK
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     outputs:
@@ -35,14 +34,14 @@ jobs:
         env:
           BASE_REF: ${{ github.event.base_ref }}
         run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "TIMESTAMP=`echo $(date +'%Y%m%d%H%M')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d "/" -f2 )" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=$(date +'%Y_R%q')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "TIMESTAMP=$(date +'%Y%m%d%H%M')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${GITHUB_REF_NAME} | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=${GITHUB_REF_NAME//[^A-Za-z0-9_.-]/-}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           else
-            echo "SHORT_REF_NAME=`echo ${BASE_REF} | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=$(echo "${BASE_REF}" | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           fi
 
       - name: Delete Tag
@@ -97,24 +96,24 @@ jobs:
       - name: Add APK Version
         run: |
           ver="";
-          while read -r line; do param=( $line ); if [[ "${param[0]}" == "novatalksVersion" ]]; then ver=${param[2]}; fi; done < ./src-capacitor/android/variables.gradle
+          while read -r line; do read -ra param <<< "$line"; if [[ "${param[0]}" == "novatalksVersion" ]]; then ver=${param[2]}; fi; done < ./src-capacitor/android/variables.gradle
           if [ -z "$ver" ];
           then
               sed -i "2i \    \ novatalksVersion = 'novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}'" ./src-capacitor/android/variables.gradle
           else
-              sed -i s/$ver/\'novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}\'/g ./src-capacitor/android/variables.gradle
+              sed -i s/"$ver"/\'novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}"\'/g ./src-capacitor/android/variables.gradle
           fi;
           cat ./src-capacitor/android/variables.gradle
 
       - name: Change versionCode
         run: |
           vercode="";
-          while read -r line; do param=( $line ); if [[ "${param[0]}" == "versionCode" ]]; then vercode=${param[1]}; fi; done < ./src-capacitor/android/app/build.gradle
+          while read -r line; do read -ra param <<< "$line"; if [[ "${param[0]}" == "versionCode" ]]; then vercode=${param[1]}; fi; done < ./src-capacitor/android/app/build.gradle
           if [ -z "$vercode" ];
           then
               sed -i "11i \    \ versionCode 1" ./src-capacitor/android/app/build.gradle
           else
-              sed -i s/'versionCode '$vercode/'versionCode '$(expr $vercode + 1)/g ./src-capacitor/android/app/build.gradle
+              sed -i s/'versionCode '"$vercode"/'versionCode '"$((vercode + 1))"/g ./src-capacitor/android/app/build.gradle
           fi;
           cat ./src-capacitor/android/app/build.gradle
 
@@ -154,7 +153,8 @@ jobs:
           echo "Using Android SDK: $android_sdk"
 
           npm install -g yarn
-          export PATH="$(yarn global bin):$PATH"
+          yarn_bin="$(yarn global bin)"
+          export PATH="$yarn_bin:$PATH"
           yarn global add @quasar/cli
           yarn global add @quasar/icongenie
           npm install --ignore-engines
@@ -162,12 +162,12 @@ jobs:
           printf 'sdk.dir=%s\n' "$android_sdk" > ./src-capacitor/android/local.properties
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android -- bundleRelease
-          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.apk
-          mv ./src-capacitor/android/app/build/outputs/bundle/release/app-release.aab ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.aab
-          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass "pass:${APK_KEYSTORE_PASSWORD}" --key-pass "pass:${APK_KEYSTORE_PASSWORD}" ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.apk
-          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass "pass:${APK_KEYSTORE_PASSWORD}" --key-pass "pass:${APK_KEYSTORE_PASSWORD}" --min-sdk-version 22 --v1-signing-enabled true --v2-signing-enabled true ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.aab
-          "$apksigner" verify --print-certs ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.apk
-          zip novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.zip ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.apk ./novatalks.mobile_${RELEASE}_${SHORT_REF_NAME}_${TIMESTAMP}.aab
+          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".apk
+          mv ./src-capacitor/android/app/build/outputs/bundle/release/app-release.aab ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".aab
+          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass "pass:${APK_KEYSTORE_PASSWORD}" --key-pass "pass:${APK_KEYSTORE_PASSWORD}" ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".apk
+          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass "pass:${APK_KEYSTORE_PASSWORD}" --key-pass "pass:${APK_KEYSTORE_PASSWORD}" --min-sdk-version 22 --v1-signing-enabled true --v2-signing-enabled true ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".aab
+          "$apksigner" verify --print-certs ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".apk
+          zip novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".zip ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".apk ./novatalks.mobile_"${RELEASE}"_"${SHORT_REF_NAME}"_"${TIMESTAMP}".aab
 
       - name: Create an Internal Release
         id: create_release
@@ -221,7 +221,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
 
   notify-telegram:
     name: Notifier
@@ -233,7 +233,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-apk.result, ','), 'success') }}
+          cond: ${{ needs.build-apk.result == 'success' }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
 
@@ -248,7 +248,7 @@ jobs:
 
             ❌Build Failed
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-apk.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

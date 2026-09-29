@@ -10,7 +10,6 @@ jobs:
   deploy-pages:
     name: Deploy Pages
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     outputs:
       END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
     steps:
@@ -38,7 +37,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
 
   notify-telegram:
     name: Notifier

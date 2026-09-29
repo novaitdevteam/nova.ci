@@ -49,7 +49,6 @@ jobs:
   build-image:
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     # build-push-action uploads a .dockerbuild build record per build, kept 90 days by default.
     # It is only a Docker Desktop import; the image in GHCR is the build's result.
     env:
@@ -80,13 +79,13 @@ jobs:
         env:
           BASE_REF: ${{ github.event.base_ref }}
         run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d "/" -f2 )" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=$(date +'%Y_R%q')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${GITHUB_REF_NAME} | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=${GITHUB_REF_NAME//[^A-Za-z0-9_.-]/-}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           else
-            echo "SHORT_REF_NAME=`echo ${BASE_REF} | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=$(echo "${BASE_REF}" | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           fi
 
       - name: Delete Tag
@@ -188,7 +187,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
 
   notify-telegram:
     name: Notifier
@@ -201,7 +200,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
+          cond: ${{ needs.build-image.result == 'success' }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
 

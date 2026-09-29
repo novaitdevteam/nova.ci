@@ -25,7 +25,6 @@ jobs:
   linter:
     name: Linter
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     outputs:
       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
     steps:
@@ -206,7 +205,6 @@ jobs:
   unit-test:
     name: Unit Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     # Sequential after lint so a run occupies one runner at a time, not two.
     # Advisory: runs even when lint fails, and its own result does not block the build.
     needs: [linter]
@@ -347,7 +345,6 @@ jobs:
   build-image:
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     # permissions:
     #   contents: read
     #   packages: write
@@ -399,11 +396,11 @@ jobs:
             *)                       is_trunk=false ;;
           esac
 
-          echo "REP_NAME=${rep_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=${short_sha}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=${release}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "IS_TRUNK=${is_trunk}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=${rep_name}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=${short_sha}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=${release}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "IS_TRUNK=${is_trunk}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Delete Tag
         if: ${{ github.ref_type == 'tag' && inputs.build_target == '' }}
@@ -477,31 +474,31 @@ jobs:
           fi
 
           if [[ "$BUILD_TARGET" == "build-engine" ]]; then
-            echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_engine" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_engine" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_engine" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_engine" >> "$GITHUB_OUTPUT"
           elif [[ "$BUILD_TARGET" == "build-reporting" ]]; then
-            echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_reporting" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_reporting" >> "$GITHUB_OUTPUT"
           elif [[ "$BUILD_TARGET" == "build-restore-historical" ]]; then
-            echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_restore-historical" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_restore-historical" >> "$GITHUB_OUTPUT"
           elif [[ "$BUILD_TARGET" == "build-message-source-id" ]]; then
-            echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_OUTPUT"
           elif [[ "$REPO_NAME" == "novatalks.flowrunner" ]]; then
             # Single image, Dockerfile at the repository root -- it has no docker/ directory
             # for the default arm below to find.
-            echo "DOCKERFILE_PATH=./Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_OUTPUT"
           else
-            echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve Docker cache policy
@@ -593,8 +590,8 @@ jobs:
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
         run: |
           docker buildx imagetools create \
-            --tag ${DH_USERNAME}/${REP_NAME}:latest \
-            ${DH_USERNAME}/${REP_NAME}:${RELEASE}_${SHORT_REF_NAME}${IMAGE_SUFFIX}_${SHORT_SHA}
+            --tag "${DH_USERNAME}"/"${REP_NAME}":latest \
+            "${DH_USERNAME}"/"${REP_NAME}":"${RELEASE}"_"${SHORT_REF_NAME}""${IMAGE_SUFFIX}"_"${SHORT_SHA}"
 
       - name: Add latest tag on master GHCR
         if: ${{ contains( github.event.base_ref, 'master' ) }}
@@ -602,18 +599,17 @@ jobs:
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
         run: |
           docker buildx imagetools create \
-            --tag ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REP_NAME}:latest \
-            ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REP_NAME}:${RELEASE}_${SHORT_REF_NAME}${IMAGE_SUFFIX}_${SHORT_SHA}
+            --tag ghcr.io/"${GITHUB_REPOSITORY_OWNER}"/"${REP_NAME}":latest \
+            ghcr.io/"${GITHUB_REPOSITORY_OWNER}"/"${REP_NAME}":"${RELEASE}"_"${SHORT_REF_NAME}""${IMAGE_SUFFIX}"_"${SHORT_SHA}"
 
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=${GITHUB_RUN_ID}" | tee -a "$GITHUB_OUTPUT"
 
   trivy-scan:
     name: Trivy Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Lint-only for PRs: never scan on pull_request. Only scan a successfully built image.
@@ -872,7 +868,6 @@ jobs:
   sast-scan:
     name: SAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Every build that produced an image, on any branch. Semgrep reads the source that
@@ -1058,7 +1053,6 @@ jobs:
   dast-scan:
     name: DAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Same gate as SAST, narrowed to the repositories whose images are known to boot
@@ -1171,7 +1165,6 @@ jobs:
   api-scan:
     name: API Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Opt-in only: an apiscan* tag on novatalks.core or the telegram connector. The
@@ -1427,7 +1420,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
+          cond: ${{ needs.build-image.result == 'success' }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
 
