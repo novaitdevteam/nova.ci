@@ -43,8 +43,9 @@ jobs:
           curl -fsSL --retry 3 --retry-delay 2 -o "${RUNNER_TEMP}/${tarball}" \
             "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${tarball}"
           echo "${ZIZMOR_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
-          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}" zizmor
-          echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
+          mkdir -p "${RUNNER_TEMP}/zizmor-bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/zizmor-bin" zizmor
+          echo "${RUNNER_TEMP}/zizmor-bin" >> "$GITHUB_PATH"
 
       - name: Run validation harness
         run: ./scripts/validate.sh

@@ -40,7 +40,7 @@ The ones that apply everywhere:
 - The check name `CI Build Trigger Switcher / secret-scan` is the required-status-check string. Never rename the job.
 - Changing any `scan.sh` or `ci-build-create-runner.sh` means adding a scenario to the matching `scripts/test-*.sh` in the same change.
 - Never add `continue-on-error` to `unit-test` or `integration-tests`.
-- Never expand `${{ … }}` straight into `run:` — pass the value through step `env:` and use `$VAR`. A value laundered through `GITHUB_ENV` or a step output is as dangerous as the original, so sanitize anything ref- or PR-derived where it is first computed (as the build workflow does for `SHORT_REF_NAME`). `validate.sh`'s zizmor gate fails on a high-severity template injection and on any rise in the lower-severity count (`ZIZMOR_TEMPLATE_INJECTION_BACKLOG`); it cannot tell a sanitized `${{ env.X }}` from an unsanitized one — that is on review.
+- Never expand `${{ … }}` straight into `run:` — pass the value through step `env:` and use `$VAR`. A value laundered through `GITHUB_ENV` or a step output is as dangerous as the original, so sanitize anything ref- or PR-derived where it is first computed (as the build workflow does for `SHORT_REF_NAME`). `validate.sh`'s zizmor gate fails on a high-severity template injection and when the lower-severity count differs from `ZIZMOR_TEMPLATE_INJECTION_BACKLOG` — up means a new sink, down means lower the constant in the same change. It is a count, so swapping one sink for another passes, and it cannot tell a sanitized `${{ env.X }}` from an unsanitized one — both are on review.
 
 ## Git workflow
 
@@ -82,7 +82,7 @@ Which skill or agent to reach for, and when. Launch with `make claude`: it expor
 ./scripts/validate.sh   # or: make validate
 ```
 
-Run it after any workflow, action, rule or documentation change. It parses every YAML, checks the skill mirror, resolves every docs link and asset, runs every `scripts/test-*.sh` harness offline, enforces the scanner-invocation and `GITHUB_WORKSPACE` guards, runs `zizmor` (high-severity template injection fails, the lower-severity count is a ratchet, the rest is an advisory backlog; required in CI, pinned by SHA-256, `uvx` fallback locally) and `actionlint` when installed (advisory; `STRICT_ACTIONLINT=1` enforces). What each check covers: [`docs/reference/validation.md`](docs/reference/validation.md). The same harness runs in CI on pull requests and pushes to `main`. A hook re-runs it after every edit under `.github/`.
+Run it after any workflow, action, rule or documentation change. It parses every YAML, checks the skill mirror, resolves every docs link and asset, runs every `scripts/test-*.sh` harness offline, enforces the scanner-invocation and `GITHUB_WORKSPACE` guards, runs `zizmor` (high-severity template injection fails, the lower-severity count is an exact ratchet, the rest is an advisory backlog; required in CI, pinned by SHA-256, `uvx` fallback locally) and `actionlint` when installed (advisory; `STRICT_ACTIONLINT=1` enforces). What each check covers: [`docs/reference/validation.md`](docs/reference/validation.md). The same harness runs in CI on pull requests and pushes to `main`. A hook re-runs it after every edit under `.github/`.
 
 Then review the diff:
 

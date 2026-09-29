@@ -529,28 +529,31 @@ section "zizmor"
 # through step env: instead:
 #   - high severity (a context an outsider controls, pasted straight in) fails outright;
 #   - the rest — mostly ${{ env.X }} / step outputs, which zizmor cannot trace to their
-#     source — is a ratchet: the count may fall, never rise. A value laundered through
+#     source — is an exact ratchet: a rise is a new sink, a fall must lower the constant
+#     in the same change, or the slack is spent unnoticed later. A count, not a list. A value laundered through
 #     GITHUB_ENV is exactly as dangerous as the original, and only the source step knows
 #     whether it was sanitized (the mobile/widget workflows sanitize SHORT_REF_NAME there).
 # Everything else (unpinned uses, permissions, secrets: inherit) is an advisory backlog.
 # --strict-collection: a file zizmor cannot parse fails the run instead of being skipped
 # with a warning, which would be an OK over a file nobody audited. In CI a missing zizmor
 # fails too: a gate that never runs passes.
-ZIZMOR_TEMPLATE_INJECTION_BACKLOG=71
+ZIZMOR_TEMPLATE_INJECTION_BACKLOG=70
+# The version CI pins: audits and severities move between releases, and the ratchet
+# below is a count, so any other version would red an untouched tree or pass a bad one.
+z_ver="$(sed -n 's/^ *ZIZMOR_VERSION: *"\(.*\)"$/\1/p' .github/workflows/ci-self-validate.yaml)"
 zizmor_cmd=()
-if command -v zizmor >/dev/null 2>&1; then
+if command -v zizmor >/dev/null 2>&1 && [[ "$(zizmor --version 2>/dev/null)" == "zizmor ${z_ver}" ]]; then
   zizmor_cmd=(zizmor)
-elif command -v uvx >/dev/null 2>&1; then
-  # the version CI pins, not whatever uvx would resolve
-  z_ver="$(sed -n 's/^ *ZIZMOR_VERSION: *"\(.*\)"$/\1/p' .github/workflows/ci-self-validate.yaml)"
-  [[ -n "$z_ver" ]] && zizmor_cmd=(uvx "zizmor@${z_ver}")
+elif command -v uvx >/dev/null 2>&1 && [[ -n "$z_ver" ]]; then
+  zizmor_cmd=(uvx "zizmor@${z_ver}")
 fi
 if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
   z_err="$(mktemp)"
   z_out="$("${zizmor_cmd[@]}" --offline --strict-collection --format json .github 2>"$z_err" || true)"
   z_rc=0
   ruby -rjson -e '
-      findings = begin; JSON.parse(STDIN.read); rescue JSON::ParserError; exit 2; end
+      begin
+      findings = JSON.parse(STDIN.read)
       loc = ->(f) { l = f["locations"].find { |x| x.dig("symbolic", "kind") == "Primary" } || f["locations"][0]
                     k = l.dig("symbolic", "key", "Local") || {}
                     "#{k["verbatim_path"] || k["given_path"]}:#{l.dig("concrete", "location", "start_point", "row").to_i + 1}" }
@@ -565,14 +568,26 @@ if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
         puts "       Pass it through step env:; if the value is genuinely safe, say why in review before raising the baseline."
         exit 1
       end
-      puts "NOTE: template-injection backlog fell to #{soft.size}: lower ZIZMOR_TEMPLATE_INJECTION_BACKLOG to match." if soft.size < max
+      if soft.size < max
+        puts "ERROR: template-injection backlog fell to #{soft.size}: lower ZIZMOR_TEMPLATE_INJECTION_BACKLOG to #{soft.size} in this change,"
+        puts "       or the slack lets the next PR add that many back unnoticed."
+        exit 1
+      end
       exit(hard.empty? ? 0 : 1)
+      rescue StandardError => e
+        warn "#{e.class}: #{e.message}"
+        exit 2
+      end
     ' "$ZIZMOR_TEMPLATE_INJECTION_BACKLOG" <<<"$z_out" || z_rc=$?
   if [[ "$z_rc" -eq 2 ]]; then
-    # no JSON: zizmor itself failed (a file it could not parse, a bad flag) — show why
-    echo "ERROR: zizmor produced no report:"
-    grep -v ' INFO ' "$z_err" | sed 's/^/       /'
-    fail=1
+    # no report: zizmor itself failed (a file it could not parse, a bad flag, uvx offline)
+    if [[ "${CI:-}" == "true" ]]; then
+      echo "ERROR: zizmor produced no report:"
+      fail=1
+    else
+      echo "WARN: zizmor produced no report — CI will still run the gate:"
+    fi
+    { grep -v ' INFO ' "$z_err" || true; } | sed 's/^/       /'
   elif [[ "$z_rc" -ne 0 ]]; then
     echo "ERROR: zizmor template-injection gate failed (findings above)"
     fail=1

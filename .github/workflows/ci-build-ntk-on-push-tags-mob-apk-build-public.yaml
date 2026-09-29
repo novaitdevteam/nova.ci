@@ -33,7 +33,7 @@ jobs:
           if [[ ${GITHUB_REF_NAME} == 'build-apk' ]]; then
             echo "REMOTE_BRANCH=`echo main`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           else
-            echo "REMOTE_BRANCH=`echo ${GITHUB_REF_NAME} | cut -d "-" -f3-4 | sed 's#[^A-Za-z0-9_./-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "REMOTE_BRANCH=`echo ${GITHUB_REF_NAME} | cut -d "-" -f3-4`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
 
       - name: Remote Checkout On Certain branch
@@ -71,7 +71,7 @@ jobs:
 
       - name: Set new vars
         run: |
-          echo "SHORT_SHA=`echo ${{ env.REMOTE_SHA }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "SHORT_SHA=`echo ${REMOTE_SHA}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "SHORT_REF_NAME=`echo ${REMOTE_BRANCH} | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag
