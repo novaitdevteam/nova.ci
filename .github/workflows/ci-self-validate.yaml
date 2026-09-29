@@ -17,18 +17,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           ruby-version: "3.3"
 
       - name: Install actionlint
+        # Pinned by version and SHA-256 for the same reason as zizmor below: actionlint is a
+        # gate now, and an unpinned download (a script from main, then "latest") can red
+        # every PR overnight. shellcheck still comes from the runner image, so an image
+        # update can surface new shellcheck findings; they show as the harness failing.
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          echo "${PWD}" >> "$GITHUB_PATH"
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 2 -o "${RUNNER_TEMP}/${tarball}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "${RUNNER_TEMP}/actionlint-bin" >> "$GITHUB_PATH"
+
+      - name: Install zizmor
+        # Pinned by version and SHA-256, like Gitleaks: a new release can add an audit
+        # that reds every PR overnight, and a replaced asset would change what the gate
+        # enforces. validate.sh reads ZIZMOR_VERSION from here for its local fallback.
+        env:
+          ZIZMOR_VERSION: "1.30.1"
+          ZIZMOR_SHA256: "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a"
+        run: |
+          set -euo pipefail
+          tarball=zizmor-x86_64-unknown-linux-gnu.tar.gz
+          curl -fsSL --retry 3 --retry-delay 2 -o "${RUNNER_TEMP}/${tarball}" \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${tarball}"
+          echo "${ZIZMOR_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/zizmor-bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/zizmor-bin" zizmor
+          echo "${RUNNER_TEMP}/zizmor-bin" >> "$GITHUB_PATH"
 
       - name: Run validation harness
         run: ./scripts/validate.sh
@@ -44,8 +75,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Gitleaks

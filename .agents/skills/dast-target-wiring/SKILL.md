@@ -124,7 +124,7 @@ Not every repository can be wired, and inventing an arm anyway is worse than ref
   for exactly this.
 - **No auth at all is a legitimate `none` arm for `api-scan`** (if a spec exists), but combined
   with no spec it means no DAST coverage at all — `novatalks.geoip-api` gets neither `dast-scan`
-  nor `api-scan` nor the pentest workflow, by explicit decision, recorded in `CLAUDE.md` and in
+  nor `api-scan` nor the pentest workflow, by explicit decision, recorded in `.claude/rules/code-scanning.md` and in
   `targets.sh`'s own comment.
 - **No real browser surface → no `dast-scan` (baseline) arm.** The ZAP baseline is a browser
   tool; against a headless JSON API it finds a handful of response headers and nothing a
@@ -182,7 +182,7 @@ Not every repository can be wired, and inventing an arm anyway is worse than ref
 - `scripts/test-dast-targets.sh` — how an arm's shape is asserted offline.
 - `docs/security/sast-dast.md` — the narrative reasoning, the auth-mode section in full, and the live
   proof log.
-- `CLAUDE.md`'s DAST invariants — the rules that must never be re-broken, including the
+- The DAST invariants in `.claude/rules/code-scanning.md` and `novatalks-core-exceptions.md` — the rules that must never be re-broken, including the
   per-repository exceptions this table encodes.
 - `.agents/skills/nova-ci/references/dast-baseline.md` and
   `.agents/skills/nova-ci/references/dast-api-scan.md` — what each `DT_*` field feeds into on

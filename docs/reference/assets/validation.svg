@@ -2,7 +2,7 @@
      width="1200" height="640" viewBox="0 0 1200 640"
      role="img" aria-labelledby="vaTitle vaDesc">
   <title id="vaTitle">One harness checks every workflow, action and doc change</title>
-  <desc id="vaDesc">scripts/validate.sh parses every workflow and action YAML, checks whitespace with git diff --check, verifies the .agents and .claude skill mirror, runs actionlint as an advisory step, runs eight offline scenario self-checks — create-runner 26, secret-scan 50, secret-echo guard 23, SAST 43, deps-scan 42, dast-targets 78, dast-scan 153 and dast-api-scan 87 checks — and runs three guards: no direct scanner invocation, no direct notifier transport, and every self-reference pinned to @main. The same harness runs in CI on every pull request and push to main.</desc>
+  <desc id="vaDesc">scripts/validate.sh parses every workflow and action YAML, checks whitespace with git diff --check, verifies the .agents and .claude skill mirror, fails on any actionlint or zizmor finding, runs eight offline scenario self-checks — create-runner 41, secret-scan 65, secret-echo guard 23, SAST 43, deps-scan 51, dast-targets 78, dast-scan 153 and dast-api-scan 87 checks — and runs three guards: no direct scanner invocation, no direct notifier transport, and every self-reference pinned to @main. The same harness runs in CI on every pull request and push to main.</desc>
 
   <rect width="1200" height="640" rx="20" fill="#0B0E11"/>
 
@@ -21,9 +21,9 @@
     <line x1="64" y1="270" x2="316" y2="270" stroke="#1C2228" stroke-width="1.5"/>
     <text x="64" y="304" font-size="19" fill="#F4F6F8">8 self-checks</text>
     <text x="64" y="332" font-size="19" fill="#F4F6F8">3 guards</text>
-    <text x="64" y="364" font-size="18" fill="#6E7A87">STRICT_ACTIONLINT=1</text>
-    <text x="64" y="392" font-size="18" fill="#6E7A87">enforces the advisory</text>
-    <text x="64" y="418" font-size="18" fill="#6E7A87">actionlint step</text>
+    <text x="64" y="364" font-size="18" fill="#6E7A87">actionlint and zizmor</text>
+    <text x="64" y="392" font-size="18" fill="#6E7A87">fail the run; in CI a</text>
+    <text x="64" y="418" font-size="18" fill="#6E7A87">missing one fails too</text>
 
     <rect x="380" y="76" width="400" height="56" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
     <text x="404" y="111" font-size="19" fill="#C9D1D9">YAML parse — workflows + actions</text>
@@ -35,18 +35,18 @@
     <text x="824" y="111" font-size="19" fill="#C9D1D9">.agents ↔ .claude mirror</text>
 
     <rect x="800" y="148" width="360" height="56" rx="10" fill="#161B20" stroke="#2A3138" stroke-width="1.5"/>
-    <text x="824" y="183" font-size="19" fill="#9AA6B2">actionlint — advisory</text>
+    <text x="824" y="183" font-size="19" fill="#C9D1D9">actionlint + zizmor</text>
 
     <text x="380" y="234" font-size="18" letter-spacing="1.6" fill="#6E7A87">8 OFFLINE SELF-CHECKS — docker/curl stubbed, no network</text>
 
     <g id="va-selfchecks">
       <rect x="380" y="250" width="183" height="66" rx="10" fill="#101519" stroke="#1F93FF" stroke-width="1.5"/>
       <text x="400" y="277" font-size="19" fill="#F4F6F8">create-runner</text>
-      <text x="400" y="302" font-size="18" fill="#1F93FF">26 checks</text>
+      <text x="400" y="302" font-size="18" fill="#1F93FF">41 checks</text>
 
       <rect x="579" y="250" width="183" height="66" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
       <text x="599" y="277" font-size="19" fill="#F4F6F8">secret-scan</text>
-      <text x="599" y="302" font-size="18" fill="#9AA6B2">50 checks</text>
+      <text x="599" y="302" font-size="18" fill="#9AA6B2">65 checks</text>
 
       <rect x="778" y="250" width="183" height="66" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
       <text x="798" y="277" font-size="19" fill="#F4F6F8">secret-echo</text>
@@ -58,7 +58,7 @@
 
       <rect x="380" y="332" width="183" height="66" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
       <text x="400" y="359" font-size="19" fill="#F4F6F8">deps-scan</text>
-      <text x="400" y="384" font-size="18" fill="#9AA6B2">42 checks</text>
+      <text x="400" y="384" font-size="18" fill="#9AA6B2">51 checks</text>
 
       <rect x="579" y="332" width="183" height="66" rx="10" fill="#101519" stroke="#2A3138" stroke-width="1.5"/>
       <text x="599" y="359" font-size="19" fill="#F4F6F8">dast-targets</text>

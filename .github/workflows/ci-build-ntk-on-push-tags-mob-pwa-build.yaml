@@ -18,7 +18,7 @@ jobs:
   #         uses: actions/checkout@v4
 
   #       - name: 💿 Setup NODEJS
-  #         uses: actions/setup-node@v4
+  #         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
   #         id: node_inst
   #         with:
   #           node-version: 18
@@ -47,16 +47,15 @@ jobs:
   #           fi
 
   build-image:
+    permissions:
+      contents: write
+      packages: write
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     # build-push-action uploads a .dockerbuild build record per build, kept 90 days by default.
     # It is only a Docker Desktop import; the image in GHCR is the build's result.
     env:
       DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
-    # permissions:
-    #   contents: read
-    #   packages: write
     if: always()
     # needs: [linter]
     outputs:
@@ -64,29 +63,32 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       IMAGE_SUFFIX: ${{ steps.image_variant.outputs.IMAGE_SUFFIX }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
           
       - name: Prepare Vars
         id: prep
+        env:
+          BASE_REF: ${{ github.event.base_ref }}
         run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          if [[ ${{ github.ref_type }} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${{ github.ref_name }}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d "/" -f2 )" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=$(date +'%Y_R%q')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
+            echo "SHORT_REF_NAME=${GITHUB_REF_NAME//[^A-Za-z0-9_.-]/-}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           else
-            echo "SHORT_REF_NAME=`echo ${{ github.event.base_ref }} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=$(echo "${BASE_REF}" | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           fi
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v1.1
+        uses: dev-drprasad/delete-tag-and-release@82600feb9527126eca69833f07bafe53279bd9b4 # v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
@@ -94,7 +96,7 @@ jobs:
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -114,7 +116,7 @@ jobs:
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           endpoint: builder
           buildkitd-flags: --debug
@@ -144,7 +146,7 @@ jobs:
 
       - name: Build and push PWA
         if: ${{ endsWith( github.ref_name, 'build-pwa' ) }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: main_build_proc_pwa
         with:
           context: .
@@ -157,7 +159,7 @@ jobs:
 
       - name: Build and push SPA
         if: ${{ endsWith( github.ref_name, 'build-spa' ) }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: main_build_proc_spa
         with:
           context: .
@@ -170,7 +172,7 @@ jobs:
 
       - name: Build and push CRM
         if: ${{ endsWith( github.ref_name, 'build-crm' ) }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: main_build_proc_crm
         with:
           context: .
@@ -181,12 +183,9 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
-
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
@@ -197,7 +196,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
+          cond: ${{ needs.build-image.result == 'success' }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
 
@@ -215,7 +214,7 @@ jobs:
 
             ❌Build Failed
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

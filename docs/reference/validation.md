@@ -1,7 +1,7 @@
 # Validation
 
 <p align="center">
-  <img src="assets/validation.svg" width="100%" alt="scripts/validate.sh runs a YAML parse, a whitespace check, the agents-to-claude skill mirror check, the create-runner self-check and advisory actionlint" />
+  <img src="assets/validation.svg" width="100%" alt="scripts/validate.sh runs a YAML parse, a whitespace check, the agents-to-claude skill mirror check, the create-runner self-check, and the actionlint and zizmor gates" />
 </p>
 
 One harness runs every check:
@@ -10,7 +10,7 @@ One harness runs every check:
 ./scripts/validate.sh   # or: make validate
 ```
 
-[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, three documentation checks (every page under `docs/` opens with a diagram from its own section's `assets/`, every local link and asset in the docs and the root `*.md` files resolves, no asset drops below `font-size` 18), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, and `actionlint` when available — **advisory** by default, because the repo carries a pre-existing backlog of shellcheck-info and expression findings. Set `STRICT_ACTIONLINT=1` to enforce once that backlog is cleared.
+[`scripts/validate.sh`](../../scripts/validate.sh) runs a YAML parser over all `.github/workflows/*.yaml` and `.github/actions/*/action.yml`, `git diff --check` for whitespace, an `.agents` ↔ `.claude` skill mirror sync check, four documentation checks (every page under `docs/` opens with a diagram from its own section's `assets/`, every local link and asset in the docs, the root `*.md` files and `.claude/rules/*.md` resolves, no asset drops below `font-size` 18, and every `paths:` glob in `.claude/rules/` — each brace alternative on its own — matches at least one file, since a rule whose glob matches nothing never loads), eight offline scenario self-checks — [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), Gitleaks, the secret-echo guard, Semgrep, dependency scanning, the DAST target table, the ZAP baseline and the ZAP API scan — a guard that no workflow invokes Gitleaks, Semgrep, ZAP or OSV-Scanner directly (with a narrow, counted exception for `ci-dast-pentest.yaml`'s single live-target ZAP call), a guard that no workflow reaches the Telegram or Google Chat API directly, a guard that every `novaitdevteam/nova.ci` self-reference pins `@main`, `zizmor` (pinned by version and SHA-256 in `ci-self-validate.yaml`; locally the same version through `uvx`, when `zizmor` itself is not installed) — four audits held at zero, each failing the run with `file:line` and the fix: `template-injection` (a `${{ }}` expression expanded into `run:` or a `github-script`; pass it through step `env:` instead), `unpinned-uses` (third-party actions by commit SHA; `.github/zizmor.yml` keeps nova.ci's own `@main` references allowed, and `.github/dependabot.yml` moves the pins), `excessive-permissions` (a job on default token permissions) and `artipacked` (a checkout that leaves its token in `.git/config`). The rest of its findings is an advisory backlog. `--strict-collection` makes a file zizmor cannot parse fail the run instead of being skipped, and in CI a missing `zizmor` fails rather than skips — and `actionlint`, **enforced** since 2026-09-29 when its backlog reached zero: 185 findings, 256 once removing template expressions let shellcheck see the unquoted variables they had hidden — 232 shellcheck (quoting, backticks) and 24 expression errors such as an undeclared `inputs.environment`. A separate harness check requires a `permissions:` block on every job and keeps each reusable workflow within its caller's ceiling. In CI a missing `actionlint` or `zizmor` fails the run; locally a missing one is skipped.
 
 ## Runner script self-check
 
@@ -184,9 +184,9 @@ red is what makes merging that state by accident impossible. This guard is about
 repository referencing itself, not about the tag-and-digest pins on Semgrep, Gitleaks,
 Trivy, ZAP or OSV-Scanner images, which are pinned on purpose for the opposite reason.
 
-[`ci-self-validate.yaml`](../../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed) on every pull request and push to `main`.
+[`ci-self-validate.yaml`](../../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed, and `zizmor` pinned by SHA-256) on every pull request and push to `main`.
 
-After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](../../CLAUDE.md), [`AGENTS.md`](../../AGENTS.md) and [`.agents/skills/nova-ci/SKILL.md`](../../.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing.
+After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](../../CLAUDE.md), the rules under [`.claude/rules/`](../../.claude/rules/), [`AGENTS.md`](../../AGENTS.md) and [`.agents/skills/nova-ci/SKILL.md`](../../.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing.
 
 ---
 

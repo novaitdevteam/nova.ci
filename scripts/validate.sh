@@ -14,7 +14,9 @@
 #     read from a fixture file)
 #   - scanner invocation guard (no workflow may run Gitleaks, Semgrep or OSV-Scanner itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
-#   - actionlint (when installed)
+#   - token permissions: every job explicit; reusable workflows within their caller's ceiling
+#   - zizmor template-injection gate (required in CI; uvx fallback locally)
+#   - actionlint (enforced; required in CI)
 #
 # Usage: ./scripts/validate.sh   (works from any cwd; resolves repo root itself)
 #
@@ -91,7 +93,7 @@ if ruby -e '
     puts "       #{page}"
     fail_count += 1
   end
-  abort "ERROR: these pages do not open with a diagram from their own assets/ folder (CLAUDE.md, Editing style)" if fail_count > 0
+  abort "ERROR: these pages do not open with a diagram from their own assets/ folder (.claude/rules/docs-style.md)" if fail_count > 0
   puts "OK: every docs page embeds a diagram"
 
   # 2. every local link and asset resolves - a moved page or renamed file is an invisible diff.
@@ -100,7 +102,7 @@ if ruby -e '
   # links), and so are the dated records under docs/superpowers/, which describe the tree as
   # it was when they were written.
   pages = Dir.glob("docs/**/*.md").reject { |md| md.include?("docs/superpowers/") }
-  (pages + Dir.glob("*.md")).sort.each do |md|
+  (pages + Dir.glob("*.md") + Dir.glob(".claude/rules/*.md")).sort.each do |md|
     text = File.read(md).gsub(/^ *```.*?^ *```/m, "")
     # The lookbehind is load-bearing: an unanchored src=" also matches the tail of any
     # identifier ending in "src", so a shell variable like zap_conf_src="..." was read
@@ -127,6 +129,26 @@ if ruby -e '
   end
   abort "ERROR: these assets use font-size below 18 - unreadable at 900px" if fail_count > 0
   puts "OK: no asset drops below font-size 18"
+
+  # 4. a path-scoped rule loads only when Claude Code reads a file its paths match, so a glob
+  # that matches nothing - a renamed workflow, a typo - silently unloads the invariants it holds.
+  Dir.glob(".claude/rules/*.md").sort.each do |rule|
+    fm = File.read(rule)[/\A---\n(.*?)\n---\n/m, 1]
+    globs = fm.to_s.scan(/^\s*-\s*[\x22\x27]?([^\x22\x27\n]+?)[\x22\x27]?\s*$/).flatten
+    if globs.empty?
+      puts "       #{rule} has no paths: frontmatter"
+      fail_count += 1
+    end
+    # Each brace alternative on its own: Dir.glob on "{a,typo}" passes when a alone matches.
+    expand = ->(g) { m = g.match(/\{([^{}]*)\}/); m ? m[1].split(",").flat_map { |alt| expand.(m.pre_match + alt + m.post_match) } : [g] }
+    globs.flat_map(&expand).each do |g|
+      next unless Dir.glob(g).empty?
+      puts "       #{rule} -> #{g} matches no file"
+      fail_count += 1
+    end
+  end
+  abort "ERROR: these .claude/rules paths would never load their rules" if fail_count > 0
+  puts "OK: every .claude/rules glob matches a file"
 '; then
   :
 else
@@ -499,23 +521,137 @@ else
   fail=1
 fi
 
+section "Token permissions"
+# Two rules, both static so they cannot wait for a real run to fail:
+#   1. every job states its GITHUB_TOKEN permissions (job- or workflow-level). zizmor's
+#      excessive-permissions does not look inside workflow_call-only files, so without
+#      this a job in a reusable workflow silently inherits its caller's whole ceiling;
+#   2. a job that calls one of our reusable workflows is that workflow's ceiling: no job
+#      in it may ask for more. GitHub rejects the whole run before it starts otherwise.
+if ruby -ryaml -e '
+  level = { nil => 0, "none" => 0, "read" => 1, "write" => 2 }
+  norm = ->(p) { p == "write-all" ? Hash.new("write") : p == "read-all" ? Hash.new("read") : (p || {}) }
+  wf = Dir.glob(".github/workflows/*.yaml").to_h { |f| [File.basename(f), YAML.safe_load(File.read(f), aliases: true)] }
+  bad = []
+  wf.each do |name, y|
+    (y["jobs"] || {}).each do |jn, j|
+      bad << "#{name}: job #{jn} has no permissions: block" unless j.key?("permissions") || y.key?("permissions")
+      next unless (m = j["uses"].to_s.match(%r{\A(?:\./\.github/workflows/|novaitdevteam/nova\.ci/\.github/workflows/)([^@]+)}))
+      called = wf[m[1]] or next
+      ceiling = norm.(j["permissions"] || y["permissions"])
+      (called["jobs"] || {}).each do |cjn, cj|
+        norm.(cj["permissions"] || called["permissions"]).each do |scope, want|
+          next if level[want] <= level[ceiling[scope]]
+          bad << "#{name}: #{jn} allows #{scope}: #{ceiling[scope] || "none"}, but #{m[1]} job #{cjn} asks for #{want}"
+        end
+      end
+    end
+  end
+  bad.each { |b| puts "       #{b}" }
+  exit(bad.empty? ? 0 : 1)
+'; then
+  echo "OK: every job states its token permissions, and no reusable workflow asks for more than its caller allows"
+else
+  echo "ERROR: token permissions above would not load or would inherit a whole ceiling"
+  fail=1
+fi
+
+section "zizmor"
+# Security lint for workflows and actions. Before actionlint on purpose: actionlint can
+# park locally on the build workflow, and this is the gate that must not be skipped.
+#
+# Four audits are held at zero and fail the run on any finding, with file:line and the fix:
+#   - template-injection: a ${{ }} expression expanded into run: or a github-script is
+#     code written by whoever controls the value. Pass it through step env: and use $VAR
+#     (process.env.X in JS). A value laundered through GITHUB_ENV is as dangerous as the
+#     original, so ref-derived names are sanitized where they are first computed;
+#   - unpinned-uses: third-party actions by commit SHA (.github/zizmor.yml keeps nova.ci's
+#     own @main references allowed; .github/dependabot.yml moves the pins);
+#   - excessive-permissions: every job states the token permissions it uses;
+#   - artipacked: every checkout drops its token (persist-credentials: false).
+# All four reached zero on 2026-09-29. Everything else (secrets: inherit, which the
+# switcher uses by design, and a few informational audits) is reported only.
+# The version CI pins: audits and severities move between releases, and the zero gates
+# below depend on which findings it reports, so any other version could red an untouched
+# tree or pass a bad one.
+z_ver="$(sed -n 's/^ *ZIZMOR_VERSION: *"\(.*\)"$/\1/p' .github/workflows/ci-self-validate.yaml)"
+zizmor_cmd=()
+if command -v zizmor >/dev/null 2>&1 && [[ "$(zizmor --version 2>/dev/null)" == "zizmor ${z_ver}" ]]; then
+  zizmor_cmd=(zizmor)
+elif command -v uvx >/dev/null 2>&1 && [[ -n "$z_ver" ]]; then
+  zizmor_cmd=(uvx "zizmor@${z_ver}")
+fi
+if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
+  z_err="$(mktemp)"
+  z_out="$("${zizmor_cmd[@]}" --offline --strict-collection --format json .github 2>"$z_err" || true)"
+  z_rc=0
+  ruby -rjson -e '
+      begin
+      findings = JSON.parse(STDIN.read)
+      loc = ->(f) { l = f["locations"].find { |x| x.dig("symbolic", "kind") == "Primary" } || f["locations"][0]
+                    k = l.dig("symbolic", "key", "Local") || {}
+                    "#{k["verbatim_path"] || k["given_path"]}:#{l.dig("concrete", "location", "start_point", "row").to_i + 1}" }
+      hard = []
+      zero = {
+        "template-injection"    => "pass the value through step env: and use $VAR (process.env.X in JS), not ${{ }} inline",
+        "unpinned-uses"         => "pin by commit SHA with the version as a comment (Dependabot keeps it current)",
+        "excessive-permissions" => "give the job an explicit permissions: block with only what it uses",
+        "artipacked"            => "add persist-credentials: false to the checkout",
+      }
+      zero.each do |ident, fix|
+        findings.select { |f| f["ident"] == ident }.each do |f|
+          puts "       #{loc.(f)}  #{ident}: #{fix}"
+          hard << f
+        end
+      end
+      counts = findings.group_by { |f| f["ident"] }.map { |k, v| "#{v.size} #{k}" }.sort_by(&:to_i).reverse
+      puts "WARN: zizmor backlog, advisory: #{counts.join(", ")}" unless counts.empty?
+      exit(hard.empty? ? 0 : 1)
+      rescue StandardError => e
+        warn "#{e.class}: #{e.message}"
+        exit 2
+      end
+    ' <<<"$z_out" || z_rc=$?
+  if [[ "$z_rc" -eq 2 ]]; then
+    # no report: zizmor itself failed (a file it could not parse, a bad flag, uvx offline)
+    if [[ "${CI:-}" == "true" ]]; then
+      echo "ERROR: zizmor produced no report:"
+      fail=1
+    else
+      echo "WARN: zizmor produced no report — CI will still run the gate:"
+    fi
+    { grep -v ' INFO ' "$z_err" || true; } | sed 's/^/       /'
+  elif [[ "$z_rc" -ne 0 ]]; then
+    echo "ERROR: zizmor gate failed (findings above)"
+    fail=1
+  else
+    echo "OK: no template injection, unpinned use, default-permission job or persisted checkout credential"
+  fi
+  rm -f "$z_err"
+elif [[ "${CI:-}" == "true" ]]; then
+  echo "ERROR: zizmor not installed in CI — the template-injection gate would never run"
+  fail=1
+else
+  echo "skip: neither zizmor nor uvx installed (brew install uv, or install zizmor)"
+fi
+
 section "actionlint"
-# actionlint is advisory by default: the repo's workflows carry a large pre-existing
-# backlog of shellcheck-info / expression findings. We surface them but do not fail the
-# harness on them, so the clean gates above stay meaningful. Set STRICT_ACTIONLINT=1 to
-# enforce (use once the backlog is cleaned up).
+# Enforced since 2026-09-29, when the backlog went to zero: 185 findings, which grew to
+# 256 once removing template expressions let shellcheck see the unquoted variables they
+# had hidden — 232 shellcheck (quoting, backticks) and 24 expression errors such as an
+# undeclared inputs.environment. In CI a missing actionlint fails, for the same reason as zizmor: a gate that never
+# runs passes. It has been seen to park locally on the build workflow; CI does not.
 if command -v actionlint >/dev/null 2>&1; then
   if out="$(actionlint 2>&1)"; then
     echo "OK: actionlint passed"
-  elif [[ "${STRICT_ACTIONLINT:-0}" == "1" ]]; then
-    printf '%s\n' "$out"
-    echo "ERROR: actionlint reported problems (STRICT_ACTIONLINT=1)"
-    fail=1
   else
-    n="$(printf '%s\n' "$out" | grep -cE '\[[a-z-]+\]$' || true)"
-    echo "WARN: actionlint reported ${n} finding(s) — advisory (pre-existing backlog)."
-    echo "      Run 'actionlint' for details, or set STRICT_ACTIONLINT=1 to enforce."
+    printf '%s\n' "$out"
+    echo "ERROR: actionlint reported problems"
+    fail=1
   fi
+elif [[ "${CI:-}" == "true" ]]; then
+  echo "ERROR: actionlint not installed in CI"
+  fail=1
 else
   echo "skip: actionlint not installed (https://github.com/rhysd/actionlint)"
 fi

@@ -10,24 +10,24 @@ jobs:
   pushToPub:
     name: Call github API
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
-    # permissions:
-    #   contents: read
-    #   packages: write
-    permissions: write-all
+    # The API writes go through CI_GITHUB_PAT; GITHUB_TOKEN only checks out and deletes the tag.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v1.1
+        uses: dev-drprasad/delete-tag-and-release@82600feb9527126eca69833f07bafe53279bd9b4 # v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
           github_token: ${{ secrets.GITHUB_TOKEN }}
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
 
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           github-token: ${{ secrets.CI_GITHUB_PAT }}
           debug: "true"

@@ -8,6 +8,8 @@ on:
 
 jobs:
   preparation:
+    permissions:
+      contents: read
     name: CI Build Trigger Switcher Start
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     steps:
@@ -15,7 +17,7 @@ jobs:
         env:
           GITHUB_CONTEXT: ${{ toJson(github) }}
         run: |
-          echo $GITHUB_CONTEXT
+          echo "$GITHUB_CONTEXT"
           echo ${{ github.event_name == 'push' }}
           echo ${{ contains(github.ref, 'tags') }}
           echo ${{ contains(github.ref, 'build') }}
@@ -69,8 +71,9 @@ jobs:
       # ponytail: full clone; narrow to the commit range if clone time on
       #           novatalks.core ever dominates this job.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Gitleaks
@@ -114,7 +117,9 @@ jobs:
       # working tree, not the commit range — on a pull request that tree is the merge
       # of head into base, which is exactly the code being proposed.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -133,7 +138,7 @@ jobs:
       # report worth keeping, and the second is the one somebody has to debug.
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -179,7 +184,9 @@ jobs:
     steps:
       # Shallow, like sast-scan: both scanners read the working tree, not a commit range.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -193,7 +200,7 @@ jobs:
       - name: Trivy fs scan (JSON)
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PKG_TYPES: library
         with:
@@ -214,7 +221,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -252,7 +259,14 @@ jobs:
           telegram_to: ${{ secrets.TG_NOTIFICATION_BOT_ID }}
           gchat_webhook: ${{ secrets.GC_NOTIFICATION_WEBHOOK }}
 
+  # Each call-* job's permissions are the ceiling for the reusable workflow it calls: the
+  # union of what that workflow's jobs need from GITHUB_TOKEN (contents: write for tag
+  # deletion and releases, packages: write for the GHCR push). Less, and GitHub rejects
+  # the run before it starts; a new need there means raising it here.
   call-external-on-push-tags:
+    permissions:
+      contents: write
+      packages: write
     name: Call Builder On Push Tags
     # apiscan* is an addition, not a double-match: "apiscan" does not start with "scan",
     # so it would not reach the build workflow through the existing scan* clause.
@@ -300,6 +314,9 @@ jobs:
   # a push to a draft occupies a self-hosted runner for lint and unit. Image builds are
   # unaffected, still gated on `github.event_name != 'pull_request'`.
   call-external-on-pull-request-novatalks-core:
+    permissions:
+      contents: write
+      packages: write
     name: Call Core Builder On Pull Request (${{ matrix.build_target }})
     if:
       ${{ github.event.repository.name == 'novatalks.core'
@@ -318,6 +335,9 @@ jobs:
       build_target: ${{ matrix.build_target }}
 
   call-external-on-pull-request-build:
+    permissions:
+      contents: write
+      packages: write
     name: Call Builder On Pull Request
     if:
       ${{ contains(fromJSON('["novatalks.ui", "nova.botflow", "novatalks.flowrunner", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name)
@@ -330,6 +350,8 @@ jobs:
       build_target: build
 
   call-external-on-push-tags-run-test:
+    permissions:
+      contents: write
     name: Call Test Runner On Push Tags
     if:
       ${{ github.event.repository.name == 'novatalks.core'
@@ -343,6 +365,8 @@ jobs:
       test_mode: ${{ contains(github.ref_name, 'full-test') && 'both' || (contains(github.ref_name, 'unit-test') && 'unit' || 'integration') }}
 
   call-external-on-push-tags-gh-deploy:
+    permissions:
+      contents: write
     name: Call GH Pages Deploy On Push Tags
     if: ${{ github.event.repository.name == 'nova.docs' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml@main
@@ -351,6 +375,8 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-apk-build:
+    permissions:
+      contents: write
     name: Call Mobile APK Build On Push Tags (ui-lite)
     if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-apk') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml@main
@@ -359,6 +385,8 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-apk-build-public:
+    permissions:
+      contents: write
     name: Call Mobile APK Build On Push Tags (public)
     if: ${{ github.event.repository.name == 'novatalks.mobile' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-apk') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml@main
@@ -367,6 +395,9 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-pwa-build:
+    permissions:
+      contents: write
+      packages: write
     name: Call Mobile PWA Build On Push Tags
     if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-pwa') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
@@ -375,6 +406,9 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-mob-spa-build:
+    permissions:
+      contents: write
+      packages: write
     name: Call Mobile SPA Build On Push Tags
     if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-spa') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
@@ -383,6 +417,9 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-crm-build:
+    permissions:
+      contents: write
+      packages: write
     name: Call Crm Build On Push Tags
     if: ${{ github.event.repository.name == 'novatalks.ui-lite' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build-crm') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-mob-pwa-build.yaml@main
@@ -391,6 +428,8 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-tags-widget-build:
+    permissions:
+      contents: write
     name: Call Widget Build On Push Tags
     if: ${{ github.event.repository.name == 'novatalks.chatwidget' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml@main
@@ -399,6 +438,8 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-branches:
+    permissions:
+      contents: read
     name: Call Builder If Push Certain Branches
     if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && contains(github.ref_name, 'build-me-please') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-branches.yaml@main
@@ -407,6 +448,8 @@ jobs:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
 
   call-external-on-push-branches-flows-to-pub:
+    permissions:
+      contents: write
     name: Call Notifier To Google Chat
     if: ${{ github.event.repository.name == 'novatalks.botflow.flows' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-flows-to-pub.yaml@main
@@ -419,6 +462,8 @@ jobs:
   # Dispatch only: a tag push no longer runs the suite, because runs on the lab share it and
   # create and delete each other's entities.
   call-e2e-tests:
+    permissions:
+      contents: read
     name: Call Playwright Tests
     if: ${{ github.event.repository.name == 'novatalks.tests' && github.event_name == 'workflow_dispatch' }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-e2e-tests-manual.yaml@main

@@ -24,7 +24,8 @@ Primary files:
 - `.github/workflows/ci-build-create-runner.sh`: runner selection helper downloaded by product repo callers
 - `.github/actions/action-cond/action.yml`: success/failure message selector used by notifier jobs
 - `.github/actions/install-docker/action.yml`: Docker prerequisite helper for Docker build jobs
-- `scripts/validate.sh`: validation harness (YAML, whitespace, skill mirror, create-runner self-check, actionlint); also `make validate`
+- `scripts/validate.sh`: validation harness — YAML, whitespace, skill mirror, docs links and assets, every `scripts/test-*.sh` self-check, the scanner-invocation, GITHUB_WORKSPACE and token-permissions guards, zizmor (template injection, unpinned uses, default-permission jobs and persisted checkout credentials fail at zero; pinned by SHA-256), actionlint (enforced); also `make validate`
+- `.github/actions/e2e-stack/`: the ephemeral E2E stack (`target: ephemeral` on `ci-e2e-tests-manual.yaml`); rules in `.claude/rules/e2e.md`
 - `scripts/test-create-runner.sh`: offline scenario self-check for `ci-build-create-runner.sh` (curl stubbed); extend it when adding a decision branch
 - `.github/actions/gitleaks/action.yml` + `scan.sh`: the only place any workflow may invoke Gitleaks; `security/gitleaks/gitleaks.toml` is the central rule set and allowlist
 - `scripts/test-secret-scan.sh`: offline scenario self-check for `scan.sh` (real git fixtures, pinned Gitleaks); extend it when adding a decision branch
@@ -65,7 +66,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Tags containing `full-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: both`.
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget and botflow assets.
-- Playwright E2E is **dispatch only**: `workflow_dispatch` in `novatalks.tests` → `ci-e2e-tests-manual.yaml` with `tests_ref`, `test_tags`, `env_url` and `botflow_url` plus the rest of the form (`target`, `reset_stand`, `workers`, `suite_timeout_minutes`, the four image tags, ...), read in the switcher from `github.event.inputs`. No tag route; the `concurrency` group keys on `env_url`, since runs share a stand, and the stand's reset service holds a lease (`Take the stand` / `Release the stand`) that `/drop`, `/prune` and `/normalize` enforce, because the group cannot see a run from another repository or with the URL spelled differently. The stand's URLs are inputs (public, and one form must reach another stand); only the four credentials and the API token are secrets, named `E2E_*`. Seven environment variables total — the suite derives the client URLs from `ENV_URL`, and with `USE_DB` unset it needs no database, so the workflow carries no kubeconfig and no DB credentials. The lab restore/Redis-sync/engine-restart steps were removed on 2026-09-17: they needed in-cluster access the deprecated in-cluster runners had. Never `FLUSHALL` the stand's Redis — DB 15 holds `nr:flows`. A second **`target`** landed on 2026-09-21 as exactly that — an optional input with a default, not a second workflow: `lab` (unchanged) or `ephemeral`, which boots the whole product on the runner from four image tags and a chart version and destroys it afterwards. Its configuration is rendered from the published chart rather than listed in nova.ci, its flows are copied from the stand at boot, its origin is `localhost:18080` (the runner VM already has an nginx on 8080), and its `concurrency` keys on the run id so ephemeral runs never queue behind each other. `reset_stand` is refused there rather than ignored. See the invariants block in CLAUDE.md before changing it — most of what it does is a scar.
+- Playwright E2E is **dispatch only**: `workflow_dispatch` in `novatalks.tests` → `ci-e2e-tests-manual.yaml` with `tests_ref`, `test_tags`, `env_url` and `botflow_url` plus the rest of the form (`target`, `reset_stand`, `workers`, `suite_timeout_minutes`, the four image tags, ...), read in the switcher from `github.event.inputs`. No tag route; the `concurrency` group keys on `env_url`, since runs share a stand, and the stand's reset service holds a lease (`Take the stand` / `Release the stand`) that `/drop`, `/prune` and `/normalize` enforce, because the group cannot see a run from another repository or with the URL spelled differently. The stand's URLs are inputs (public, and one form must reach another stand); only the four credentials and the API token are secrets, named `E2E_*`. Seven environment variables total — the suite derives the client URLs from `ENV_URL`, and with `USE_DB` unset it needs no database, so the workflow carries no kubeconfig and no DB credentials. The lab restore/Redis-sync/engine-restart steps were removed on 2026-09-17: they needed in-cluster access the deprecated in-cluster runners had. Never `FLUSHALL` the stand's Redis — DB 15 holds `nr:flows`. A second **`target`** landed on 2026-09-21 as exactly that — an optional input with a default, not a second workflow: `lab` (unchanged) or `ephemeral`, which boots the whole product on the runner from four image tags and a chart version and destroys it afterwards. Its configuration is rendered from the published chart rather than listed in nova.ci, its flows are copied from the stand at boot, its origin is `localhost:18080` (the runner VM already has an nginx on 8080), and its `concurrency` keys on the run id so ephemeral runs never queue behind each other. `reset_stand` is refused there rather than ignored. See `.claude/rules/e2e.md` before changing it — most of what it does is a scar.
 - The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 13 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
@@ -310,22 +311,7 @@ In `ci-build-ntk-on-push-tags-build.yaml` the notifier `needs: [build-image, lin
 
 ## Trivy Image Scan Semantics
 
-`ci-build-ntk-on-push-tags-build.yaml` has a `trivy-scan` job that `needs: [build-image]` and scans the exact GHCR image the build produced:
-
-```text
-ghcr.io/<owner>/<repo>:<release>_<short-ref-name><image-suffix>_<short-sha>
-```
-
-Preserve these behaviors:
-
-- Keep the scan gated on `github.event_name != 'pull_request'` and `needs.build-image.result == 'success'`. PRs stay lint and unit tests only (no scan).
-- The `Resolve scan policy` step auto-enables the scan when `SHORT_REF_NAME` is `main`, `master`, or `development`, and enables it on demand when the trigger tag ref starts with `scan` (`[[ "$REF_NAME" == scan* ]]`). Otherwise the image is built but not scanned. Branch/repo/commit come from push metadata, not the tag name.
-- The switcher routes `push` tags containing `build` or starting with `scan` to the build workflow, so a `scan*` tag builds and scans a specific branch.
-- On `novatalks.core` a `scan*` tag resolves to `build-engine` before the Dockerfile chain runs. A scan tag names a trigger, not a build target, and that repository has no `server.Dockerfile` to fall through to — the engine is its representative image, since the other components build from the same shared libraries. Other repositories and explicit `build_target` values are untouched.
-- Scan with `aquasecurity/trivy-action@v0.36.0` (pinned). Run an OS pass (`TRIVY_PKG_TYPES=os`), a library pass (`TRIVY_PKG_TYPES=library`), and a JSON pass for counts; reuse the install with `skip-setup-trivy: true`. The action manages the vulnerability and Java DBs — do not reintroduce a manual `--download-db-only` / `--download-java-db-only` two-step.
-- Cache the Trivy DB with `actions/cache` over `${{ github.workspace }}/.cache/trivy` (action cache disabled via `cache: false`); the key embeds a 5-hour bucket (`trivy-db-5h-<floor(epoch/18000)>`).
-- Emit a single `.report` file (`trivy-<repo>-<ref><suffix>-<sha>.report`) with `=== OS Vulnerabilities ===` and `=== Node.js Vulnerabilities ===` sections. Upload it as a workflow artifact and attach it to a GitHub prerelease tagged `TRIVY.SCAN_<release>_<ref><suffix>_<sha>` (`softprops/action-gh-release@v2`, job needs `contents: write`). Put CRITICAL/HIGH counts and the report link in the job summary.
-- `trivy_mode` policy: `warn-only` (default) always succeeds and only warns; `fail-on-critical` fails the job when CRITICAL > 0; `fail-on-high` fails when CRITICAL or HIGH > 0. The image is already built/pushed before the scan, so a failing scan signals red but does not unpublish it.
+`trivy-scan` `needs: [build-image]` and scans the exact GHCR tag the build produced, on trunk and `scan*` only, `warn-only` by default. Pinned action, 5-hour DB cache bucket, one `.report` with OS and Node.js sections on the `TRIVY.SCAN_*` release. Full semantics: `references/trivy-image-scan.md`.
 
 ## SAST and DAST Semantics
 
@@ -461,6 +447,7 @@ workflow still parses:
 
 Reference files, one per scanner surface:
 
+- `references/trivy-image-scan.md` — the image scan: gate, passes, DB cache, report and release, `trivy_mode` policy.
 - `references/sast-and-deps-scan.md` — Semgrep (inline PR job, build job, widget job) and
   `deps-scan` (Trivy fs + OSV-Scanner) job architecture, canary mechanics, gate details.
 - `references/dast-baseline.md` — the unauthenticated ZAP baseline/full scan: outcomes, gates,
@@ -474,23 +461,7 @@ Reference files, one per scanner surface:
 
 ## Documentation Assets
 
-Every page under `docs/` opens with a diagram from its section's `assets/` folder, and `validate.sh`
-fails on a page without one. A new page therefore needs a new asset — build it with the
-`beautify-github-readme` skill.
-
-- Static SVG is the default. A GIF only where motion explains something prose cannot, and
-  then the `.svg` source and its `*-motion.json` spec live next to the `.gif`; regenerate
-  with that skill's `render_motion_gif.py` instead of hand-editing the GIF.
-- Match the house style: `1200`-unit `viewBox`, the
-  `ui-monospace,SFMono-Regular,Menlo,monospace` stack, the existing palette (GitHub's
-  semantic `#3FB950` / `#F85149` / `#E3862B` are already in it — do not add new colours),
-  and a minimum `font-size` of 18 SVG units.
-- Verify by rendering, not by arithmetic: `rsvg-convert -w 900` is GitHub's content width,
-  and `-w 360` is the mobile check. Text clipping against a panel edge is invisible in a
-  width calculation and cost a rework on `secret-detection.svg`.
-- Give the diagram a job. The one on the secret detection page exists to carry the single
-  thing readers get wrong — that the scan reads the commits a change adds, not the working
-  tree.
+Every page under `docs/` opens with a diagram from its section's `assets/` folder; `validate.sh` fails without one. Build new ones with the `beautify-github-readme` skill, in the house style in `.claude/rules/docs-style.md`, and verify by rendering (`rsvg-convert -w 900` and `-w 360`), not by arithmetic. Give the diagram a job: the secret detection one carries the single thing readers get wrong — that the scan reads the commits a change adds, not the working tree.
 
 ## Documentation Sync
 
@@ -498,7 +469,7 @@ When changing CI behavior, update all relevant agent/human documentation in the 
 
 - the relevant page under `docs/` (`README.md` only if the landing copy changes)
 - `AGENTS.md`
-- `CLAUDE.md`
+- the matching `.claude/rules/<area>.md` when an invariant changes — `CLAUDE.md` only when a rule that applies everywhere does
 - `.agents/skills/nova-ci/SKILL.md` (and its mirror `.claude/skills/nova-ci/SKILL.md`)
 
 Keep `docs/` as the canonical broad reference and `README.md` as a thin landing page. Keep this skill concise and procedural.
@@ -508,8 +479,7 @@ Keep `docs/` as the canonical broad reference and `README.md` as a thin landing 
 Run the validation harness; it bundles every check (YAML parse of workflows and
 actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, the
 `ci-build-create-runner.sh`, Gitleaks, Semgrep and DAST (baseline and API) `scan.sh` scenario self-checks,
-the scanner-invocation and notifier transport guards, the GITHUB_WORKSPACE self-reference guard (no `workflow_call`-triggered workflow may source a nova.ci path via `GITHUB_WORKSPACE`), and `actionlint` when installed — advisory by default given the repo's pre-existing
-backlog; `STRICT_ACTIONLINT=1` enforces):
+the scanner-invocation and notifier transport guards, the GITHUB_WORKSPACE self-reference guard (no `workflow_call`-triggered workflow may source a nova.ci path via `GITHUB_WORKSPACE`), zizmor, and `actionlint` — both enforced, and both required in CI):
 
 ```bash
 ./scripts/validate.sh   # or: make validate
@@ -519,7 +489,7 @@ The same harness runs in CI via `ci-self-validate.yaml` on pull requests and pus
 to `main`. After it passes, review diffs for the files that define behavior:
 
 ```bash
-git diff -- .github/workflows .github/actions security scripts docs README.md AGENTS.md CLAUDE.md .agents/skills .claude/skills
+git diff -- .github/workflows .github/actions security scripts docs README.md AGENTS.md CLAUDE.md .claude/rules .agents/skills .claude/skills
 ```
 
 If product repository callers were touched, verify the user explicitly requested that and check those repositories separately.

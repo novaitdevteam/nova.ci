@@ -8,6 +8,8 @@ on:
 
 jobs:
   build-image:
+    permissions:
+      contents: read
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     steps:

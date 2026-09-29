@@ -113,6 +113,8 @@ concurrency:
 
 jobs:
   build-tests:
+    permissions:
+      contents: read
     name: Run Playwright Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     # The backstop for everything the step timeout below does not cover — a checkout that
@@ -129,8 +131,9 @@ jobs:
       REPORT_PUBLISHED: ${{ steps.publish.outcome == 'success' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ inputs.tests_ref }}
 
       - name: Prepare Vars
@@ -169,7 +172,7 @@ jobs:
           exit 1
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         id: node_inst
         with:
           node-version: 24
@@ -186,7 +189,7 @@ jobs:
       # cache directory, shared across runs on a reused VM and restored from the
       # Actions cache on a fresh one.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         id: playwright_cache
         with:
           path: ~/.cache/ms-playwright
@@ -343,8 +346,9 @@ jobs:
       # is the opposite.) The workspace is left alone: the suite needs it.
       - name: Checkout the bring-up
         if: ${{ inputs.target == 'ephemeral' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           repository: novaitdevteam/nova.ci
           ref: ${{ inputs.nova_ci_ref }}
           path: .nova-ci
@@ -505,8 +509,10 @@ jobs:
           RESET_URL: ${{ secrets.E2E_RESET_URL }}
           RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
         run: |
-          [ -n "$RESET_URL" ] && [ -n "$RESET_TOKEN" ] \
-            || { echo "::warning::no reset service configured — the email specs use the external mailbox"; exit 0; }
+          if [ -z "$RESET_URL" ] || [ -z "$RESET_TOKEN" ]; then
+            echo "::warning::no reset service configured — the email specs use the external mailbox"
+            exit 0
+          fi
           MAIL_API="${RESET_URL%/prune}"
           code="$(curl -sS --max-time 60 -o /tmp/mail-probe.json -w '%{http_code}' -X POST \
                     -H "Authorization: Bearer ${RESET_TOKEN}" -H 'Content-Type: application/json' \
@@ -727,6 +733,8 @@ jobs:
           echo "report: ${REPORT_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
