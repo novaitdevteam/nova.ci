@@ -61,7 +61,7 @@ Its documentation rules that bear on you:
 - Human-facing docs live in `docs/` and are canonical. `README.md` is a landing page
   and must not restate the tables.
 - Change repository lists, PR rules, routing or build semantics, and you update the
-  relevant `docs/` page, `CLAUDE.md` when an invariant changes, `AGENTS.md` when the
+  relevant `docs/` page, the matching `.claude/rules/` file when an invariant changes, `AGENTS.md` when the
   entry point changes, and **both** `.agents/skills/nova-ci/SKILL.md` and
   `.claude/skills/nova-ci/SKILL.md` — `./scripts/validate.sh` fails if the two
   mirrors diverge.

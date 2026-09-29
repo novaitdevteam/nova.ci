@@ -59,7 +59,7 @@ dast_resolve_target() {
             # applies this ONLY then; on the build workflow's own path (a real
             # novatalks.core checkout) it is never applied, so the real .env.example —
             # including its real S3 config — keeps deciding, unchanged. Overriding that
-            # unconditionally would contradict CLAUDE.md's novatalks.core-scoped R2/S3
+            # unconditionally would contradict .claude/rules/novatalks-core-exceptions.md's R2/S3
             # exception, and would have changed the trunk baseline scan that already
             # works (run reports WARN-NEW: 2, PASS: 65). Confirmed live on pentest run
             # 33882314584: the browser scan loud-skipped with "the image did not come up
@@ -366,7 +366,7 @@ AWS_S3_ENDPOINT=http://s3.example.invalid'
         #
         # This is a decision, not an oversight: novatalks.geoip-api gets no DAST
         # coverage at all — no baseline, no api-scan, no pentest — permanently, for the
-        # two reasons above. It keeps Trivy, Semgrep and secret detection. See CLAUDE.md
+        # two reasons above. It keeps Trivy, Semgrep and secret detection. See .claude/rules/code-scanning.md
         # and docs/security/sast-dast.md for the recorded exclusion; it is also why it is not
         # offered in ci-dast-pentest.yaml's repository dropdown — a choice that always
         # fails loudly here is worse than not offering it.

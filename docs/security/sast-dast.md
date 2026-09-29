@@ -444,7 +444,7 @@ the five S3 keys at module registration regardless of which surface is ever scan
 They cannot simply join `DT_EXTRA_ENV`, though: `dast/scan.sh` applies `extra-env` with
 `-e` *after* `--env-file`, so on the build workflow's own path — where the real
 `.env.example` (including the real S3 config the [`novatalks.core`-scoped R2/S3
-exception](../../CLAUDE.md) documents) *is* seeded — it would override a value that is
+exception](../../.claude/rules/novatalks-core-exceptions.md) documents) *is* seeded — it would override a value that is
 already correct there, and change a scan that already works
 (`WARN-NEW: 2, PASS: 65`). A second field, `unseeded-env` (`DT_UNSEEDED_ENV` in
 `targets.sh`, `DAST_UNSEEDED_ENV` in `scan.sh`), is folded into `DAST_EXTRA_ENV` only
@@ -606,7 +606,7 @@ already gets real values from the product repository's real `.env.example`. They
 live in this arm's `extra-env`: `dast/scan.sh` applies `extra-env` with `-e` *after*
 `--env-file`, so on the build workflow's path it would override a value the real
 `.env.example` already got right, including the real S3 config the `novatalks.core`-
-scoped R2/S3 exception in `CLAUDE.md` documents. They live instead in a second field,
+scoped R2/S3 exception in [`.claude/rules/novatalks-core-exceptions.md`](../../.claude/rules/novatalks-core-exceptions.md) documents. They live instead in a second field,
 `unseeded-env` (`DT_UNSEEDED_ENV` in `targets.sh`), that `dast/scan.sh` folds into
 `DAST_EXTRA_ENV` only inside the branch where it has already determined nothing was
 seeded (`target-repository` disagrees with `GITHUB_WORKSPACE` — see [Which repository is
@@ -1092,7 +1092,7 @@ inferred:
 Adding a `targets.sh` arm for either surface would only ever produce a guaranteed,
 permanent `not-run` — a choice that always fails loudly is worse than not offering it,
 which is why the pentest dropdown omits it too. This exclusion is also recorded as an
-invariant in `CLAUDE.md`; revisiting it needs an explicit request, not a rediscovery of
+invariant in [`.claude/rules/code-scanning.md`](../../.claude/rules/code-scanning.md); revisiting it needs an explicit request, not a rediscovery of
 the same absence.
 
 ### `needs-nats`, for `novatalks.dialer`'s api-scan
@@ -1505,7 +1505,7 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   excludes it. `novatalks.geoip-api` has no authentication and publishes no OpenAPI
   spec, and `api-scan` is spec-driven with no spider fallback, so it has no
   `targets.sh` arm at all — see [the exclusion below](#novatalksgeoip-api-gets-no-dast-at-all)
-  and `CLAUDE.md`. Offering a choice that always fails loudly at `Resolve target` is
+  and [`.claude/rules/code-scanning.md`](../../.claude/rules/code-scanning.md). Offering a choice that always fails loudly at `Resolve target` is
   worse than not offering it; both repositories' `targets.sh` arms (where they exist)
   are untouched, so nothing here changes what the trunk build itself scans.
 - **Ephemeral by default, live behind a typed confirmation.** The `target` input

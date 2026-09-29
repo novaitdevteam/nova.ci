@@ -41,7 +41,7 @@ inputs:
     required: false
     default: ""
   unseeded-env:
-    description: "Newline-separated KEY=VALUE lines applied ONLY when the scanned repository's .env.example could not be seeded at all (target-repository disagrees with the checkout in GITHUB_WORKSPACE — ci-dast-pentest.yaml's shape). Ignored on every path where seeding happened, so it can never override a value the real .env.example already got right — see CLAUDE.md's novatalks.core-scoped R2/S3 exception for why that distinction matters."
+    description: "Newline-separated KEY=VALUE lines applied ONLY when the scanned repository's .env.example could not be seeded at all (target-repository disagrees with the checkout in GITHUB_WORKSPACE — ci-dast-pentest.yaml's shape). Ignored on every path where seeding happened, so it can never override a value the real .env.example already got right — see the novatalks.core-scoped R2/S3 exception in .claude/rules/novatalks-core-exceptions.md for why that distinction matters."
     required: false
     default: ""
   report-file:

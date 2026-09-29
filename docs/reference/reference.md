@@ -81,6 +81,7 @@ change is greppable from git history. They are records, not queues — the work 
 <summary><b>Agent context</b> — files that keep Claude Code and Codex in sync with these docs</summary>
 
 - [`CLAUDE.md`](../../CLAUDE.md) — canonical agent guidance for Claude Code and Codex
+- [`.claude/rules/`](../../.claude/rules/) — the invariants, one file per area, path-scoped so Claude Code loads each with the files it governs
 - [`AGENTS.md`](../../AGENTS.md) — Codex-compatible entry point, delegates to `CLAUDE.md`
 - [`.agents/skills/nova-ci/SKILL.md`](../../.agents/skills/nova-ci/SKILL.md) — portable Nova CI maintenance skill
 - [`.claude/skills/nova-ci/SKILL.md`](../../.claude/skills/nova-ci/SKILL.md) — Claude Code mirror of the skill

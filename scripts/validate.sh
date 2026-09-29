@@ -91,7 +91,7 @@ if ruby -e '
     puts "       #{page}"
     fail_count += 1
   end
-  abort "ERROR: these pages do not open with a diagram from their own assets/ folder (CLAUDE.md, Editing style)" if fail_count > 0
+  abort "ERROR: these pages do not open with a diagram from their own assets/ folder (.claude/rules/docs-style.md)" if fail_count > 0
   puts "OK: every docs page embeds a diagram"
 
   # 2. every local link and asset resolves - a moved page or renamed file is an invisible diff.
@@ -100,7 +100,7 @@ if ruby -e '
   # links), and so are the dated records under docs/superpowers/, which describe the tree as
   # it was when they were written.
   pages = Dir.glob("docs/**/*.md").reject { |md| md.include?("docs/superpowers/") }
-  (pages + Dir.glob("*.md")).sort.each do |md|
+  (pages + Dir.glob("*.md") + Dir.glob(".claude/rules/*.md")).sort.each do |md|
     text = File.read(md).gsub(/^ *```.*?^ *```/m, "")
     # The lookbehind is load-bearing: an unanchored src=" also matches the tail of any
     # identifier ending in "src", so a shell variable like zap_conf_src="..." was read
@@ -127,6 +127,24 @@ if ruby -e '
   end
   abort "ERROR: these assets use font-size below 18 - unreadable at 900px" if fail_count > 0
   puts "OK: no asset drops below font-size 18"
+
+  # 4. a path-scoped rule loads only when Claude Code reads a file its paths match, so a glob
+  # that matches nothing - a renamed workflow, a typo - silently unloads the invariants it holds.
+  Dir.glob(".claude/rules/*.md").sort.each do |rule|
+    fm = File.read(rule)[/\A---\n(.*?)\n---\n/m, 1]
+    globs = fm.to_s.scan(/^  - "([^"]+)"$/).flatten
+    if globs.empty?
+      puts "       #{rule} has no paths: frontmatter"
+      fail_count += 1
+    end
+    globs.each do |g|
+      next unless Dir.glob(g, File::FNM_EXTGLOB).empty?
+      puts "       #{rule} -> #{g} matches no file"
+      fail_count += 1
+    end
+  end
+  abort "ERROR: these .claude/rules paths would never load their rules" if fail_count > 0
+  puts "OK: every .claude/rules glob matches a file"
 '; then
   :
 else

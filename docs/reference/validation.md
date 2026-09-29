@@ -186,7 +186,7 @@ Trivy, ZAP or OSV-Scanner images, which are pinned on purpose for the opposite r
 
 [`ci-self-validate.yaml`](../../.github/workflows/ci-self-validate.yaml) runs the same harness (with `actionlint` installed) on every pull request and push to `main`.
 
-After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](../../CLAUDE.md), [`AGENTS.md`](../../AGENTS.md) and [`.agents/skills/nova-ci/SKILL.md`](../../.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing.
+After changing CI behavior, still verify by hand that these docs, [`CLAUDE.md`](../../CLAUDE.md), the rules under [`.claude/rules/`](../../.claude/rules/), [`AGENTS.md`](../../AGENTS.md) and [`.agents/skills/nova-ci/SKILL.md`](../../.agents/skills/nova-ci/SKILL.md) (with its `.claude/` mirror) describe the same routing.
 
 ---
 

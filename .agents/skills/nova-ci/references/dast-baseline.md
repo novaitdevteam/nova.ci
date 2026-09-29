@@ -263,7 +263,7 @@ carries `DEFAULT_ADMIN_USER`/`DEFAULT_USER_PASSWORD` and the real S3 config;
 filled the gap. `extra-env` was not the fix: `dast/scan.sh` applies it with `-e` *after*
 `--env-file`, so on the build workflow's own path — where the real `.env.example` is seeded —
 it would override novatalks.core's real S3 config with dummies, contradicting the R2/S3
-exception in `CLAUDE.md` and changing a scan that already works (`WARN-NEW: 2, PASS: 65`).
+exception in `.claude/rules/novatalks-core-exceptions.md` and changing a scan that already works (`WARN-NEW: 2, PASS: 65`).
 `unseeded-env` is folded into `DAST_EXTRA_ENV` only inside the branch where `scan.sh` has
 already determined nothing was seeded (`scanned_repo != workspace_repo`) — a no-op on every
 existing caller, live only for the pentest workflow. Both
