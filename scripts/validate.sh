@@ -524,24 +524,20 @@ section "zizmor"
 # Security lint for workflows and actions. Before actionlint on purpose: actionlint can
 # park locally on the build workflow, and this is the gate that must not be skipped.
 #
-# Two gates, both on template-injection — a ${{ }} expression expanded into run: is shell
-# code written by whoever controls the value, which is why the rules say to pass it
-# through step env: instead:
-#   - high severity (a context an outsider controls, pasted straight in) fails outright;
-#     so does any unpinned-uses, excessive-permissions or artipacked finding (zero since
-#     2026-09-29; .github/zizmor.yml keeps nova.ci's own @main references allowed);
-#   - the rest — mostly ${{ env.X }} / step outputs, which zizmor cannot trace to their
-#     source — is an exact ratchet: a rise is a new sink, a fall must lower the constant
-#     in the same change, or the slack is spent unnoticed later. A count, not a list. A value laundered through
-#     GITHUB_ENV is exactly as dangerous as the original, and only the source step knows
-#     whether it was sanitized (the mobile/widget workflows sanitize SHORT_REF_NAME there).
-# Everything else (unpinned uses, permissions, secrets: inherit) is an advisory backlog.
-# --strict-collection: a file zizmor cannot parse fails the run instead of being skipped
-# with a warning, which would be an OK over a file nobody audited. In CI a missing zizmor
-# fails too: a gate that never runs passes.
-ZIZMOR_TEMPLATE_INJECTION_BACKLOG=70
-# The version CI pins: audits and severities move between releases, and the ratchet
-# below is a count, so any other version would red an untouched tree or pass a bad one.
+# Four audits are held at zero and fail the run on any finding, with file:line and the fix:
+#   - template-injection: a ${{ }} expression expanded into run: or a github-script is
+#     code written by whoever controls the value. Pass it through step env: and use $VAR
+#     (process.env.X in JS). A value laundered through GITHUB_ENV is as dangerous as the
+#     original, so ref-derived names are sanitized where they are first computed;
+#   - unpinned-uses: third-party actions by commit SHA (.github/zizmor.yml keeps nova.ci's
+#     own @main references allowed; .github/dependabot.yml moves the pins);
+#   - excessive-permissions: every job states the token permissions it uses;
+#   - artipacked: every checkout drops its token (persist-credentials: false).
+# All four reached zero on 2026-09-29. Everything else (secrets: inherit, which the
+# switcher uses by design, and a few informational audits) is reported only.
+# The version CI pins: audits and severities move between releases, and the zero gates
+# below depend on which findings it reports, so any other version could red an untouched
+# tree or pass a bad one.
 z_ver="$(sed -n 's/^ *ZIZMOR_VERSION: *"\(.*\)"$/\1/p' .github/workflows/ci-self-validate.yaml)"
 zizmor_cmd=()
 if command -v zizmor >/dev/null 2>&1 && [[ "$(zizmor --version 2>/dev/null)" == "zizmor ${z_ver}" ]]; then
@@ -559,11 +555,9 @@ if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
       loc = ->(f) { l = f["locations"].find { |x| x.dig("symbolic", "kind") == "Primary" } || f["locations"][0]
                     k = l.dig("symbolic", "key", "Local") || {}
                     "#{k["verbatim_path"] || k["given_path"]}:#{l.dig("concrete", "location", "start_point", "row").to_i + 1}" }
-      ti = findings.select { |f| f["ident"] == "template-injection" }
-      hard, soft = ti.partition { |f| f.dig("determinations", "severity") == "High" }
-      hard.each { |f| puts "       #{loc.(f)}  template-injection: pass the value through step env:, not ${{ }} in run:" }
-      # Brought to zero on 2026-09-29; each must stay there.
+      hard = []
       zero = {
+        "template-injection"    => "pass the value through step env: and use $VAR (process.env.X in JS), not ${{ }} inline",
         "unpinned-uses"         => "pin by commit SHA with the version as a comment (Dependabot keeps it current)",
         "excessive-permissions" => "give the job an explicit permissions: block with only what it uses",
         "artipacked"            => "add persist-credentials: false to the checkout",
@@ -576,23 +570,12 @@ if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
       end
       counts = findings.group_by { |f| f["ident"] }.map { |k, v| "#{v.size} #{k}" }.sort_by(&:to_i).reverse
       puts "WARN: zizmor backlog, advisory: #{counts.join(", ")}" unless counts.empty?
-      max = Integer(ARGV[0])
-      if soft.size > max
-        puts "ERROR: #{soft.size} lower-severity template-injection findings, baseline #{max}: a new ${{ }} reached run:."
-        puts "       Pass it through step env:; if the value is genuinely safe, say why in review before raising the baseline."
-        exit 1
-      end
-      if soft.size < max
-        puts "ERROR: template-injection backlog fell to #{soft.size}: lower ZIZMOR_TEMPLATE_INJECTION_BACKLOG to #{soft.size} in this change,"
-        puts "       or the slack lets the next PR add that many back unnoticed."
-        exit 1
-      end
       exit(hard.empty? ? 0 : 1)
       rescue StandardError => e
         warn "#{e.class}: #{e.message}"
         exit 2
       end
-    ' "$ZIZMOR_TEMPLATE_INJECTION_BACKLOG" <<<"$z_out" || z_rc=$?
+    ' <<<"$z_out" || z_rc=$?
   if [[ "$z_rc" -eq 2 ]]; then
     # no report: zizmor itself failed (a file it could not parse, a bad flag, uvx offline)
     if [[ "${CI:-}" == "true" ]]; then
@@ -606,7 +589,7 @@ if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
     echo "ERROR: zizmor gate failed (findings above)"
     fail=1
   else
-    echo "OK: no high-severity template injection, unpinned use, default-permission job or persisted checkout credential; template-injection backlog at its baseline"
+    echo "OK: no template injection, unpinned use, default-permission job or persisted checkout credential"
   fi
   rm -f "$z_err"
 elif [[ "${CI:-}" == "true" ]]; then
