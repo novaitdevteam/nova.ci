@@ -14,6 +14,7 @@
 #     read from a fixture file)
 #   - scanner invocation guard (no workflow may run Gitleaks, Semgrep or OSV-Scanner itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
+#   - zizmor template-injection gate (required in CI; uvx fallback locally)
 #   - actionlint (when installed)
 #
 # Usage: ./scripts/validate.sh   (works from any cwd; resolves repo root itself)
@@ -519,6 +520,73 @@ else
   fail=1
 fi
 
+section "zizmor"
+# Security lint for workflows and actions. Before actionlint on purpose: actionlint can
+# park locally on the build workflow, and this is the gate that must not be skipped.
+#
+# Two gates, both on template-injection — a ${{ }} expression expanded into run: is shell
+# code written by whoever controls the value, which is why the rules say to pass it
+# through step env: instead:
+#   - high severity (a context an outsider controls, pasted straight in) fails outright;
+#   - the rest — mostly ${{ env.X }} / step outputs, which zizmor cannot trace to their
+#     source — is a ratchet: the count may fall, never rise. A value laundered through
+#     GITHUB_ENV is exactly as dangerous as the original, and only the source step knows
+#     whether it was sanitized (the mobile/widget workflows sanitize SHORT_REF_NAME there).
+# Everything else (unpinned uses, permissions, secrets: inherit) is an advisory backlog.
+# --strict-collection: a file zizmor cannot parse fails the run instead of being skipped
+# with a warning, which would be an OK over a file nobody audited. In CI a missing zizmor
+# fails too: a gate that never runs passes.
+ZIZMOR_TEMPLATE_INJECTION_BACKLOG=71
+zizmor_cmd=()
+if command -v zizmor >/dev/null 2>&1; then
+  zizmor_cmd=(zizmor)
+elif command -v uvx >/dev/null 2>&1; then
+  # the version CI pins, not whatever uvx would resolve
+  z_ver="$(sed -n 's/^ *ZIZMOR_VERSION: *"\(.*\)"$/\1/p' .github/workflows/ci-self-validate.yaml)"
+  [[ -n "$z_ver" ]] && zizmor_cmd=(uvx "zizmor@${z_ver}")
+fi
+if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
+  z_err="$(mktemp)"
+  z_out="$("${zizmor_cmd[@]}" --offline --strict-collection --format json .github 2>"$z_err" || true)"
+  z_rc=0
+  ruby -rjson -e '
+      findings = begin; JSON.parse(STDIN.read); rescue JSON::ParserError; exit 2; end
+      loc = ->(f) { l = f["locations"].find { |x| x.dig("symbolic", "kind") == "Primary" } || f["locations"][0]
+                    k = l.dig("symbolic", "key", "Local") || {}
+                    "#{k["verbatim_path"] || k["given_path"]}:#{l.dig("concrete", "location", "start_point", "row").to_i + 1}" }
+      ti = findings.select { |f| f["ident"] == "template-injection" }
+      hard, soft = ti.partition { |f| f.dig("determinations", "severity") == "High" }
+      hard.each { |f| puts "       #{loc.(f)}  template-injection: pass the value through step env:, not ${{ }} in run:" }
+      counts = findings.group_by { |f| f["ident"] }.map { |k, v| "#{v.size} #{k}" }.sort_by(&:to_i).reverse
+      puts "WARN: zizmor backlog, advisory: #{counts.join(", ")}" unless counts.empty?
+      max = Integer(ARGV[0])
+      if soft.size > max
+        puts "ERROR: #{soft.size} lower-severity template-injection findings, baseline #{max}: a new ${{ }} reached run:."
+        puts "       Pass it through step env:; if the value is genuinely safe, say why in review before raising the baseline."
+        exit 1
+      end
+      puts "NOTE: template-injection backlog fell to #{soft.size}: lower ZIZMOR_TEMPLATE_INJECTION_BACKLOG to match." if soft.size < max
+      exit(hard.empty? ? 0 : 1)
+    ' "$ZIZMOR_TEMPLATE_INJECTION_BACKLOG" <<<"$z_out" || z_rc=$?
+  if [[ "$z_rc" -eq 2 ]]; then
+    # no JSON: zizmor itself failed (a file it could not parse, a bad flag) — show why
+    echo "ERROR: zizmor produced no report:"
+    grep -v ' INFO ' "$z_err" | sed 's/^/       /'
+    fail=1
+  elif [[ "$z_rc" -ne 0 ]]; then
+    echo "ERROR: zizmor template-injection gate failed (findings above)"
+    fail=1
+  else
+    echo "OK: no high-severity template injection; backlog within its baseline"
+  fi
+  rm -f "$z_err"
+elif [[ "${CI:-}" == "true" ]]; then
+  echo "ERROR: zizmor not installed in CI — the template-injection gate would never run"
+  fail=1
+else
+  echo "skip: neither zizmor nor uvx installed (brew install uv, or install zizmor)"
+fi
+
 section "actionlint"
 # actionlint is advisory by default: the repo's workflows carry a large pre-existing
 # backlog of shellcheck-info / expression findings. We surface them but do not fail the
@@ -538,39 +606,6 @@ if command -v actionlint >/dev/null 2>&1; then
   fi
 else
   echo "skip: actionlint not installed (https://github.com/rhysd/actionlint)"
-fi
-
-section "zizmor"
-# Security lint for workflows and actions. One audit is enforced: template-injection at
-# high severity. An expression expanded straight into `run:` is shell code written by
-# whoever controls the value, which is why the rules already say to pass it through step
-# `env:` — this is the check that says so mechanically. Everything else is the
-# pre-existing backlog (unpinned uses, permissions, secrets: inherit), reported only.
-# In CI a missing zizmor is a failure, not a skip: a gate that silently never runs passes.
-if command -v zizmor >/dev/null 2>&1; then
-  if ! z_out="$(zizmor --offline --format json .github 2>/dev/null)" && [[ -z "$z_out" ]]; then
-    echo "ERROR: zizmor ran but produced no output"
-    fail=1
-  elif ! ruby -rjson -e '
-      findings = JSON.parse(STDIN.read)
-      loc = ->(f) { l = f["locations"].find { |x| x.dig("symbolic", "kind") == "Primary" } || f["locations"][0]
-                    "#{l.dig("symbolic", "key", "Local", "verbatim_path") || l.dig("symbolic", "key", "Local", "given_path")}:#{l.dig("concrete", "location", "start_point", "row").to_i + 1}" }
-      hard = findings.select { |f| f["ident"] == "template-injection" && f.dig("determinations", "severity") == "High" }
-      hard.each { |f| puts "       #{loc.(f)}  template-injection: pass the value through step env:, not ${{ }} in run:" }
-      counts = findings.group_by { |f| f["ident"] }.map { |k, v| "#{v.size} #{k}" }.sort_by(&:to_i).reverse
-      puts "WARN: zizmor backlog, advisory: #{counts.join(", ")}" unless counts.empty?
-      exit(hard.empty? ? 0 : 1)
-    ' <<<"$z_out"; then
-    echo "ERROR: zizmor found high-severity template injection (or its output did not parse)"
-    fail=1
-  else
-    echo "OK: no high-severity template injection"
-  fi
-elif [[ "${CI:-}" == "true" ]]; then
-  echo "ERROR: zizmor not installed in CI — the template-injection gate would never run"
-  fail=1
-else
-  echo "skip: zizmor not installed (uvx zizmor, or brew install zizmor)"
 fi
 
 echo
