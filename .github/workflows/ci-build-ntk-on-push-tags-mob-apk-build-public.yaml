@@ -10,7 +10,6 @@ jobs:
   build-apk:
     name: Build APK
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     outputs:
@@ -20,9 +19,10 @@ jobs:
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
     steps:
       - name: Remote Checkout Master
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: ${{ contains(github.ref_name, 'build') && endsWith( github.ref_name, 'apk' ) }}
         with:
+          persist-credentials: false
           repository: "novaitdevteam/novatalks.ui-lite"
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
           path: ./novatalks.ui-lite
@@ -31,15 +31,16 @@ jobs:
       - name: Any additional Tag?
         run: |
           if [[ ${GITHUB_REF_NAME} == 'build-apk' ]]; then
-            echo "REMOTE_BRANCH=`echo main`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "REMOTE_BRANCH=main" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           else
-            echo "REMOTE_BRANCH=`echo ${GITHUB_REF_NAME} | cut -d "-" -f3-4`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "REMOTE_BRANCH=$(echo "${GITHUB_REF_NAME}" | cut -d "-" -f3-4)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           fi
 
       - name: Remote Checkout On Certain branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: ${{ contains(github.ref_name, 'build-apk-') }}
         with:
+          persist-credentials: false
           repository: "novaitdevteam/novatalks.ui-lite"
           github-server-url: https://github.com/novaitdevteam/novatalks.ui-lite
           path: ./novatalks.ui-lite
@@ -48,7 +49,7 @@ jobs:
 
       - name: Get Remote SHA
         working-directory: ./novatalks.ui-lite
-        run: echo "REMOTE_SHA=`/usr/bin/git log -1 --format='%H' | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+        run: echo "REMOTE_SHA=$(/usr/bin/git log -1 --format='%H' | cut -c1-8)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Install APK Build Dependencies
         run: |
@@ -60,22 +61,22 @@ jobs:
         env:
           BASE_REF: ${{ github.event.base_ref }}
         run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d "/" -f2 )" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=$(date +'%Y_R%q')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${GITHUB_REF_NAME} | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=${GITHUB_REF_NAME//[^A-Za-z0-9_.-]/-}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           else
-            echo "SHORT_REF_NAME=`echo ${BASE_REF} | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=$(echo "${BASE_REF}" | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           fi
 
       - name: Set new vars
         run: |
-          echo "SHORT_SHA=`echo ${REMOTE_SHA}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_REF_NAME=`echo ${REMOTE_BRANCH} | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "SHORT_SHA=${REMOTE_SHA}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_REF_NAME=${REMOTE_BRANCH//[^A-Za-z0-9_.-]/-}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v1.1
+        uses: dev-drprasad/delete-tag-and-release@82600feb9527126eca69833f07bafe53279bd9b4 # v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
@@ -83,25 +84,25 @@ jobs:
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         id: node_inst
         with:
           node-version: "22.22.0"
 
       - name: 💿 Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: "microsoft"
           java-version: "17"
 
       - name: 💿 Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
         with:
           gradle-version: 8.0.2
           cache-disabled: true
 
       - name: 💿 Setup Android SDK
-        uses: android-actions/setup-android@v3.2.2
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
 
       - name: Generating Release Key
         working-directory: ./novatalks.ui-lite
@@ -148,7 +149,8 @@ jobs:
           echo "Using Android SDK: $android_sdk"
 
           npm install -g yarn
-          export PATH="$(yarn global bin):$PATH"
+          yarn_bin="$(yarn global bin)"
+          export PATH="$yarn_bin:$PATH"
           yarn global add @quasar/cli
           yarn global add @quasar/icongenie
           yarn install --ignore-engines
@@ -156,14 +158,14 @@ jobs:
           printf 'sdk.dir=%s\n' "$android_sdk" > ./src-capacitor/android/local.properties
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android
-          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          "$apksigner" verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          cp ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk /home/runner/work/
+          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-"${SHORT_REF_NAME}"-"${SHORT_SHA}".apk
+          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-"${SHORT_REF_NAME}"-"${SHORT_SHA}".apk
+          "$apksigner" verify --print-certs ./novatalks-ui-lite-"${SHORT_REF_NAME}"-"${SHORT_SHA}".apk
+          cp ./novatalks-ui-lite-"${SHORT_REF_NAME}"-"${SHORT_SHA}".apk /home/runner/work/
 
       - name: Create a Release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
           name: NTK.UI-LITE_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
@@ -171,8 +173,3 @@ jobs:
           draft: false
           prerelease: false
           files: ./novatalks.ui-lite/novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT

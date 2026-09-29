@@ -32,12 +32,14 @@ env:
 
 jobs:
   delete-tag:
+    permissions:
+      contents: write
     name: Delete Trigger Tag
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: ${{ github.ref_type == 'tag' }}
     steps:
       - name: Delete Tag
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           TAG_NAME: ${{ github.ref_name }}
         with:
@@ -60,23 +62,25 @@ jobs:
             }
 
   unit-tests:
+    permissions:
+      contents: read
     name: Unit Tests
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: ${{ contains(fromJSON('["unit","both"]'), inputs.test_mode || 'integration') }}
     outputs:
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
       SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
       - name: Checkout
         # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
         # removes refs/tags/<tag>, so a tag-based checkout would race and fail.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -123,7 +127,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         # A full organisation-wide artifact quota must not red a test run: the job's result is
         # the tests', and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -134,12 +138,9 @@ jobs:
           path: ./results.txt
           retention-days: 30
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
-
   integration-tests:
+    permissions:
+      contents: read
     name: Integration Tests
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     # Sequenced after unit-tests so a full-test (both) run reuses one runner instead of
@@ -149,15 +150,15 @@ jobs:
     needs: [unit-tests]
     if: ${{ !cancelled() && contains(fromJSON('["integration","both"]'), inputs.test_mode || 'integration') }}
     outputs:
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       REPORT: ${{ steps.report.outputs.artifact-url }}
       SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
     steps:
       - name: Checkout
         # Check out the commit SHA, not the trigger tag: the parallel delete-tag job
         # removes refs/tags/<tag>, so a tag-based checkout would race and fail.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       # GitHub `services:` start before any step, so they require Docker pre-installed on
@@ -196,7 +197,7 @@ jobs:
           docker exec nova-redis redis-cli ping
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -279,7 +280,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         # A full organisation-wide artifact quota must not red a test run: the job's result is
         # the tests', and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -290,16 +291,13 @@ jobs:
           path: ./results.txt
           retention-days: 30
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
-
       - name: 🧹 Tear down containers
         if: always()
         run: docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: always()
@@ -360,7 +358,7 @@ jobs:
             ❌ Tests Failed (${{ inputs.test_mode || 'integration' }})
 
             ${{ steps.reports.outputs.value }}
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.integration-tests.outputs.END_STEP_JOB_ID || needs.unit-tests.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

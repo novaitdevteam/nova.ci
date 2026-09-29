@@ -1,0 +1,11 @@
+# zizmor configuration, read by scripts/validate.sh (see its zizmor section).
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # nova.ci's own actions and workflows stay on @main by design: every caller and
+        # every internal hop must see the same revision (validate.sh's "Self-reference
+        # pins" check enforces it), and a SHA here would pin callers to a stale nova.ci.
+        "novaitdevteam/*": ref-pin
+        # Everything else by commit SHA; Dependabot (.github/dependabot.yml) moves them.
+        "*": hash-pin

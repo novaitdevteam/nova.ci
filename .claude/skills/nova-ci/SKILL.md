@@ -24,7 +24,7 @@ Primary files:
 - `.github/workflows/ci-build-create-runner.sh`: runner selection helper downloaded by product repo callers
 - `.github/actions/action-cond/action.yml`: success/failure message selector used by notifier jobs
 - `.github/actions/install-docker/action.yml`: Docker prerequisite helper for Docker build jobs
-- `scripts/validate.sh`: validation harness — YAML, whitespace, skill mirror, docs links and assets, every `scripts/test-*.sh` self-check, the scanner-invocation and GITHUB_WORKSPACE guards, zizmor (high-severity template injection fails; the lower-severity count is an exact ratchet, `ZIZMOR_TEMPLATE_INJECTION_BACKLOG`; pinned by SHA-256), actionlint (advisory); also `make validate`
+- `scripts/validate.sh`: validation harness — YAML, whitespace, skill mirror, docs links and assets, every `scripts/test-*.sh` self-check, the scanner-invocation, GITHUB_WORKSPACE and token-permissions guards, zizmor (template injection, unpinned uses, default-permission jobs and persisted checkout credentials fail at zero; pinned by SHA-256), actionlint (enforced); also `make validate`
 - `.github/actions/e2e-stack/`: the ephemeral E2E stack (`target: ephemeral` on `ci-e2e-tests-manual.yaml`); rules in `.claude/rules/e2e.md`
 - `scripts/test-create-runner.sh`: offline scenario self-check for `ci-build-create-runner.sh` (curl stubbed); extend it when adding a decision branch
 - `.github/actions/gitleaks/action.yml` + `scan.sh`: the only place any workflow may invoke Gitleaks; `security/gitleaks/gitleaks.toml` is the central rule set and allowlist
@@ -477,8 +477,7 @@ Keep `docs/` as the canonical broad reference and `README.md` as a thin landing 
 Run the validation harness; it bundles every check (YAML parse of workflows and
 actions, `git diff --check`, `.agents` ↔ `.claude` skill mirror sync, the
 `ci-build-create-runner.sh`, Gitleaks, Semgrep and DAST (baseline and API) `scan.sh` scenario self-checks,
-the scanner-invocation and notifier transport guards, the GITHUB_WORKSPACE self-reference guard (no `workflow_call`-triggered workflow may source a nova.ci path via `GITHUB_WORKSPACE`), and `actionlint` when installed — advisory by default given the repo's pre-existing
-backlog; `STRICT_ACTIONLINT=1` enforces):
+the scanner-invocation and notifier transport guards, the GITHUB_WORKSPACE self-reference guard (no `workflow_call`-triggered workflow may source a nova.ci path via `GITHUB_WORKSPACE`), zizmor, and `actionlint` — both enforced, and both required in CI):
 
 ```bash
 ./scripts/validate.sh   # or: make validate

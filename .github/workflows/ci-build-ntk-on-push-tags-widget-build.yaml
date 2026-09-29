@@ -10,7 +10,6 @@ jobs:
   build-widget:
     name: Build NovaTalks Widget
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     outputs:
@@ -20,27 +19,29 @@ jobs:
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Prepare Vars
         id: prep
         env:
           BASE_REF: ${{ github.event.base_ref }}
         run: |
-          echo "REP_NAME=`echo ${GITHUB_REPOSITORY} | cut -d "/" -f2 `" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d "/" -f2 )" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=$(date +'%Y_R%q')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
             short_ref_name="${GITHUB_REF_NAME}"
           else
-            short_ref_name="`echo ${BASE_REF} | cut -d "/" -f3`"
+            short_ref_name="$(echo "${BASE_REF}" | cut -d "/" -f3)"
           fi
           # A ref name is data: it is expanded into run: and script: further down.
           short_ref_name="$(printf '%s' "$short_ref_name" | sed 's#[^A-Za-z0-9_.-]#-#g')"
-          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Delete Tag
-        uses: dev-drprasad/delete-tag-and-release@v1.1
+        uses: dev-drprasad/delete-tag-and-release@82600feb9527126eca69833f07bafe53279bd9b4 # v1.1
         with:
           #delete_release: false # default: false
           tag_name: ${{ github.ref_name }} # tag name to delete
@@ -48,7 +49,7 @@ jobs:
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
 
       - name: 💿 Setup NODEJS
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         id: node_inst
         with:
           node-version: "22"
@@ -63,11 +64,11 @@ jobs:
           sudo apt-get update && sudo apt-get install yarn zip -y
           yarn install
           yarn build
-          zip -r ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./dist
+          zip -r ./widget-release-"${SHORT_REF_NAME}"-"${SHORT_SHA}".zip ./dist
 
       - name: Create a Release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
           name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
@@ -76,15 +77,9 @@ jobs:
           prerelease: false
           files: ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip
 
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
-
   sast-scan:
     name: SAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Same gate as the main workflow's sast-scan: every non-pull_request build that
@@ -113,8 +108,9 @@ jobs:
       - name: Checkout
         # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
         # the tag in build-widget, which has already finished by the time this job runs.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
@@ -129,7 +125,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -144,7 +140,7 @@ jobs:
       # report to that release instead of creating a second one.
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
@@ -152,6 +148,8 @@ jobs:
           files: ${{ env.REPORT_FILE }}
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: always()
@@ -186,7 +184,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-widget.result, ','), 'success') }}
+          cond: ${{ needs.build-widget.result == 'success' }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
 
@@ -203,7 +201,7 @@ jobs:
 
             ❌Build Failed
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-widget.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

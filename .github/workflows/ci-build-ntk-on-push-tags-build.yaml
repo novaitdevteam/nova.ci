@@ -23,14 +23,17 @@ on:
 
 jobs:
   linter:
+    permissions:
+      contents: read
     name: Linter
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     outputs:
       LINTER_CHECK: ${{ steps.linter_res.outputs.LINTER_CHECK }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Resolve lint plan
         id: lint_plan
@@ -146,7 +149,7 @@ jobs:
 
       - name: 💿 Setup Node.js with npm cache
         if: ${{ steps.lint_plan.outputs.node_cache == 'npm' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -154,37 +157,43 @@ jobs:
 
       - name: 💿 Setup Node.js
         if: ${{ steps.lint_plan.outputs.node_cache != 'npm' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           package-manager-cache: false
 
       - name: Prepare lint toolchain
+        env:
+          PLAN_COMMAND: ${{ steps.lint_plan.outputs.bootstrap_command }}
         if: ${{ steps.lint_plan.outputs.bootstrap_command != '' }}
         run: |
-          ${{ steps.lint_plan.outputs.bootstrap_command }}
+          eval "$PLAN_COMMAND"
 
       - name: Install deps for lint
+        env:
+          PLAN_COMMAND: ${{ steps.lint_plan.outputs.install_command }}
         if: ${{ steps.lint_plan.outputs.install_command != '' }}
         run: |
-          ${{ steps.lint_plan.outputs.install_command }}
+          eval "$PLAN_COMMAND"
 
       - name: Run lint
         id: linter
         if: ${{ steps.lint_plan.outputs.lint_command != '' }}
         env:
+          PLAN_COMMAND: ${{ steps.lint_plan.outputs.lint_command }}
           NODE_OPTIONS: ${{ steps.lint_plan.outputs.node_options }}
         run: |
-          ${{ steps.lint_plan.outputs.lint_command }}
+          eval "$PLAN_COMMAND"
 
       # ======== end ========
       - name: End Linter Step
         if: always()
         id: linter_res
         env:
+          JOB_STATUS: ${{ job.status }}
           LINT_COMMAND: ${{ steps.lint_plan.outputs.lint_command }}
         run: |
-          if [[ "${{ job.status }}" != "success" ]]; then
+          if [[ "$JOB_STATUS" != "success" ]]; then
             echo "LINTER_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
           elif [[ -z "$LINT_COMMAND" ]]; then
             # No lint plan for this repository: the job is a no-op success. Report it as
@@ -196,9 +205,10 @@ jobs:
           fi
 
   unit-test:
+    permissions:
+      contents: read
     name: Unit Tests
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     # Sequential after lint so a run occupies one runner at a time, not two.
     # Advisory: runs even when lint fails, and its own result does not block the build.
     needs: [linter]
@@ -209,8 +219,9 @@ jobs:
       - name: Checkout
         # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
         # the tag in build-image, which runs in parallel with this gate.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Resolve test plan
@@ -271,7 +282,7 @@ jobs:
 
       - name: 💿 Setup Node.js with npm cache
         if: ${{ steps.test_plan.outputs.node_cache == 'npm' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -279,24 +290,27 @@ jobs:
 
       - name: 💿 Setup Node.js
         if: ${{ steps.test_plan.outputs.node_cache != 'npm' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           package-manager-cache: false
 
       - name: Install deps for unit tests
+        env:
+          PLAN_COMMAND: ${{ steps.test_plan.outputs.install_command }}
         if: ${{ steps.test_plan.outputs.unit_test_command != '' && steps.test_plan.outputs.install_command != '' }}
         run: |
-          ${{ steps.test_plan.outputs.install_command }}
+          eval "$PLAN_COMMAND"
 
       - name: Run unit tests
         id: unit
         if: ${{ steps.test_plan.outputs.unit_test_command != '' }}
         env:
+          PLAN_COMMAND: ${{ steps.test_plan.outputs.unit_test_command }}
           NODE_OPTIONS: ${{ steps.test_plan.outputs.node_options }}
         run: |
           set -o pipefail
-          ${{ steps.test_plan.outputs.unit_test_command }} 2>&1 | tee results.txt
+          eval "$PLAN_COMMAND" 2>&1 | tee results.txt
 
       # Surface pass/fail counts in the Actions/Checks UI (incl. on PRs, where there is
       # no notifier). Runs even on failure so the counts of failed tests are visible.
@@ -319,9 +333,10 @@ jobs:
         if: always()
         id: unit_res
         env:
+          JOB_STATUS: ${{ job.status }}
           UNIT_TEST_COMMAND: ${{ steps.test_plan.outputs.unit_test_command }}
         run: |
-          if [[ "${{ job.status }}" != "success" ]]; then
+          if [[ "$JOB_STATUS" != "success" ]]; then
             echo "UNIT_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
           elif [[ -z "$UNIT_TEST_COMMAND" ]]; then
             # No unit test plan for this repo/target: the gate is a no-op success.
@@ -332,12 +347,11 @@ jobs:
           fi
 
   build-image:
+    permissions:
+      contents: write
+      packages: write
     name: Build Image
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
-    # permissions:
-    #   contents: read
-    #   packages: write
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     needs: [linter, unit-test]
     outputs:
@@ -345,12 +359,13 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
-      END_STEP_JOB_ID: ${{ steps.end_step.outputs.END_STEP_JOB_ID }}
       IMAGE_SUFFIX: ${{ steps.set_dockerfile.outputs.IMAGE_SUFFIX }}
       IS_TRUNK: ${{ steps.prep.outputs.IS_TRUNK }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
@@ -384,15 +399,15 @@ jobs:
             *)                       is_trunk=false ;;
           esac
 
-          echo "REP_NAME=${rep_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_SHA=${short_sha}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "RELEASE=${release}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
-          echo "IS_TRUNK=${is_trunk}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+          echo "REP_NAME=${rep_name}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=${short_sha}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "RELEASE=${release}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SHORT_REF_NAME=${short_ref_name}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "IS_TRUNK=${is_trunk}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Delete Tag
         if: ${{ github.ref_type == 'tag' && inputs.build_target == '' }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           TAG_NAME: ${{ github.ref_name }} # tag name to delete
         with:
@@ -415,7 +430,7 @@ jobs:
             }
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -423,14 +438,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to DockerHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.CR_DH_USERNAME }}
           password: ${{ secrets.CR_DH_TOKEN }}
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           buildkitd-flags: --debug
           driver-opts: network=host
@@ -462,31 +477,31 @@ jobs:
           fi
 
           if [[ "$BUILD_TARGET" == "build-engine" ]]; then
-            echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_engine" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_engine" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/engine.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_engine" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_engine" >> "$GITHUB_OUTPUT"
           elif [[ "$BUILD_TARGET" == "build-reporting" ]]; then
-            echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_reporting" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/reporting.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_reporting" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_reporting" >> "$GITHUB_OUTPUT"
           elif [[ "$BUILD_TARGET" == "build-restore-historical" ]]; then
-            echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_restore-historical" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/restore-historical.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_restore-historical" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_restore-historical" >> "$GITHUB_OUTPUT"
           elif [[ "$BUILD_TARGET" == "build-message-source-id" ]]; then
-            echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_OUTPUT"
           elif [[ "$REPO_NAME" == "novatalks.flowrunner" ]]; then
             # Single image, Dockerfile at the repository root -- it has no docker/ directory
             # for the default arm below to find.
-            echo "DOCKERFILE_PATH=./Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_OUTPUT"
           else
-            echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_ENV
-            echo "IMAGE_SUFFIX=" >> $GITHUB_OUTPUT
+            echo "DOCKERFILE_PATH=./docker/server.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve Docker cache policy
@@ -510,7 +525,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           }
 
-          cache_ref="type=registry,ref=ghcr.io/${{ github.repository_owner }}/${REPO_NAME}:buildcache${IMAGE_SUFFIX}"
+          cache_ref="type=registry,ref=ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REPO_NAME}:buildcache${IMAGE_SUFFIX}"
           source_branch="$REF_NAME"
 
           if [[ "$REF_TYPE" != "branch" && -n "$BASE_REF" ]]; then
@@ -539,6 +554,7 @@ jobs:
 
       - name: Build and push
         env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
           BUILDX_NO_DEFAULT_ATTESTATIONS: 1
           CACHE_TO: ${{ steps.cache_policy.outputs.cache_to }}
           CACHE_FROM: ${{ steps.cache_policy.outputs.cache_from }}
@@ -548,8 +564,8 @@ jobs:
           set -euo pipefail
 
           build_args=(
-            --builder "${{ steps.buildx.outputs.name }}"
-            --file "${{ env.DOCKERFILE_PATH }}"
+            --builder "$BUILDER"
+            --file "${DOCKERFILE_PATH}"
             --target main
             --pull
             --push
@@ -573,11 +589,12 @@ jobs:
       - name: Add latest tag on master DOCKER
         if: ${{ contains( github.event.base_ref, 'master' ) }}
         env:
+          DH_USERNAME: ${{ secrets.CR_DH_USERNAME }}
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
         run: |
           docker buildx imagetools create \
-            --tag ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:latest \
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
+            --tag "${DH_USERNAME}"/"${REP_NAME}":latest \
+            "${DH_USERNAME}"/"${REP_NAME}":"${RELEASE}"_"${SHORT_REF_NAME}""${IMAGE_SUFFIX}"_"${SHORT_SHA}"
 
       - name: Add latest tag on master GHCR
         if: ${{ contains( github.event.base_ref, 'master' ) }}
@@ -585,18 +602,12 @@ jobs:
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
         run: |
           docker buildx imagetools create \
-            --tag ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:latest \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
-
-      - name: End Step On Failure
-        if: failure()
-        id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+            --tag ghcr.io/"${GITHUB_REPOSITORY_OWNER}"/"${REP_NAME}":latest \
+            ghcr.io/"${GITHUB_REPOSITORY_OWNER}"/"${REP_NAME}":"${RELEASE}"_"${SHORT_REF_NAME}""${IMAGE_SUFFIX}"_"${SHORT_SHA}"
 
   trivy-scan:
     name: Trivy Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Lint-only for PRs: never scan on pull_request. Only scan a successfully built image.
@@ -663,7 +674,7 @@ jobs:
 
       - name: Login to GitHub Container Registry
         if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -676,7 +687,7 @@ jobs:
       # 5-hour cache window: a new key every 5h forces a fresh Trivy DB at least that often.
       - name: Cache Trivy databases (5h window)
         if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.TRIVY_CACHE_DIR }}
           key: trivy-db-5h-${{ steps.scan_policy.outputs.cache_bucket }}
@@ -687,7 +698,7 @@ jobs:
       # vulnerability + Java DBs (the action manages both, so no manual two-step download).
       - name: Trivy scan (OS packages)
         if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PKG_TYPES: os
         with:
@@ -704,7 +715,7 @@ jobs:
       # Application/library vulnerabilities (Node.js node-pkg, etc).
       - name: Trivy scan (libraries)
         if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PKG_TYPES: library
         with:
@@ -722,7 +733,7 @@ jobs:
       # Machine-readable pass used only to count findings for the summary and fail policy.
       - name: Trivy scan (JSON for counts)
         if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.TRIVY_IMAGE }}
@@ -765,7 +776,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -779,7 +790,7 @@ jobs:
       # Publish the .report as a downloadable release asset, like the chat widget build.
       - name: Publish report release
         if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
@@ -855,7 +866,6 @@ jobs:
   sast-scan:
     name: SAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Every build that produced an image, on any branch. Semgrep reads the source that
@@ -897,8 +907,9 @@ jobs:
       - name: Checkout
         # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
         # the tag in build-image, which has already finished by the time this job runs.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
@@ -916,7 +927,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -933,7 +944,7 @@ jobs:
       # PUBLISH_RELEASE above.
       - name: Publish report release
         if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
@@ -943,10 +954,9 @@ jobs:
   deps-scan:
     name: Deps Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    # No `environment:`, unlike the sibling scan jobs. They carry it because they were
-    # copied from each other; this one needs no environment secret — it reads the
-    # checkout and publishes with the default GITHUB_TOKEN. Adding it would have added
-    # one more instance of an existing actionlint finding for nothing.
+    # No `environment:`, like every job here since 2026-09-29: the siblings' old
+    # `environment: ${{ inputs.environment }}` named an input nothing declared, so it was
+    # always empty. This job reads the checkout and publishes with GITHUB_TOKEN.
     permissions:
       contents: write
     # Trunk and `scan*` only, unlike sast-scan which runs on every build. The
@@ -979,8 +989,9 @@ jobs:
       - name: Checkout
         # The commit SHA, not the trigger ref: a tag-triggered build deletes the tag in
         # build-image, which has already finished by the time this job runs.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
@@ -992,7 +1003,7 @@ jobs:
       - name: Trivy fs scan (JSON)
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PKG_TYPES: library
         with:
@@ -1013,7 +1024,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -1029,7 +1040,7 @@ jobs:
       # the report's copy.
       - name: Publish report release
         if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
@@ -1039,7 +1050,6 @@ jobs:
   dast-scan:
     name: DAST Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Same gate as SAST, narrowed to the repositories whose images are known to boot
@@ -1066,8 +1076,9 @@ jobs:
       - name: Checkout
         # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
         # the tag in build-image, which has already finished by the time this job runs.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Resolve DAST target
@@ -1086,7 +1097,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1129,7 +1140,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -1141,7 +1152,7 @@ jobs:
 
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
@@ -1151,7 +1162,6 @@ jobs:
   api-scan:
     name: API Scan
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
-    environment: ${{ inputs.environment }}
     permissions:
       contents: write
     # Opt-in only: an apiscan* tag on novatalks.core or the telegram connector. The
@@ -1178,15 +1188,16 @@ jobs:
       - name: Checkout
         # Check out the commit SHA, not the trigger ref: a tag-triggered build deletes
         # the tag in build-image, which has already finished by the time this job runs.
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Install Docker
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1233,7 +1244,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -1245,7 +1256,7 @@ jobs:
 
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
@@ -1253,6 +1264,8 @@ jobs:
           files: ${{ env.REPORT_FILE }}
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     if: ${{ always() && github.event_name != 'pull_request' }}
@@ -1406,7 +1419,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/action-cond@main
         id: telegram_message
         with:
-          cond: ${{ contains(join(needs.build-image.result, ','), 'success') }}
+          cond: ${{ needs.build-image.result == 'success' }}
           if_true: |
             👷 ${{ github.actor }} created deploy tag.
 
@@ -1443,7 +1456,7 @@ jobs:
             ESLinter Check Status: ${{ needs.linter.outputs.LINTER_CHECK }}
             Unit Tests Status: ${{ needs.unit-test.outputs.UNIT_CHECK }}
 
-            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.build-image.outputs.END_STEP_JOB_ID}}
+            🔗 See Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Repository: ${{ github.repository }}
 
       - name: Notify

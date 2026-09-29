@@ -96,6 +96,8 @@ on:
 
 jobs:
   probe:
+    permissions:
+      contents: read
     name: Boot the stack
     # The E2E pool, not the build pool: this holds a runner for as long as a boot takes, and
     # product builds must not queue behind it.
@@ -103,8 +105,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout nova.ci
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           repository: novaitdevteam/nova.ci
           ref: ${{ inputs.nova_ci_ref || 'main' }}
 
