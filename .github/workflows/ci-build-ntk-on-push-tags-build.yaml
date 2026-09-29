@@ -162,31 +162,37 @@ jobs:
           package-manager-cache: false
 
       - name: Prepare lint toolchain
+        env:
+          PLAN_COMMAND: ${{ steps.lint_plan.outputs.bootstrap_command }}
         if: ${{ steps.lint_plan.outputs.bootstrap_command != '' }}
         run: |
-          ${{ steps.lint_plan.outputs.bootstrap_command }}
+          eval "$PLAN_COMMAND"
 
       - name: Install deps for lint
+        env:
+          PLAN_COMMAND: ${{ steps.lint_plan.outputs.install_command }}
         if: ${{ steps.lint_plan.outputs.install_command != '' }}
         run: |
-          ${{ steps.lint_plan.outputs.install_command }}
+          eval "$PLAN_COMMAND"
 
       - name: Run lint
         id: linter
         if: ${{ steps.lint_plan.outputs.lint_command != '' }}
         env:
+          PLAN_COMMAND: ${{ steps.lint_plan.outputs.lint_command }}
           NODE_OPTIONS: ${{ steps.lint_plan.outputs.node_options }}
         run: |
-          ${{ steps.lint_plan.outputs.lint_command }}
+          eval "$PLAN_COMMAND"
 
       # ======== end ========
       - name: End Linter Step
         if: always()
         id: linter_res
         env:
+          JOB_STATUS: ${{ job.status }}
           LINT_COMMAND: ${{ steps.lint_plan.outputs.lint_command }}
         run: |
-          if [[ "${{ job.status }}" != "success" ]]; then
+          if [[ "$JOB_STATUS" != "success" ]]; then
             echo "LINTER_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
           elif [[ -z "$LINT_COMMAND" ]]; then
             # No lint plan for this repository: the job is a no-op success. Report it as
@@ -288,18 +294,21 @@ jobs:
           package-manager-cache: false
 
       - name: Install deps for unit tests
+        env:
+          PLAN_COMMAND: ${{ steps.test_plan.outputs.install_command }}
         if: ${{ steps.test_plan.outputs.unit_test_command != '' && steps.test_plan.outputs.install_command != '' }}
         run: |
-          ${{ steps.test_plan.outputs.install_command }}
+          eval "$PLAN_COMMAND"
 
       - name: Run unit tests
         id: unit
         if: ${{ steps.test_plan.outputs.unit_test_command != '' }}
         env:
+          PLAN_COMMAND: ${{ steps.test_plan.outputs.unit_test_command }}
           NODE_OPTIONS: ${{ steps.test_plan.outputs.node_options }}
         run: |
           set -o pipefail
-          ${{ steps.test_plan.outputs.unit_test_command }} 2>&1 | tee results.txt
+          eval "$PLAN_COMMAND" 2>&1 | tee results.txt
 
       # Surface pass/fail counts in the Actions/Checks UI (incl. on PRs, where there is
       # no notifier). Runs even on failure so the counts of failed tests are visible.
@@ -322,9 +331,10 @@ jobs:
         if: always()
         id: unit_res
         env:
+          JOB_STATUS: ${{ job.status }}
           UNIT_TEST_COMMAND: ${{ steps.test_plan.outputs.unit_test_command }}
         run: |
-          if [[ "${{ job.status }}" != "success" ]]; then
+          if [[ "$JOB_STATUS" != "success" ]]; then
             echo "UNIT_CHECK=❌" | tee -a "$GITHUB_OUTPUT"
           elif [[ -z "$UNIT_TEST_COMMAND" ]]; then
             # No unit test plan for this repo/target: the gate is a no-op success.
@@ -515,7 +525,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           }
 
-          cache_ref="type=registry,ref=ghcr.io/${{ github.repository_owner }}/${REPO_NAME}:buildcache${IMAGE_SUFFIX}"
+          cache_ref="type=registry,ref=ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REPO_NAME}:buildcache${IMAGE_SUFFIX}"
           source_branch="$REF_NAME"
 
           if [[ "$REF_TYPE" != "branch" && -n "$BASE_REF" ]]; then
@@ -544,6 +554,7 @@ jobs:
 
       - name: Build and push
         env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
           BUILDX_NO_DEFAULT_ATTESTATIONS: 1
           CACHE_TO: ${{ steps.cache_policy.outputs.cache_to }}
           CACHE_FROM: ${{ steps.cache_policy.outputs.cache_from }}
@@ -553,8 +564,8 @@ jobs:
           set -euo pipefail
 
           build_args=(
-            --builder "${{ steps.buildx.outputs.name }}"
-            --file "${{ env.DOCKERFILE_PATH }}"
+            --builder "$BUILDER"
+            --file "${DOCKERFILE_PATH}"
             --target main
             --pull
             --push
@@ -578,11 +589,12 @@ jobs:
       - name: Add latest tag on master DOCKER
         if: ${{ contains( github.event.base_ref, 'master' ) }}
         env:
+          DH_USERNAME: ${{ secrets.CR_DH_USERNAME }}
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
         run: |
           docker buildx imagetools create \
-            --tag ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:latest \
-            ${{ secrets.CR_DH_USERNAME }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
+            --tag ${DH_USERNAME}/${REP_NAME}:latest \
+            ${DH_USERNAME}/${REP_NAME}:${RELEASE}_${SHORT_REF_NAME}${IMAGE_SUFFIX}_${SHORT_SHA}
 
       - name: Add latest tag on master GHCR
         if: ${{ contains( github.event.base_ref, 'master' ) }}
@@ -590,13 +602,13 @@ jobs:
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
         run: |
           docker buildx imagetools create \
-            --tag ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:latest \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REP_NAME }}:${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}${{ env.IMAGE_SUFFIX }}_${{ env.SHORT_SHA }}
+            --tag ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REP_NAME}:latest \
+            ghcr.io/${GITHUB_REPOSITORY_OWNER}/${REP_NAME}:${RELEASE}_${SHORT_REF_NAME}${IMAGE_SUFFIX}_${SHORT_SHA}
 
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
 
   trivy-scan:
     name: Trivy Scan

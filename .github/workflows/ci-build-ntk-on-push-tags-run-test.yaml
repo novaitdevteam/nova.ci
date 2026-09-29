@@ -142,7 +142,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
 
   integration-tests:
     permissions:
@@ -301,7 +301,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
 
       - name: 🧹 Tear down containers
         if: always()

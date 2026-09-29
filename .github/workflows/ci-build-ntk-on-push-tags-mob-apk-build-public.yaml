@@ -158,10 +158,10 @@ jobs:
           printf 'sdk.dir=%s\n' "$android_sdk" > ./src-capacitor/android/local.properties
           chmod +x ./src-capacitor/android/gradlew
           quasar build -m capacitor -T android
-          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          "$apksigner" verify --print-certs ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk
-          cp ./novatalks-ui-lite-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.apk /home/runner/work/
+          mv ./src-capacitor/android/app/build/outputs/apk/release/app-release-unsigned.apk ./novatalks-ui-lite-${SHORT_REF_NAME}-${SHORT_SHA}.apk
+          "$apksigner" sign --ks ./release-key.keystore --ks-key-alias ntk-ui-lite-release-key --ks-pass pass:android --key-pass pass:android ./novatalks-ui-lite-${SHORT_REF_NAME}-${SHORT_SHA}.apk
+          "$apksigner" verify --print-certs ./novatalks-ui-lite-${SHORT_REF_NAME}-${SHORT_SHA}.apk
+          cp ./novatalks-ui-lite-${SHORT_REF_NAME}-${SHORT_SHA}.apk /home/runner/work/
 
       - name: Create a Release
         id: create_release
@@ -177,4 +177,4 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT

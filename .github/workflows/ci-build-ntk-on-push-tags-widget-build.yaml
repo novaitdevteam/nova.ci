@@ -65,7 +65,7 @@ jobs:
           sudo apt-get update && sudo apt-get install yarn zip -y
           yarn install
           yarn build
-          zip -r ./widget-release-${{ env.SHORT_REF_NAME }}-${{ env.SHORT_SHA }}.zip ./dist
+          zip -r ./widget-release-${SHORT_REF_NAME}-${SHORT_SHA}.zip ./dist
 
       - name: Create a Release
         id: create_release
@@ -81,7 +81,7 @@ jobs:
       - name: End Step On Failure
         if: failure()
         id: end_step
-        run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
+        run: echo "END_STEP_JOB_ID=`echo ${GITHUB_RUN_ID}`" | tee -a $GITHUB_OUTPUT
 
   sast-scan:
     name: SAST Scan
