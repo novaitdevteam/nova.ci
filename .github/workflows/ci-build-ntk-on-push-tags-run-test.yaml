@@ -32,6 +32,8 @@ env:
 
 jobs:
   delete-tag:
+    permissions:
+      contents: write
     name: Delete Trigger Tag
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: ${{ github.ref_type == 'tag' }}
@@ -60,6 +62,8 @@ jobs:
             }
 
   unit-tests:
+    permissions:
+      contents: read
     name: Unit Tests
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: ${{ contains(fromJSON('["unit","both"]'), inputs.test_mode || 'integration') }}
@@ -141,6 +145,8 @@ jobs:
         run: echo "END_STEP_JOB_ID=`echo ${{ github.run_id }}`" | tee -a $GITHUB_OUTPUT
 
   integration-tests:
+    permissions:
+      contents: read
     name: Integration Tests
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     # Sequenced after unit-tests so a full-test (both) run reuses one runner instead of
@@ -302,6 +308,8 @@ jobs:
         run: docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
 
   notify-telegram:
+    permissions:
+      contents: read
     name: Notifier
     runs-on: ${{ inputs.runner_labels || 'self-hosted' }}
     if: always()

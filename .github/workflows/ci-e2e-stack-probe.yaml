@@ -96,6 +96,8 @@ on:
 
 jobs:
   probe:
+    permissions:
+      contents: read
     name: Boot the stack
     # The E2E pool, not the build pool: this holds a runner for as long as a boot takes, and
     # product builds must not queue behind it.
