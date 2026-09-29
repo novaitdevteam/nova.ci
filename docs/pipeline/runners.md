@@ -26,12 +26,23 @@ The jobs used to be on `ubuntu-latest`, and they were the organisation's last Gi
 
 `nova-arc` carries two labels, and each one has its own job:
 
-- **`ci-bootstrap`** is what the callers target. Nothing else carries it, so bootstrap never waits behind a build.
+- **`ci-bootstrap`** is what the callers target. No other runner carries it, so bootstrap never waits for a Hetzner VM. It can still wait behind a build: `nova-arc` also takes `self-hosted` jobs, and it has three pods at most. When Hetzner is down and every build falls back, three fallback builds hold every pod, and the next bootstrap queues until one of them finishes.
 - **`self-hosted`** is the fallback. If `find-runner` cannot hand out a Hetzner runner (the Hetzner API is down, or the bootstrap itself failed), or it asked for a new VM and `create-runner` did not succeed, the caller passes an empty `runner_labels`, and the switcher's `${{ inputs.runner_labels || 'self-hosted' }}` sends the build to whichever `self-hosted` runner is free: a Hetzner VM or `nova-arc`. GitHub has no "try A, else B" in `runs-on`; a shared label is the whole mechanism. The same label serves the five callers that never had a `find-runner` (`nova.docs`, `novatalks.mobile`, `novatalks.ui-lite`, `novatalks.botflow.flows`, `novatalks.uspacy.connector`).
 
 The runner image is `ghcr.io/actions/actions-runner:2.337.0`, with a pinned `docker:29.7.2-dind` sidecar. The pinning matters: the chart's own dind mode uses an unpinned `docker:dind` with `IfNotPresent`, and the nodes had a 2022 copy cached, which is Docker 20.10. The image lacks `envsubst`, which the Hetzner create action calls, so each pod installs `gettext-base` when it starts. `minRunners: 1` keeps one pod warm. `maxRunners` is 3, and the requests are 1 CPU / 2Gi for the runner plus 250m / 512Mi for dind. The pods share `dev-01-dev` with the labs, the E2E stand, argocd and longhorn: on 2026-09-29 `dev-01-k3sa02d` went `NotReady` at 96% memory requests, just after three of these pods, then requesting 1Gi and nothing for dind, had started there.
 
 The legacy summerwind controller (`actions-runner-system-prod`) still runs beside it until `nova-arc` has carried traffic for a few days. Its runners were patched from `v2.331.0` to `v2.337.0` on 2026-09-29, because GitHub forced a self-update on every job, the ephemeral pod exited partway through, and the pods restarted every 20–60 seconds.
+
+### Reading a bootstrap failure
+
+| What you see | What happened | What to do |
+| --- | --- | --- |
+| `Check available runners` is red with *"The job was not started because recent account payments have failed or your spending limit needs to be increased"*, and the build jobs after it are green | That branch still carries the old caller, with `runs-on: ubuntu-latest`. GitHub refused the bootstrap, `runner_labels` came out empty, and the build ran on a `self-hosted` runner. On `novatalks.ui` run 36586323268 that was a `nova-arc` pod. | The image is fine. The run stays red on that branch until it has the caller from the owner's `ci/bootstrap-on-arc` PR. |
+| A `pull_request_target` run is red on its first job, while `pull_request` on the same PR is green | The old caller still subscribes to `pull_request_target`, and that event runs the **base** branch's copy of the caller, so fixing the PR branch does not fix it. The switcher routes nothing for that event anyway. | Ignore it. It stops when `ci/drop-unused-triggers` is merged into the base branch. |
+| `Create Hetzner Cloud runner` runs for up to an hour, then goes red; the build then starts in-cluster | Hetzner answered `resource_limit_exceeded` or `resource_unavailable`. `nova.ci.hcloud-github-runner` retries both every 10 s, 360 times (its `create_wait` default), before it fails. The fallback only fires after that. | Check the project's server limit in the Hetzner Console. It must cover `MAX_TOTAL_RUNNERS` (8) plus the other servers in the project. |
+| The build waits on a size label (`small`, `medium`), and nothing is being created | This is the wait queue at a cap; `Check available runners`' job summary has a "Runner wait queue" block with the counts. **There is no fallback from here.** The job waits for a Hetzner runner of that size to free up. | Usually nothing: a runner frees up within minutes. A `::warning::` means there is no active VM of that size, and nothing may come. |
+
+A build that falls back to `nova-arc` gets a pod that requests 1 CPU and 2 Gi (limit 3 CPU / 6 Gi), on a cluster it shares with the labs. It is slower than a Hetzner VM. The fallback exists to keep builds moving during an outage, not to carry the normal load.
 
 ## The Hetzner VM image
 

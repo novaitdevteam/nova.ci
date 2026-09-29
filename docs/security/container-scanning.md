@@ -61,7 +61,7 @@ The image is built and pushed before the scan in every mode, so a failing scan m
   > [!NOTE]
   > **That release now carries three reports, and the `TRIVY.SCAN_` prefix is
   > historical.** The [SAST and DAST](sast-dast.md) jobs upsert their own `.report`
-  > files onto the same tag — `softprops/action-gh-release@v2` appends by tag — so one
+  > files onto the same tag — `softprops/action-gh-release` appends by tag — so one
   > build produces one release with the image, source and running-application reports
   > side by side. Renaming the tag to something neutral would break every stable URL
   > above for cosmetic gain, so the prefix stays.
