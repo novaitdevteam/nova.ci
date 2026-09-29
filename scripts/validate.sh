@@ -14,6 +14,7 @@
 #     read from a fixture file)
 #   - scanner invocation guard (no workflow may run Gitleaks, Semgrep or OSV-Scanner itself)
 #   - notifier transport guard (no workflow may call the chat APIs directly)
+#   - token permissions: every job explicit; reusable workflows within their caller's ceiling
 #   - zizmor template-injection gate (required in CI; uvx fallback locally)
 #   - actionlint (enforced; required in CI)
 #
@@ -520,6 +521,41 @@ else
   fail=1
 fi
 
+section "Token permissions"
+# Two rules, both static so they cannot wait for a real run to fail:
+#   1. every job states its GITHUB_TOKEN permissions (job- or workflow-level). zizmor's
+#      excessive-permissions does not look inside workflow_call-only files, so without
+#      this a job in a reusable workflow silently inherits its caller's whole ceiling;
+#   2. a job that calls one of our reusable workflows is that workflow's ceiling: no job
+#      in it may ask for more. GitHub rejects the whole run before it starts otherwise.
+if ruby -ryaml -e '
+  level = { nil => 0, "none" => 0, "read" => 1, "write" => 2 }
+  norm = ->(p) { p == "write-all" ? Hash.new("write") : p == "read-all" ? Hash.new("read") : (p || {}) }
+  wf = Dir.glob(".github/workflows/*.yaml").to_h { |f| [File.basename(f), YAML.safe_load(File.read(f), aliases: true)] }
+  bad = []
+  wf.each do |name, y|
+    (y["jobs"] || {}).each do |jn, j|
+      bad << "#{name}: job #{jn} has no permissions: block" unless j.key?("permissions") || y.key?("permissions")
+      next unless (m = j["uses"].to_s.match(%r{\A(?:\./\.github/workflows/|novaitdevteam/nova\.ci/\.github/workflows/)([^@]+)}))
+      called = wf[m[1]] or next
+      ceiling = norm.(j["permissions"] || y["permissions"])
+      (called["jobs"] || {}).each do |cjn, cj|
+        norm.(cj["permissions"] || called["permissions"]).each do |scope, want|
+          next if level[want] <= level[ceiling[scope]]
+          bad << "#{name}: #{jn} allows #{scope}: #{ceiling[scope] || "none"}, but #{m[1]} job #{cjn} asks for #{want}"
+        end
+      end
+    end
+  end
+  bad.each { |b| puts "       #{b}" }
+  exit(bad.empty? ? 0 : 1)
+'; then
+  echo "OK: every job states its token permissions, and no reusable workflow asks for more than its caller allows"
+else
+  echo "ERROR: token permissions above would not load or would inherit a whole ceiling"
+  fail=1
+fi
+
 section "zizmor"
 # Security lint for workflows and actions. Before actionlint on purpose: actionlint can
 # park locally on the build workflow, and this is the gate that must not be skipped.
@@ -600,9 +636,10 @@ else
 fi
 
 section "actionlint"
-# Enforced since 2026-09-29, when the backlog (185 findings, mostly shellcheck quoting and
-# backticks, plus 24 expression errors such as an undeclared inputs.environment) went to
-# zero. In CI a missing actionlint fails, for the same reason as zizmor: a gate that never
+# Enforced since 2026-09-29, when the backlog went to zero: 185 findings, which grew to
+# 256 once removing template expressions let shellcheck see the unquoted variables they
+# had hidden — 232 shellcheck (quoting, backticks) and 24 expression errors such as an
+# undeclared inputs.environment. In CI a missing actionlint fails, for the same reason as zizmor: a gate that never
 # runs passes. It has been seen to park locally on the build workflow; CI does not.
 if command -v actionlint >/dev/null 2>&1; then
   if out="$(actionlint 2>&1)"; then
