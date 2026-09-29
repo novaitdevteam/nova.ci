@@ -14,8 +14,10 @@
     if: always()
     needs: [find-runner, create-runner]
     with:
-      runner_labels: ${{ needs.find-runner.outputs.runner_labels }}
+      runner_labels: ${{ (needs.find-runner.outputs.runner_need != 'true' || needs.create-runner.result == 'success') && needs.find-runner.outputs.runner_labels || '' }}
 ```
+
+The `runner_labels` expression is the fallback chain: a Hetzner runner when one is reused, created or being waited for at the cap; the in-cluster `self-hosted` pool only when `find-runner` failed or the VM it asked for was not created. Without the `create-runner.result` check, a failed create still passed the size label, and the build queued for a VM that never came, until GitHub's timeout. Keep the `&& … || ''` order: `cond && '' || x` always yields `x`, because an empty string is false.
 
 <details>
 <summary>Full caller workflow</summary>
@@ -73,7 +75,7 @@ jobs:
     if: always()
     needs: [find-runner, create-runner]
     with:
-      runner_labels: ${{ needs.find-runner.outputs.runner_labels }}
+      runner_labels: ${{ (needs.find-runner.outputs.runner_need != 'true' || needs.create-runner.result == 'success') && needs.find-runner.outputs.runner_labels || '' }}
 ```
 
 </details>
