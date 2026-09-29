@@ -159,7 +159,7 @@ env_value() { # env_value <key> <env-file>
 # second later — a port already taken, an entrypoint that exits — still returns an id, so
 # `|| fail` never fires and the script carries on to the next component, which then fails for
 # a reason that has nothing to do with its own configuration. This repository has paid for
-# that shape once already (the CloudNativePG image whose entrypoint was bash, in CLAUDE.md);
+# that shape once already (the CloudNativePG image whose entrypoint was bash, in .claude/rules/novatalks-core-exceptions.md);
 # it cost an engine "boot failure" here that was really a redis with no port to bind.
 started() { # started <container> <human name>
     sleep 1

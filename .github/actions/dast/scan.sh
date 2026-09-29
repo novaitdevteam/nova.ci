@@ -39,7 +39,7 @@ DAST_EXTRA_ENV="${DAST_EXTRA_ENV:-}"
 # when the file was seeded: on the build workflow's own path the scanned application's
 # real .env.example already carries these values (its own S3 config among them, for
 # novatalks.core), and this fallback must not override a value that is already correct
-# there — see targets.sh's novatalks.core/browser arm and CLAUDE.md's R2/S3 exception for
+# there — see targets.sh's novatalks.core/browser arm and .claude/rules/novatalks-core-exceptions.md's R2/S3 exception for
 # why. DAST_EXTRA_ENV stays the one mechanism the app container ever sees; this variable
 # only decides whether a second string gets folded into it before that mechanism runs.
 DAST_UNSEEDED_ENV="${DAST_UNSEEDED_ENV:-}"
