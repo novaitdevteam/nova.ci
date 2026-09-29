@@ -35,6 +35,8 @@ jobs:
           else
             short_ref_name="`echo ${BASE_REF} | cut -d "/" -f3`"
           fi
+          # A ref name is data: it is expanded into run: and script: further down.
+          short_ref_name="$(printf '%s' "$short_ref_name" | sed 's#[^A-Za-z0-9_.-]#-#g')"
           echo "SHORT_REF_NAME=${short_ref_name}" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
 
       - name: Delete Tag

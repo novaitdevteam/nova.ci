@@ -82,9 +82,9 @@ jobs:
           echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           echo "RELEASE=`echo $(date +'%Y_R%q')`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           if [[ ${GITHUB_REF_TYPE} == 'branch' ]]; then
-            echo "SHORT_REF_NAME=`echo ${GITHUB_REF_NAME}`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=`echo ${GITHUB_REF_NAME} | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           else
-            echo "SHORT_REF_NAME=`echo ${BASE_REF} | cut -d "/" -f3`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
+            echo "SHORT_REF_NAME=`echo ${BASE_REF} | cut -d "/" -f3 | sed 's#[^A-Za-z0-9_.-]#-#g'`" | tee -a $GITHUB_ENV $GITHUB_OUTPUT
           fi
 
       - name: Delete Tag
