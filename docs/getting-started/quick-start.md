@@ -34,7 +34,7 @@ jobs:
       GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
       ORG: ${{ github.repository_owner }}
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-    runs-on: ubuntu-latest
+    runs-on: ci-bootstrap
     outputs:
       runner_name: ${{ steps.check.outputs.runner_name }}
       runner_labels: ${{ steps.check.outputs.runner_labels }}
@@ -52,7 +52,7 @@ jobs:
   create-runner:
     name: Create Hetzner Cloud runner
     if: ${{ needs.find-runner.outputs.runner_need == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ci-bootstrap
     needs: [find-runner]
     steps:
       - uses: novaitdevteam/nova.ci.hcloud-github-runner@main
@@ -61,9 +61,7 @@ jobs:
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
           server_type: ${{ needs.find-runner.outputs.runner_size }}
-          image: 370307291
           location: fsn1
-          runner_version: skip
           org: novaitdevteam
           name: ${{ needs.find-runner.outputs.runner_name }}
           labels: ${{ needs.find-runner.outputs.runner_labels }}

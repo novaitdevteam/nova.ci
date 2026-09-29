@@ -3,6 +3,7 @@ paths:
   - ".github/workflows/ci-build-create-runner.sh"
   - "scripts/test-create-runner.sh"
   - "docs/pipeline/runners.md"
+  - "infra/arc/**"
 ---
 
 # Runner sizing, pools, caps and lock rules
@@ -17,3 +18,12 @@ Loaded when Claude Code reads a matching file; Codex and humans read it from the
 - Keep the four scan jobs on `needs: [build-image]` and **nothing else**. They were chained (`trivy → sast → dast`) on the reasoning that parallel scans would only queue against the cap; the measurement said otherwise — run 33614788933 spent 1017s in gaps against 1083s of work, 397s of it waiting to start `dast-scan`. A chain does not avoid a queue, it guarantees one. Concurrent publishing to the same release is safe because `action-gh-release` retries a `422 already_exists`; do not add a chain back to "fix" a race that upstream already handles.
 - Keep the create lock failing open: a lock-machinery error must warn and proceed, never block runner creation.
 - The `medium` sizing branch for `novatalks.core` exists for the DAST stack, not for faster builds: `medium` is sized for postgres, redis, the application and ZAP on one VM — the load `int-test` already gets `large` for. Narrowing it to feature-branch builds would leave trunk builds, the ones that actually run DAST, on `small`; widening it to every core build puts ordinary builds into the medium pool, where they contend with unit tests.
+
+**Bootstrap (`ci-bootstrap`, ARC)**
+
+- **Keep the callers' bootstrap jobs (`find-runner`, `create-runner`) on `runs-on: ci-bootstrap`, never `ubuntu-latest`.**
+  - `ci-bootstrap` is the in-cluster ARC scale set `nova-arc` (`gha-runner-scale-set` 0.14.2 on `dev-01-dev`; values in `infra/arc/`).
+  - On `ubuntu-latest` these were the organisation's last GitHub-hosted jobs, at a one-minute minimum each. When the minutes ran out on 2026-09-28, nothing in the organisation started.
+  - `nova-arc` also carries `self-hosted`, and that label *is* the fallback. An empty `runner_labels` sends a build there through the switcher's `|| 'self-hosted'`, as it does the five callers with no `find-runner`. GitHub has no fallback in `runs-on`, so do not drop that label.
+  - Keep the runner and dind images pinned in the values file. The chart's own `containerMode: dind` pulls an unpinned `docker:dind` with `IfNotPresent`, and the nodes had a 2022 copy cached (Docker 20.10).
+  - Keep the `gettext-base` install in the pod command: `nova.ci.hcloud-github-runner/action.sh` calls `envsubst`, and the image lacks it.
