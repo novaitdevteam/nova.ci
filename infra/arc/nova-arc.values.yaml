@@ -1,0 +1,86 @@
+# Runner scale set `nova-arc` on dev-01-dev (namespace arc-runners), chart gha-runner-scale-set 0.14.2.
+# Why it exists and what depends on its labels: docs/pipeline/runners.md, spec
+# docs/superpowers/specs/2026-09-29-arc-bootstrap-runners.md. No secret lives here — the GitHub App
+# is the pre-created secret `nova-arc-github-app` (keys github_app_id, github_app_installation_id,
+# github_app_private_key), copied from the legacy controller's controller-manager-prod.
+githubConfigUrl: https://github.com/novaitdevteam
+githubConfigSecret: nova-arc-github-app
+runnerScaleSetName: nova-arc
+# ci-bootstrap: the callers' find-runner/create-runner jobs. self-hosted: the five callers that run
+# the switcher with `runs-on: self-hosted`, and the fallback when find-runner leaves runner_labels
+# empty. Hetzner runners carry self-hosted too; a job lands on whichever is free.
+scaleSetLabels:
+  - self-hosted
+  - ci-bootstrap
+minRunners: 1
+maxRunners: 4
+# dind is written out rather than `containerMode: dind`: the chart hard-codes that sidecar as an
+# unpinned `docker:dind` with IfNotPresent (templates/_helpers.tpl:113), and the nodes had a 2022
+# copy cached — Docker 20.10. This is the chart's own dind template with the image pinned.
+template:
+  spec:
+    initContainers:
+      - name: init-dind-externals
+        image: ghcr.io/actions/actions-runner:2.337.0
+        command: ["cp"]
+        args: ["-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+        volumeMounts:
+          - name: dind-externals
+            mountPath: /home/runner/tmpDir
+      - name: dind
+        image: docker:29.7.2-dind
+        args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=$(DOCKER_GROUP_GID)
+        env:
+          - name: DOCKER_GROUP_GID
+            value: "123"
+        securityContext:
+          privileged: true
+        restartPolicy: Always
+        startupProbe:
+          exec:
+            command: ["docker", "info"]
+          failureThreshold: 24
+          periodSeconds: 5
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:2.337.0
+        # nova.ci.hcloud-github-runner/action.sh calls envsubst, which this image lacks.
+        # ponytail: apt at every pod start (~10 s); bake an image FROM this one if that start matters.
+        command:
+          - /bin/bash
+          - -c
+          - >-
+            command -v envsubst >/dev/null
+            || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gettext-base >/dev/null; }
+            || echo "::warning::gettext-base install failed; create-runner will fail on envsubst";
+            exec /home/runner/run.sh
+        env:
+          - name: DOCKER_HOST
+            value: unix:///var/run/docker.sock
+          - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+            value: "120"
+        resources:
+          requests: { cpu: 500m, memory: 1Gi }
+          limits: { cpu: "3", memory: 6Gi }
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+    volumes:
+      - name: work
+        emptyDir: {}
+      - name: dind-sock
+        emptyDir: {}
+      - name: dind-externals
+        emptyDir: {}

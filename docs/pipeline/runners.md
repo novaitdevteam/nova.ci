@@ -18,6 +18,21 @@ Connected repositories download and run [`ci-build-create-runner.sh`](../../.git
 
 A random 0–9 second jitter runs before the lookups to spread out concurrent triggers.
 
+## Where the bootstrap runs
+
+The two caller jobs that pick and create a Hetzner runner (`Check available runners`, `Create Hetzner Cloud runner`) run on **`runs-on: ci-bootstrap`**. That label belongs to `nova-arc`, an organisation-level [runner scale set](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller/about-actions-runner-controller) on the `dev-01-dev` cluster: ARC `gha-runner-scale-set` 0.14.2, controller in `arc-systems`, runners in `arc-runners`. Its values file and the commands that install it are in [`infra/arc/`](../../infra/arc/README.md).
+
+The jobs used to be on `ubuntu-latest`, and they were the organisation's last GitHub-hosted jobs. Each one billed a one-minute minimum for about ten seconds of work. On 2026-09-28 the minutes ran out, and GitHub refused every job, the bootstrap included. As a result nothing in the organisation started. The scale set costs no minutes.
+
+`nova-arc` carries two labels, and each one has its own job:
+
+- **`ci-bootstrap`** is what the callers target. Nothing else carries it, so bootstrap never waits behind a build.
+- **`self-hosted`** is the fallback. If `find-runner` cannot hand out a Hetzner runner (the Hetzner API is down, or the bootstrap itself failed), `runner_labels` stays empty, and the switcher's `${{ inputs.runner_labels || 'self-hosted' }}` sends the build to whichever `self-hosted` runner is free: a Hetzner VM or `nova-arc`. GitHub has no "try A, else B" in `runs-on`; a shared label is the whole mechanism. The same label serves the five callers that never had a `find-runner` (`nova.docs`, `novatalks.mobile`, `novatalks.ui-lite`, `novatalks.botflow.flows`, `novatalks.uspacy.connector`).
+
+The runner image is `ghcr.io/actions/actions-runner:2.337.0`, with a pinned `docker:29.7.2-dind` sidecar. The pinning matters: the chart's own dind mode uses an unpinned `docker:dind` with `IfNotPresent`, and the nodes had a 2022 copy cached, which is Docker 20.10. The image lacks `envsubst`, which the Hetzner create action calls, so each pod installs `gettext-base` when it starts. `minRunners: 1` keeps one pod warm, and `maxRunners: 4` caps it.
+
+The legacy summerwind controller (`actions-runner-system-prod`) still runs beside it until `nova-arc` has carried traffic for a few days. Its runners were patched from `v2.331.0` to `v2.337.0` on 2026-09-29, because GitHub forced a self-update on every job, the ephemeral pod exited partway through, and the pods restarted every 20–60 seconds.
+
 ## Create lock
 
 The create decision (this script) and the actual VM creation (the caller's next step) are seconds apart, and a new VM only becomes visible to the per-size count once Hetzner lists it — so two concurrent triggers could both see room and both create. Before emitting `runner_need=true` the script takes a short-TTL lock:

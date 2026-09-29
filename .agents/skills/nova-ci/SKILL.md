@@ -155,6 +155,8 @@ Integration test sharding (jest `--shard` + matrix) is intentionally not enabled
 
 ## Runner Tooling Semantics
 
+The caller's two bootstrap jobs (`find-runner`, `create-runner`) run on `runs-on: ci-bootstrap`, which is the in-cluster ARC scale set `nova-arc` on `dev-01-dev`, with values in `infra/arc/`. Never move them back to `ubuntu-latest`: they were the organisation's last billed minutes, and when those ran out on 2026-09-28 nothing started. `nova-arc` also carries `self-hosted`. That label is the fallback for an empty `runner_labels` and for the five callers with no `find-runner`, so keep it. See `docs/pipeline/runners.md#where-the-bootstrap-runs`.
+
 Runner sizing is resolved in `ci-build-create-runner.sh` (downloaded from `nova.ci@main` by product-repo callers). For **`novatalks.core` only**, sizing is differentiated by tag substring:
 
 | Tag | `base_ref` | `test_mode` | Runner size | Hetzner type | Why |
