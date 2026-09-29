@@ -64,9 +64,7 @@ jobs:
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
           server_type: ${{ needs.find-runner.outputs.runner_size }}
-          image: 370307291
           location: fsn1
-          runner_version: skip
           org: novaitdevteam
           name: ${{ needs.find-runner.outputs.runner_name }}
           labels: ${{ needs.find-runner.outputs.runner_labels }}

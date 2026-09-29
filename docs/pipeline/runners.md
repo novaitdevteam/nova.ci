@@ -33,6 +33,12 @@ The runner image is `ghcr.io/actions/actions-runner:2.337.0`, with a pinned `doc
 
 The legacy summerwind controller (`actions-runner-system-prod`) still runs beside it until `nova-arc` has carried traffic for a few days. Its runners were patched from `v2.331.0` to `v2.337.0` on 2026-09-29, because GitHub forced a self-update on every job, the ephemeral pod exited partway through, and the pods restarted every 20–60 seconds.
 
+## The Hetzner VM image
+
+A Hetzner runner boots Hetzner's own `ubuntu-24.04` system image and installs the latest runner agent on every boot: that is `nova.ci.hcloud-github-runner`'s default, and callers pass no `image` or `runner_version`. The agent is the version GitHub enforces — an outdated self-hosted runner stops receiving jobs — so `latest` stays. The OS version is ours to choose: `ubuntu-latest` moving to 26.04 does not touch these VMs, and `ubuntu-26.04` is available on Hetzner when we decide to move. Try it on one repository first (`image: ubuntu-26.04` in that caller), then change the action's default, which moves every repository at once.
+
+Callers used to pass `image: 370307291` with `runner_version: skip`: a March 2026 snapshot with the agent preinstalled. The action ignored both from 2026-06-01, and now maps that pair to the default with a warning, because older branches and tags still send it.
+
 ## Create lock
 
 The create decision (this script) and the actual VM creation (the caller's next step) are seconds apart, and a new VM only becomes visible to the per-size count once Hetzner lists it — so two concurrent triggers could both see room and both create. Before emitting `runner_need=true` the script takes a short-TTL lock:
