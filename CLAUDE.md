@@ -40,6 +40,7 @@ The ones that apply everywhere:
 - The check name `CI Build Trigger Switcher / secret-scan` is the required-status-check string. Never rename the job.
 - Changing any `scan.sh` or `ci-build-create-runner.sh` means adding a scenario to the matching `scripts/test-*.sh` in the same change.
 - Never add `continue-on-error` to `unit-test` or `integration-tests`.
+- Pin every third-party action by commit SHA with its version as a comment (`uses: actions/checkout@<sha> # v6.1.0`); Dependabot (`.github/dependabot.yml`) moves them. nova.ci's own actions and workflows stay on `@main` (`.github/zizmor.yml` allows exactly that). Every `actions/checkout` sets `persist-credentials: false`, and every job — for a `call-*` job, the ceiling of the workflow it calls — has an explicit `permissions:` block with only what it uses. `validate.sh` fails on any of the three.
 - Never expand `${{ … }}` straight into `run:` — pass the value through step `env:` and use `$VAR`. A value laundered through `GITHUB_ENV` or a step output is as dangerous as the original, so sanitize anything ref- or PR-derived where it is first computed (as the build workflow does for `SHORT_REF_NAME`). `validate.sh`'s zizmor gate fails on a high-severity template injection and when the lower-severity count differs from `ZIZMOR_TEMPLATE_INJECTION_BACKLOG` — up means a new sink, down means lower the constant in the same change. It is a count, so swapping one sink for another passes, and it cannot tell a sanitized `${{ env.X }}` from an unsanitized one — both are on review.
 
 ## Git workflow
