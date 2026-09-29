@@ -528,6 +528,8 @@ section "zizmor"
 # code written by whoever controls the value, which is why the rules say to pass it
 # through step env: instead:
 #   - high severity (a context an outsider controls, pasted straight in) fails outright;
+#     so does any unpinned-uses, excessive-permissions or artipacked finding (zero since
+#     2026-09-29; .github/zizmor.yml keeps nova.ci's own @main references allowed);
 #   - the rest — mostly ${{ env.X }} / step outputs, which zizmor cannot trace to their
 #     source — is an exact ratchet: a rise is a new sink, a fall must lower the constant
 #     in the same change, or the slack is spent unnoticed later. A count, not a list. A value laundered through
@@ -560,6 +562,18 @@ if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
       ti = findings.select { |f| f["ident"] == "template-injection" }
       hard, soft = ti.partition { |f| f.dig("determinations", "severity") == "High" }
       hard.each { |f| puts "       #{loc.(f)}  template-injection: pass the value through step env:, not ${{ }} in run:" }
+      # Brought to zero on 2026-09-29; each must stay there.
+      zero = {
+        "unpinned-uses"         => "pin by commit SHA with the version as a comment (Dependabot keeps it current)",
+        "excessive-permissions" => "give the job an explicit permissions: block with only what it uses",
+        "artipacked"            => "add persist-credentials: false to the checkout",
+      }
+      zero.each do |ident, fix|
+        findings.select { |f| f["ident"] == ident }.each do |f|
+          puts "       #{loc.(f)}  #{ident}: #{fix}"
+          hard << f
+        end
+      end
       counts = findings.group_by { |f| f["ident"] }.map { |k, v| "#{v.size} #{k}" }.sort_by(&:to_i).reverse
       puts "WARN: zizmor backlog, advisory: #{counts.join(", ")}" unless counts.empty?
       max = Integer(ARGV[0])
@@ -589,10 +603,10 @@ if [[ ${#zizmor_cmd[@]} -gt 0 ]]; then
     fi
     { grep -v ' INFO ' "$z_err" || true; } | sed 's/^/       /'
   elif [[ "$z_rc" -ne 0 ]]; then
-    echo "ERROR: zizmor template-injection gate failed (findings above)"
+    echo "ERROR: zizmor gate failed (findings above)"
     fail=1
   else
-    echo "OK: no high-severity template injection; backlog within its baseline"
+    echo "OK: no high-severity template injection, unpinned use, default-permission job or persisted checkout credential; template-injection backlog at its baseline"
   fi
   rm -f "$z_err"
 elif [[ "${CI:-}" == "true" ]]; then
