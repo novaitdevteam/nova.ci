@@ -111,13 +111,13 @@ check fails on anything else.
   break things, and for `trivy-action` it also moves the Trivy binary, its DB and its
   cache behaviour.
 
-**Merge a major only after its workflow has run green.** On 2026-09-29 checkout 7,
+**Majors need the runner to keep up.** On 2026-09-29 checkout 7,
 upload-artifact 7, cache 6 and action-gh-release 3 were merged. All four run on Node 24,
 which needs runner 2.327.1 or newer. Every runner here is on 2.337.0 or newer: the ARC
 image is pinned there, Hetzner VMs install the latest agent at boot, and the legacy
 controller was patched the same day. `android-actions/setup-android` 4 (#73) is **held
 on purpose**. Its only callers are the two APK workflows. #68 and #69 rewrote both of them, and
-neither has run since, so a red first run after a merge could not be pinned on the bump
+neither has run since, so a red first run after a merge could not be blamed on the bump
 or on the rewrite. It waits for one green `build-apk` on current `main`.
 
 ## actionlint
