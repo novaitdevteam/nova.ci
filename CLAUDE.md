@@ -40,6 +40,7 @@ The ones that apply everywhere:
 - The check name `CI Build Trigger Switcher / secret-scan` is the required-status-check string. Never rename the job.
 - Changing any `scan.sh` or `ci-build-create-runner.sh` means adding a scenario to the matching `scripts/test-*.sh` in the same change.
 - Never add `continue-on-error` to `unit-test` or `integration-tests`.
+- Never expand `${{ … }}` straight into `run:` — pass the value through step `env:`. `validate.sh`'s zizmor gate fails on high-severity template injection.
 
 ## Git workflow
 
@@ -81,7 +82,7 @@ Which skill or agent to reach for, and when. Launch with `make claude`: it expor
 ./scripts/validate.sh   # or: make validate
 ```
 
-Run it after any workflow, action, rule or documentation change. It parses every YAML, checks the skill mirror, resolves every docs link and asset, runs every `scripts/test-*.sh` harness offline, enforces the scanner-invocation and `GITHUB_WORKSPACE` guards, and runs `actionlint` when installed (advisory; `STRICT_ACTIONLINT=1` enforces). What each check covers: [`docs/reference/validation.md`](docs/reference/validation.md). The same harness runs in CI on pull requests and pushes to `main`. A hook re-runs it after every edit under `.github/`.
+Run it after any workflow, action, rule or documentation change. It parses every YAML, checks the skill mirror, resolves every docs link and asset, runs every `scripts/test-*.sh` harness offline, enforces the scanner-invocation and `GITHUB_WORKSPACE` guards, runs `zizmor` (high-severity template injection fails, the rest is an advisory backlog; required in CI) and `actionlint` when installed (advisory; `STRICT_ACTIONLINT=1` enforces). What each check covers: [`docs/reference/validation.md`](docs/reference/validation.md). The same harness runs in CI on pull requests and pushes to `main`. A hook re-runs it after every edit under `.github/`.
 
 Then review the diff:
 

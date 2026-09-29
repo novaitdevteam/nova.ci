@@ -30,6 +30,10 @@ jobs:
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           echo "${PWD}" >> "$GITHUB_PATH"
 
+      - name: Install zizmor
+        # Pinned: a new release can add an audit that reds every PR overnight.
+        run: pipx install zizmor==1.30.1
+
       - name: Run validation harness
         run: ./scripts/validate.sh
 

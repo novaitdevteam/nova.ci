@@ -540,6 +540,39 @@ else
   echo "skip: actionlint not installed (https://github.com/rhysd/actionlint)"
 fi
 
+section "zizmor"
+# Security lint for workflows and actions. One audit is enforced: template-injection at
+# high severity. An expression expanded straight into `run:` is shell code written by
+# whoever controls the value, which is why the rules already say to pass it through step
+# `env:` — this is the check that says so mechanically. Everything else is the
+# pre-existing backlog (unpinned uses, permissions, secrets: inherit), reported only.
+# In CI a missing zizmor is a failure, not a skip: a gate that silently never runs passes.
+if command -v zizmor >/dev/null 2>&1; then
+  if ! z_out="$(zizmor --offline --format json .github 2>/dev/null)" && [[ -z "$z_out" ]]; then
+    echo "ERROR: zizmor ran but produced no output"
+    fail=1
+  elif ! ruby -rjson -e '
+      findings = JSON.parse(STDIN.read)
+      loc = ->(f) { l = f["locations"].find { |x| x.dig("symbolic", "kind") == "Primary" } || f["locations"][0]
+                    "#{l.dig("symbolic", "key", "Local", "verbatim_path") || l.dig("symbolic", "key", "Local", "given_path")}:#{l.dig("concrete", "location", "start_point", "row").to_i + 1}" }
+      hard = findings.select { |f| f["ident"] == "template-injection" && f.dig("determinations", "severity") == "High" }
+      hard.each { |f| puts "       #{loc.(f)}  template-injection: pass the value through step env:, not ${{ }} in run:" }
+      counts = findings.group_by { |f| f["ident"] }.map { |k, v| "#{v.size} #{k}" }.sort_by(&:to_i).reverse
+      puts "WARN: zizmor backlog, advisory: #{counts.join(", ")}" unless counts.empty?
+      exit(hard.empty? ? 0 : 1)
+    ' <<<"$z_out"; then
+    echo "ERROR: zizmor found high-severity template injection (or its output did not parse)"
+    fail=1
+  else
+    echo "OK: no high-severity template injection"
+  fi
+elif [[ "${CI:-}" == "true" ]]; then
+  echo "ERROR: zizmor not installed in CI — the template-injection gate would never run"
+  fail=1
+else
+  echo "skip: zizmor not installed (uvx zizmor, or brew install zizmor)"
+fi
+
 echo
 if [[ "$fail" -ne 0 ]]; then
   echo "VALIDATION FAILED"
