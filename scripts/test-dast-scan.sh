@@ -828,6 +828,43 @@ SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-N
 DAST_ACTION_ROOT="$ROOT/.github/actions/dast" \
     expect "the register committed to this repository parses" clean 0
 
+# A per-repository overlay, zap-baseline.<repo>.conf, is appended after the shared
+# register, so a risk one repository accepted (novatalks.ui's 10096/10110, NC2-2911) is
+# IGNOREd there and stays a WARN everywhere else. ZAP's load_config is a dict: the
+# later line wins. OUTOFSCOPE by URL was rejected because ZAP drops those alerts before
+# counting, and the rule then reports as PASS rather than as accepted.
+conf_scenario '10038	WARN	shared'
+printf '%s\n' '10096	IGNORE	ui only' > "$CONF_DIR/zap-baseline.novatalks.ui.conf"
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_TARGET_REPO=novatalks.ui DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "a repository's overlay is accepted" clean 0
+if grep -q '^10038	WARN	shared$' "$WORK/zap-wrk/zap-baseline.conf" \
+    && [ "$(tail -n1 "$WORK/zap-wrk/zap-baseline.conf")" = '10096	IGNORE	ui only' ]; then
+    echo "ok   the overlay is appended after the shared register"; pass=$((pass + 1))
+else
+    echo "FAIL the overlay did not land after the shared register"
+    sed 's/^/     /' "$WORK/zap-wrk/zap-baseline.conf"; fail=$((fail + 1))
+fi
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_TARGET_REPO=nova.botflow DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "another repository's scan ignores that overlay" clean 0
+if grep -q '10096' "$WORK/zap-wrk/zap-baseline.conf"; then
+    echo "FAIL novatalks.ui's overlay leaked into nova.botflow's register"; fail=$((fail + 1))
+else
+    echo "ok   an overlay applies to its own repository only"; pass=$((pass + 1))
+fi
+printf '%s\n' '10096	IGNORE' > "$CONF_DIR/zap-baseline.novatalks.ui.conf"
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 DAST_TARGET_REPO=novatalks.ui DAST_ACTION_ROOT="$CONF_DIR" \
+    expect "a malformed overlay is a scanner error, like a malformed register" error 2
+rm -f "$CONF_DIR/zap-baseline.novatalks.ui.conf"
+
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
+DAST_TARGET_REPO=novatalks.ui DAST_ACTION_ROOT="$ROOT/.github/actions/dast" \
+    expect "the committed novatalks.ui overlay parses" clean 0
+if grep -q '^10096	IGNORE	' "$WORK/zap-wrk/zap-baseline.conf"; then
+    echo "ok   the committed novatalks.ui overlay reaches ZAP"; pass=$((pass + 1))
+else
+    echo "FAIL the committed novatalks.ui overlay never reached ZAP"; fail=$((fail + 1))
+fi
+
 # --- the tally line and the exit ladder --------------------------------------------
 assert_failures() { # assert_failures <name> <expected>
     local got
