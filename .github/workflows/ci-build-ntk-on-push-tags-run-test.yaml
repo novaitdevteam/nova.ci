@@ -266,9 +266,9 @@ jobs:
       - name: 🏃 Run Integration Tests
         env:
           # Not 'production': core's env.validation.ts forbids DATABASE_SYNCHRONIZE there,
-          # and the specs set it to sync({ force: true }) the schema. 'test' is in core's
-          # NODE_ENV enum and no code path branches on it (NC2-2916). This workflow runs
-          # for novatalks.core only.
+          # and the specs set it to sync({ force: true }) the schema. Two checks compare to
+          # 'production' and are off here: the session cookie's secure flag and Swagger
+          # gating (staging would behave the same). NC2-2916; novatalks.core only.
           NODE_ENV: test
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
