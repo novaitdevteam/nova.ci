@@ -94,7 +94,7 @@ jobs:
           # Node's own dotenv parser strips both, as a local dotenv run does, and skips
           # bare keys such as MESSAGE_EXTERNAL_SOURCE_LAST_ID.
           node -e 'for (const [k, v] of Object.entries(require("node:util").parseEnv(require("node:fs").readFileSync(".env.example", "utf8"))))
-            process.stdout.write(v.includes("\n") ? `${k}<<NOVA_CI_ENV_EOF\n${v}\nNOVA_CI_ENV_EOF\n` : `${k}=${v}\n`)' >> "$GITHUB_ENV"
+            process.stdout.write(v.includes("\n") ? k + "<<NOVA_CI_ENV_EOF\n" + v + "\nNOVA_CI_ENV_EOF\n" : k + "=" + v + "\n")' >> "$GITHUB_ENV"
 
       - name: ⏬ Install Dependencies
         env:
@@ -214,7 +214,7 @@ jobs:
           # Node's own dotenv parser strips both, as a local dotenv run does, and skips
           # bare keys such as MESSAGE_EXTERNAL_SOURCE_LAST_ID.
           node -e 'for (const [k, v] of Object.entries(require("node:util").parseEnv(require("node:fs").readFileSync(".env.example", "utf8"))))
-            process.stdout.write(v.includes("\n") ? `${k}<<NOVA_CI_ENV_EOF\n${v}\nNOVA_CI_ENV_EOF\n` : `${k}=${v}\n`)' >> "$GITHUB_ENV"
+            process.stdout.write(v.includes("\n") ? k + "<<NOVA_CI_ENV_EOF\n" + v + "\nNOVA_CI_ENV_EOF\n" : k + "=" + v + "\n")' >> "$GITHUB_ENV"
 
       - name: ⏬ Install Dependencies
         env:
