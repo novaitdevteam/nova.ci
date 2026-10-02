@@ -195,6 +195,17 @@ zap_conf="${zap_work_dir}/${zap_conf_name}"
 # check of our own is one the harness can cover.
 [ -r "$zap_conf_src" ] || scanner_error "the ZAP triage register is missing or unreadable: ${zap_conf_src}"
 
+# A risk one repository accepted goes in its own overlay, appended after the shared
+# register (ZAP's load_config is a dict, so the later line wins), and stays a WARN for
+# every other repository. Not OUTOFSCOPE by URL: ZAP drops those alerts before counting,
+# so the rule reports as PASS instead of as accepted.
+zap_conf_srcs=("$zap_conf_src")
+zap_conf_overlay="${DAST_ACTION_ROOT}/${zap_conf_name%.conf}.${scanned_repo}.conf"
+if [ -e "$zap_conf_overlay" ]; then
+    [ -r "$zap_conf_overlay" ] || scanner_error "the ZAP triage overlay is unreadable: ${zap_conf_overlay}"
+    zap_conf_srcs+=("$zap_conf_overlay")
+fi
+
 # Grammar per zap_common.py:148-176 — at least two tabs, and a level from the fixed set
 # at zap_common.py:57 plus OUTOFSCOPE, which load_config checks before the level list.
 # What this cannot catch is a well-formed line naming a rule ID that does not exist: ZAP
@@ -203,12 +214,14 @@ zap_conf="${zap_work_dir}/${zap_conf_name}"
 conf_bad="$(awk -F'\t' '
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*$/ { next }
-    NF < 3 { printf "line %d: fewer than three tab-separated fields; ", NR; next }
+    NF < 3 { printf "%s line %d: fewer than three tab-separated fields; ", FILENAME, FNR; next }
     $2 != "PASS" && $2 != "IGNORE" && $2 != "INFO" && $2 != "WARN" && $2 != "FAIL" && $2 != "OUTOFSCOPE" {
-        printf "line %d: unknown level \"%s\"; ", NR, $2 }
-' "$zap_conf_src")"
+        printf "%s line %d: unknown level \"%s\"; ", FILENAME, FNR, $2 }
+' "${zap_conf_srcs[@]}")"
 [ -z "$conf_bad" ] || scanner_error "the ZAP triage register is malformed — ${conf_bad}"
-cp "$zap_conf_src" "$zap_conf"
+# awk 1, not cat: a register without a final newline would otherwise swallow the
+# overlay's first line into its last comment.
+awk 1 "${zap_conf_srcs[@]}" > "$zap_conf"
 
 if [ "$DAST_NEEDS_DB" = "true" ]; then
     docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
