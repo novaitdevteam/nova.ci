@@ -359,9 +359,11 @@ workflow still parses:
   time the triage register gains a `FAIL` entry.
 - **The triage registers (`zap-baseline.conf`, `zap-full-scan.conf`, `zap-api-scan.conf`) are
   never interchangeable**, and their reason column is a review-time obligation, not a parsed
-  one — do not add a check that enforces it. A risk only one repository accepted goes in
-  its overlay, `zap-<mode>.<repository>.conf`, appended after the shared file — never
-  `OUTOFSCOPE`, which turns an accepted risk into a `PASS`. `references/dast-baseline.md`.
+  one — do not add a check that enforces it. For `dast/` only (baseline and full, not
+  `dast-api`, which has no overlay code), a risk only one repository accepted goes in its
+  overlay, `.github/actions/dast/zap-<mode>.<repository>.conf`, appended after the shared
+  file — never `OUTOFSCOPE`, which turns an accepted risk into a `PASS`.
+  `references/dast-baseline.md`.
 - **`scan-mode` picks the whole ZAP invocation together** (script, spider flag, triage
   register) — never one of the three alone. An unrecognised mode is a scanner error, never a
   silent fallback. `references/dast-baseline.md`.
