@@ -90,3 +90,36 @@ dast_bring_up_nats() {
         || { sed 's/^/    /' "$stream_log" 2>/dev/null || true
              "$err_fn" "could not create the 'campaign' JetStream stream"; return; }
 }
+
+# zap_risk_counts <console-file> <json-file> <error-fn>
+# Which rules count comes from the console's per-rule verdicts; how risky each one is
+# comes from the -J traditional-json report. The report alone cannot answer the first
+# question: it lists IGNOREd rules too (novatalks.ui, 2026-10-02 — the two accepted Lows
+# sat in its Low row with and without the overlay). Sets risk_high/risk_medium/risk_low/
+# risk_info, one per rule at its highest riskcode. Needs zap_tally_parse's globals: the
+# per-rule lines must add up to the tally, or this would be counting something other
+# than what ZAP counted. Fails closed on everything, like the tally.
+zap_risk_counts() {
+    local console="$1" report="$2" err_fn="$3" ids w f risks
+    w=$(grep -cE '^WARN-NEW: .* \[[0-9]+\] x [0-9]+' "$console" || true)
+    f=$(grep -cE '^FAIL-NEW: .* \[[0-9]+\] x [0-9]+' "$console" || true)
+    if [ "$w" != "$findings" ] || [ "$f" != "$failures" ]; then
+        "$err_fn" "ZAP per-rule lines (${w} warn, ${f} fail) disagree with its tally (${findings}, ${failures})"; return
+    fi
+    [ -s "$report" ] || { "$err_fn" "ZAP wrote no JSON report"; return; }
+    jq -e '.site' "$report" >/dev/null 2>&1 || { "$err_fn" "ZAP's JSON report is not valid"; return; }
+    ids=$(sed -nE 's/^(WARN|FAIL)-NEW: .* \[([0-9]+)\] x [0-9]+.*/\2/p' "$console" | sort -u | tr '\n' ' ')
+    risks=$(jq -r --arg ids "$ids" '
+        ([.site[]?.alerts[]? | {id: .pluginid, r: (.riskcode | tonumber)}]
+         | group_by(.id) | map({key: .[0].id, value: (map(.r) | max)}) | from_entries) as $risk
+        | $ids | split(" ") | map(select(. != ""))
+        | map(if $risk[.] == null then "missing:" + . else ($risk[.] | tostring) end) | .[]' "$report") \
+        || { "$err_fn" "ZAP's JSON report could not be read"; return; }
+    if grep -q '^missing:' <<<"$risks"; then
+        "$err_fn" "ZAP counted rule(s) $(grep '^missing:' <<<"$risks" | cut -d: -f2 | tr '\n' ' ')with no risk in its JSON report"; return
+    fi
+    risk_high=$(grep -cx 3 <<<"$risks" || true)
+    risk_medium=$(grep -cx 2 <<<"$risks" || true)
+    risk_low=$(grep -cx 1 <<<"$risks" || true)
+    risk_info=$(grep -cx 0 <<<"$risks" || true)
+}

@@ -1237,5 +1237,46 @@ else
 fi
 unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO
 
+# --- zap_risk_counts, called directly ------------------------------------------------
+. "$ROOT/scripts/zap-fixture.sh"
+. "$ROOT/.github/actions/dast/dast-common.sh"
+risk_err=""; risk_fail() { risk_err="$1"; }
+risk_case() { # risk_case <name> <want "h m l i" | ERR> <json-override|-|MISSING> <fixture args...>
+    local name="$1" want="$2" json_override="$3"; shift 3
+    zap_fixture "$@"
+    printf '%s\n' "$ZF_CONSOLE" > "$WORK/rc-console"
+    if [ "$json_override" = "-" ]; then printf '%s' "$ZF_JSON" > "$WORK/rc.json"
+    elif [ "$json_override" = "MISSING" ]; then rm -f "$WORK/rc.json"
+    else printf '%s' "$json_override" > "$WORK/rc.json"; fi
+    risk_err=""; risk_high=; risk_medium=; risk_low=; risk_info=
+    zap_tally_parse "$WORK/rc-console" risk_fail
+    zap_risk_counts "$WORK/rc-console" "$WORK/rc.json" risk_fail
+    local got="${risk_high} ${risk_medium} ${risk_low} ${risk_info}"
+    [ -n "$risk_err" ] && got=ERR
+    if [ "$got" = "$want" ]; then echo "ok   $name"; pass=$((pass + 1))
+    else echo "FAIL $name — want '$want', got '$got' ${risk_err}"; fail=$((fail + 1)); fi
+}
+
+risk_case "risk comes from the JSON, one per rule" "1 1 1 1" - \
+    WARN 40012 3  WARN 10038 2  WARN 10021 1  WARN 10109 0
+# The novatalks.ui case of 2026-10-02: ZAP's report lists IGNOREd rules too.
+risk_case "an IGNOREd rule in the JSON is not counted" "0 1 0 0" - \
+    WARN 10038 2  IGNORE 10096 1  IGNORE 10110 1
+risk_case "a FAIL rule is counted in its risk bucket" "1 0 0 0" - FAIL 90001 3
+# The same pluginid on two sites counts once, at its highest risk.
+risk_case "one rule on two sites counts once, highest risk" "0 1 0 0" \
+    '{"site":[{"alerts":[{"pluginid":"10038","riskcode":"1"}]},{"alerts":[{"pluginid":"10038","riskcode":"2"}]}]}' \
+    WARN 10038 2
+risk_case "a missing JSON is a scanner error" ERR MISSING WARN 10038 2
+risk_case "an unparseable JSON is a scanner error" ERR 'not json' WARN 10038 2
+risk_case "a counted rule absent from the JSON is a scanner error" ERR '{"site":[]}' WARN 10038 2
+risk_case "a clean run needs no alerts in the JSON" "0 0 0 0" '{"site":[]}'
+# Per-rule lines and the tally must agree, or the join is not counting what ZAP counted.
+zap_fixture WARN 10038 2
+printf '%s\n' "${ZF_CONSOLE/WARN-NEW: 1/WARN-NEW: 3}" > "$WORK/rc-console"; printf '%s' "$ZF_JSON" > "$WORK/rc.json"
+risk_err=""; zap_tally_parse "$WORK/rc-console" risk_fail; zap_risk_counts "$WORK/rc-console" "$WORK/rc.json" risk_fail
+if [ -n "$risk_err" ]; then echo "ok   per-rule lines that disagree with the tally are a scanner error"; pass=$((pass + 1))
+else echo "FAIL a tally of 3 with one per-rule line was accepted"; fail=$((fail + 1)); fi
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
