@@ -21,7 +21,7 @@ Every trunk build therefore reads `🟡`, and a High can no longer be told apart
 | | Now | After |
 | --- | --- | --- |
 | SAST line | `🟡 3 error · 2 warning` | `🟠 HIGH found · 3 high · 2 medium` or `🟢 clean · 2 medium · 1 low` |
-| DAST line | `🟡 11 warnings` | `🟢 clean · 2 medium · 8 low` |
+| DAST line | `🟡 11 warnings` | `🟢 clean · 2 medium · 4 low · 3 informational · 0 noted · 2 accepted` (novatalks.ui with the overlay, measured) |
 | `outcome=findings` | any ERROR/WARNING, any WARN | **high > 0**, or a ZAP `FAIL` from the triage register |
 | ZAP `FAIL` | `🔴 N must-fix` | unchanged. A `FAIL` entry is an explicit decision, independent of risk. |
 | `⚠️ not run`, `❌ failed` | | unchanged |
@@ -94,8 +94,8 @@ TDD, scenario first, in the existing offline harnesses:
   - a missing, unparseable or riskless JSON is `error`;
   - one rule with `x 11` instances counts once.
 - One real run of the pinned ZAP image against `novatalks.ui:2026_R4_development_a0ce796d`
-  with the overlay. Expected, from the 2026-10-02 report minus the two ignored Lows:
-  high 0, medium 2, low 6. To be confirmed by the run, not assumed.
+  with the overlay. Measured on 2026-10-02: high 0, medium 2, low 4, informational 3. The
+  first guess, "low 6", had missed ZAP's Informational risk.
 
 ## Out of scope
 

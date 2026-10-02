@@ -39,11 +39,20 @@ alike to it.
 **Semgrep OSS** runs pattern-based static analysis with the registry rule packs
 `p/typescript`, `p/nodejs` and `p/owasp-top-ten`. It is not a whole-program analyzer:
 it matches syntactic patterns, so it finds the shapes those packs describe and nothing
-else. `ERROR` and `WARNING` are both counted and both listed in the report body, as two
-separate numbers — there is no `severity` input to narrow that. `INFO` is counted for
-the job summary only and kept out of the report body: the registry packs emit it
-liberally, and burying the two levels that carry a decision under it is how a report
-stops being read.
+else. Results are bucketed with **Semgrep's own severity mapping**:
+
+| Semgrep severity | bucket |
+| --- | --- |
+| `ERROR` (or a native `CRITICAL`/`HIGH`) | high |
+| `WARNING` (or `MEDIUM`) | medium |
+| `INFO` (or `LOW`) | low |
+
+Any other value counts as high, with a warning. Only high makes `outcome=findings`.
+
+High and Medium are counted and listed in the report body and the job summary on every
+run, clean or not. Low is counted only: the registry packs emit it liberally, and burying
+the levels that carry a decision under it is how a report stops being read. There is no
+`severity` input to narrow any of this.
 
 > [!IMPORTANT]
 > **The ZAP baseline is not a penetration test.** It runs unauthenticated and passive:
@@ -1758,19 +1767,40 @@ build already sends — see [Notifications](../pipeline/notifications.md).
 
 | Line | When |
 | --- | --- |
-| `🔍 SAST (Semgrep): 🟢 clean` | scan ran, no `ERROR` or `WARNING` findings |
-| `🔍 SAST (Semgrep): 🟡 3 error · 12 warning` | findings — `ERROR` and `WARNING`, always both counts |
+| `🔍 SAST (Semgrep): 🟢 clean · <n> medium · <n> low` | scan ran, no high-severity result; medium is still listed in the summary |
+| `🔍 SAST (Semgrep): 🟠 HIGH found · <n> high · <n> medium · <n> low` | at least one high result (`ERROR`, or a native `CRITICAL`/`HIGH`) |
 | `🔍 SAST (Semgrep): ❌ scan failed — <reason>` | broken scanner |
 | `🔍 SAST (Semgrep): ⏭️ skipped (no build to scan)` | the job never ran — a `pull_request` event, or `build-image` failed |
-| `🕷 DAST (ZAP): 🟢 clean · <n> info · <n> accepted` | app booted, no must-fix or warning findings |
-| `🕷 DAST (ZAP): 🟡 <n> warnings` | `WARN`-level findings, no `FAIL`-level ones |
-| `🕷 DAST (ZAP): 🔴 <n> must-fix · <n> warnings` | at least one `FAIL`-level finding — the register marks it blocking |
+| `🕷 DAST (ZAP): 🟢 clean · <n> medium · <n> low · <n> informational · <n> noted · <n> accepted` | app booted, no rule at risk High and no `FAIL` |
+| `🕷 DAST (ZAP): 🟠 HIGH found · <n> high · <n> medium · <n> low` | at least one `WARN` rule at ZAP risk High |
+| `🕷 DAST (ZAP): 🔴 <n> must-fix · <n> high · <n> medium · <n> low` | at least one `FAIL`-level rule — the register marks it blocking, whatever its risk |
 | `🕷 DAST (ZAP): ⚠️ not run — <reason>` | the app never came up |
 | `🕷 DAST (ZAP): ❌ scanner failed — <reason>` | broken scanner |
 | `🕷 DAST (ZAP): ⏭️ skipped (not a DAST trigger or repository)` | not a trunk build or `scan*` tag, or not a DAST repository |
-| `🕷 DAST (ZAP API): 🟢 clean · <n> operations · <n> info · <n> accepted` | authenticated API scan ran, no must-fix or warning findings |
-| `🕷 DAST (ZAP API): 🟡 <n> warnings` / `🔴 <n> must-fix · <n> warnings` / `⚠️ not run — <reason>` / `❌ scanner failed — <reason>` | the same four states as the baseline, worded by `dast-api/scan.sh` |
+| `🕷 DAST (ZAP API): 🟢 clean · <n> operations · <n> medium · <n> low · <n> informational · <n> noted · <n> accepted` | authenticated API scan ran, no rule at risk High and no `FAIL` |
+| `🕷 DAST (ZAP API): 🟠 HIGH found · …` / `🔴 <n> must-fix · …` / `⚠️ not run — <reason>` / `❌ scanner failed — <reason>` | the same states as the baseline, worded by `dast-api/scan.sh` |
 | `🕷 API Scan (ZAP): ⏭️ skipped (not an apiscan trigger or repository)` | not an `apiscan*` tag on a covered repo (`novatalks.core`, telegram, whatsapp, signal, dialer) |
+
+**Where ZAP's risk comes from.** The tally line proves the scan completed and gives the
+`WARN`/`FAIL` counts. Risk is then taken per counted rule by `zap_risk_counts`
+(`dast-common.sh`):
+- the rule IDs come from the console's `WARN-NEW: … [<id>] x <n>` and `FAIL-NEW: …` lines;
+- each rule's highest `riskcode` comes from the `-J` JSON report.
+
+Each rule is counted once, as in ZAP's own "Summary of Alerts", not once per instance.
+The JSON alone cannot be used: it lists `IGNORE`d rules too. On `novatalks.ui`
+(2026-10-02) the two accepted Lows sat in its Low row both with and without the overlay.
+`noted` is the register's `INFO` level and `accepted` its `IGNORE`, the decisions behind
+what a clean run suppressed.
+
+These are scanner errors, never zeros:
+- a missing or unparseable JSON;
+- a counted rule absent from it;
+- per-rule lines that do not add up to the tally.
+
+Both report files are deleted before ZAP runs, so a reused runner never reads the
+previous run's. The same UI run, with the overlay, read high 0 · medium 2 · low 4 ·
+informational 3, adding up to its tally of 9.
 
 The text is composed inside each `scan.sh`, not in the workflow, so the harnesses cover
 it — the same reason the [secret-scan alert](secret-detection.md#the-secret-scan-notify-job)
