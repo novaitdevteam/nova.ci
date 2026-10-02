@@ -19,11 +19,20 @@ outputs:
     description: "clean | findings | error — a notifier must distinguish findings from a broken scanner"
     value: ${{ steps.scan.outputs.outcome }}
   findings:
-    description: "Number of ERROR findings"
+    description: "Number of high-severity results"
     value: ${{ steps.scan.outputs.findings }}
   warnings:
-    description: "Number of WARNING findings — reported alongside ERROR, never hidden behind it"
+    description: "Number of medium-severity results (kept for callers; same as medium)"
     value: ${{ steps.scan.outputs.warnings }}
+  high:
+    description: "High-severity results (ERROR, or a native CRITICAL/HIGH) — the only level that makes outcome=findings"
+    value: ${{ steps.scan.outputs.high }}
+  medium:
+    description: "Medium-severity results (WARNING, or native MEDIUM) — counted and listed on every run"
+    value: ${{ steps.scan.outputs.medium }}
+  low:
+    description: "Low-severity results (INFO, or native LOW) — counted, not listed"
+    value: ${{ steps.scan.outputs.low }}
   message:
     description: "Ready-to-send notifier text"
     value: ${{ steps.scan.outputs.message }}
