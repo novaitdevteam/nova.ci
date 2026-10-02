@@ -245,12 +245,31 @@ jobs:
             echo "AWS_S3_FORCE_PATH_STYLE=true"
           } >> "$GITHUB_ENV"
 
+      # novatalks.core refuses to boot with a blank ENCRYPTION_SECRET or AUTH_JWT_SECRET
+      # under any NODE_ENV, and .env.example ships both blank on purpose (NC2-2916).
+      # Generated per run and masked before anything can print them; a later $GITHUB_ENV
+      # entry wins over the blank one "Get Env From Example" wrote.
+      - name: 🔐 Generate boot secrets
+        run: |
+          ENCRYPTION_SECRET="$(openssl rand -hex 32)"
+          AUTH_JWT_SECRET="$(openssl rand -hex 32)"
+          echo "::add-mask::$ENCRYPTION_SECRET"
+          echo "::add-mask::$AUTH_JWT_SECRET"
+          {
+            echo "ENCRYPTION_SECRET=$ENCRYPTION_SECRET"
+            echo "AUTH_JWT_SECRET=$AUTH_JWT_SECRET"
+          } >> "$GITHUB_ENV"
+
       # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by
       # default because integration tests share DB state and run with --runInBand.
       # To parallelize, give each shard its own postgres/redis service and split with --shard=i/N.
       - name: 🏃 Run Integration Tests
         env:
-          NODE_ENV: production
+          # Not 'production': core's env.validation.ts forbids DATABASE_SYNCHRONIZE there,
+          # and the specs set it to sync({ force: true }) the schema. Two checks compare to
+          # 'production' and are off here: the session cookie's secure flag and Swagger
+          # gating (staging would behave the same). NC2-2916; novatalks.core only.
+          NODE_ENV: test
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
           UV_THREADPOOL_SIZE: "32"

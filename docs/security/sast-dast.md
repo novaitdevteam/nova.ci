@@ -615,6 +615,19 @@ caller, live only for the pentest workflow. Confirmed live on pentest run 338823
 the browser scan of `novatalks.core`/ephemeral loud-skipped for lack of exactly these
 values.
 
+`ENCRYPTION_SECRET` and `AUTH_JWT_SECRET` are the exception to that split, and they sit
+in `extra-env` on **both** `novatalks.core` arms (NC2-2916). Since novatalks.core#278
+(NC2-2236, 2026-09-08), the engine validates its environment at boot
+(`libs/common/src/config/env.validation.ts`) and refuses to start without either one
+under any `NODE_ENV`. Only the strength check is waived, and only under `development`.
+`.env.example` ships both blank on purpose, so on the build path there is no real seeded
+value for an override to clobber. `dast-api/scan.sh` seeds nothing at all. Every core DAST
+run from then on was a loud skip: run 37033807083 logged
+`Invalid environment configuration: ENCRYPTION_SECRET: is not set`, then *"the image did
+not come up within 300s"*. The values are fixed dummies, like the telegram arm's: the
+table cannot call `openssl`, neither scan reads them back, and both pass core's strength
+rules (at least 8 characters, at least 4 distinct, not on its exact-match placeholder list).
+
 Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
 values instead of passing them through. `S3_PUBLIC_URL` is declared
 `Joi.string().uri(...).empty('')` — optional, no default needed, and
