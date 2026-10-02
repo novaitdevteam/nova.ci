@@ -85,7 +85,11 @@ TAB-separated, at least three fields, levels `PASS`/`IGNORE`/`INFO`/`WARN`/`FAIL
 `OUTOFSCOPE`. The reason column is a **review-time obligation, not a parsed one** — an empty
 third field is accepted, because ZAP accepts it and this validator must never reject a
 register ZAP would load; do not add a check that enforces it. Both ship with zero entries;
-adding one is a risk-acceptance decision, not a CI change. `scan.sh` validates line shape and
+adding one is a risk-acceptance decision, not a CI change. A risk only one repository
+accepted goes in its overlay, `zap-<mode>.<repository>.conf` (first: `zap-baseline.novatalks.ui.conf`,
+NC2-2911). `scan.sh` appends it after the shared file for that repository only and validates
+it the same way. Never use `OUTOFSCOPE` for it: ZAP drops out-of-scope alerts before counting,
+so the rule reports as `PASS`, not as accepted. `scan.sh` validates line shape and
 level before anything boots and treats a malformed or missing register as a scanner error,
 but **cannot validate rule IDs** — a mistyped one is silently inert.
 

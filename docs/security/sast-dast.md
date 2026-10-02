@@ -849,8 +849,22 @@ grammar is TAB-separated with at least three fields, identical in both files:
 | `IGNORE` | accepted risk — write the reason; see below |
 | `PASS` | treated as passing |
 
-Both files ship with no entries, so neither changes anything until someone adds a line.
-Adding one is a risk-acceptance decision, not a CI change.
+Both shared files ship with no entries, so neither changes anything until someone adds a
+line. Adding one is a risk-acceptance decision, not a CI change.
+
+**A risk only one repository accepted goes in that repository's overlay**,
+`zap-baseline.<repository>.conf` (or `zap-full-scan.<repository>.conf`) next to the shared
+file. `scan.sh` appends it after the shared register, validates it the same way, and uses
+it only when the scanned repository has that name. The later line wins, so an overlay can
+`IGNORE` what stays a `WARN` for every other repository. The first one is
+[`zap-baseline.novatalks.ui.conf`](../../.github/actions/dast/zap-baseline.novatalks.ui.conf)
+(NC2-2911, from novatalks.ui's NC2-2912). It ignores `10096` (Timestamp Disclosure) and
+`10110` (`eval(` in pdf.js and lottie-web), and records `10003` (Vue 2) and `90004`
+(COEP/COOP/CORP) as reviewed `WARN`s that stay visible until their migrations.
+
+`OUTOFSCOPE` keyed on the repository's port would look like the same thing, and is not.
+ZAP drops out-of-scope alerts before it counts, so the rule reports as `PASS`, not as
+accepted. An accepted risk must stay in the `IGNORE` count.
 
 The reason is a **review-time obligation, not a parsed one.** `10038<TAB>IGNORE<TAB>` with an
 empty third field is accepted by `scan.sh`, because ZAP itself accepts it and this
