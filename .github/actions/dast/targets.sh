@@ -91,6 +91,14 @@ AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
 AWS_S3_BUCKET=dast-dummy-bucket
 AWS_S3_REGION=dast-dummy-region
 AWS_S3_ENDPOINT=http://s3.example.invalid'
+            # DT_EXTRA_ENV, unlike DT_UNSEEDED_ENV above, applies on every path, after
+            # --env-file. Wrong for AWS_S3_* (the real .env.example has a working config),
+            # right for these two: .env.example ships them blank on purpose, and core's
+            # env.validation.ts refuses to boot without both under any NODE_ENV
+            # ("ENCRYPTION_SECRET: is not set", run 37033807083, NC2-2916). Fixed dummies,
+            # since this table cannot call openssl; the browser scan never logs in.
+            DT_EXTRA_ENV='ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy
+AUTH_JWT_SECRET=dast-dummy-jwt-dummy-dummy-dummy'
             ;;
         nova.botflow/browser)
             # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is
@@ -130,11 +138,17 @@ AWS_S3_ENDPOINT=http://s3.example.invalid'
             # and parse — obviously-fake, not a real endpoint or key, since this
             # repository is public and a plausible-looking fake reads as a leak to
             # anyone (or any secret scanner) later.
+            #
+            # ENCRYPTION_SECRET and AUTH_JWT_SECRET: the same boot check as the browser arm,
+            # and dast-api/scan.sh seeds no .env.example, so this is their only source.
+            # Never read back: the login step takes the JWT from the auth response.
             DT_EXTRA_ENV='AWS_S3_ACCESS_KEY_ID=dast-dummy-not-a-real-key
 AWS_S3_SECRET_ACCESS_KEY=dast-dummy-not-a-real-secret
 AWS_S3_BUCKET=dast-dummy-bucket
 AWS_S3_REGION=dast-dummy-region
-AWS_S3_ENDPOINT=http://s3.example.invalid'
+AWS_S3_ENDPOINT=http://s3.example.invalid
+ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy
+AUTH_JWT_SECRET=dast-dummy-jwt-dummy-dummy-dummy'
             ;;
         nova.chatsconnector.telegram-client-api/api)
             # Verified in the connector's code: api_access_token header (setup-swagger.ts),

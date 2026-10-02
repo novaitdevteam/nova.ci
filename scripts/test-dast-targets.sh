@@ -55,6 +55,20 @@ case "$DT_UNSEEDED_ENV" in
         echo "ok   core/browser's fallback admin address is its own, at the reserved example.invalid domain"; pass=$((pass + 1)) ;;
     *) echo "FAIL core/browser's fallback admin address is missing or not at example.invalid"; fail=$((fail + 1)) ;;
 esac
+# ENCRYPTION_SECRET/AUTH_JWT_SECRET in DT_EXTRA_ENV, never DT_UNSEEDED_ENV: core's
+# .env.example ships both blank, so they are needed on the seeded build path too, which
+# DT_UNSEEDED_ENV never reaches (NC2-2916).
+for var in ENCRYPTION_SECRET AUTH_JWT_SECRET; do
+    case "$DT_EXTRA_ENV" in
+        *"$var="*) echo "ok   core/browser extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL core/browser extra-env is missing $var — env.validation.ts's requireStrongSecrets would crash boot"; fail=$((fail + 1)) ;;
+    esac
+done
+case "$DT_UNSEEDED_ENV" in
+    *"ENCRYPTION_SECRET="*|*"AUTH_JWT_SECRET="*)
+        echo "FAIL core/browser put a secret in DT_UNSEEDED_ENV — scan.sh never applies that on the normal, seeded build-workflow path"; fail=$((fail + 1)) ;;
+    *) echo "ok   core/browser's secrets are not hiding in DT_UNSEEDED_ENV"; pass=$((pass + 1)) ;;
+esac
 
 # novatalks.ui, browser surface: DT_ZAP_CONTEXT stays empty. A context file exists
 # (contexts/novatalks-ui.context) with the verified login request shape, but this arm
@@ -90,6 +104,13 @@ case "$DT_EXTRA_ENV" in
         echo "ok   core/api's AWS_S3 values are obviously fake, not plausible-looking"; pass=$((pass + 1)) ;;
     *) echo "FAIL core/api's AWS_S3 values do not look like dummies"; fail=$((fail + 1)) ;;
 esac
+# dast-api/scan.sh seeds no .env.example, so DT_EXTRA_ENV is their only source.
+for var in ENCRYPTION_SECRET AUTH_JWT_SECRET; do
+    case "$DT_EXTRA_ENV" in
+        *"$var="*) echo "ok   core/api extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL core/api extra-env is missing $var — env.validation.ts's requireStrongSecrets would crash boot"; fail=$((fail + 1)) ;;
+    esac
+done
 
 # The telegram connector: a DB-backed token under its own header, no scheme prefix.
 reset_dt; dast_resolve_target nova.chatsconnector.telegram-client-api api
