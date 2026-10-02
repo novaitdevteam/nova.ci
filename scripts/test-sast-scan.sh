@@ -26,6 +26,7 @@ fail=0
 # docker shim: emit $SHIM_JSON to the file semgrep would write, exit $SHIM_RC.
 cat > "$WORK/bin/docker" <<'SHIM'
 #!/usr/bin/env bash
+printf '%s\n' "$@" > "${SHIM_OUT%/*}/docker-args"
 # SHIM_SKIP_WRITE simulates a container that dies before writing anything —
 # e.g. it never got as far as producing output.
 if [ -z "${SHIM_SKIP_WRITE:-}" ]; then
@@ -250,6 +251,19 @@ many=$(jq -cn '{results: ([{check_id:"nova-ci-semgrep-canary",extra:{severity:"I
 SHIM_JSON="$many" SHIM_RC=1 expect "30 findings still report as 30" findings 30
 assert_summary "the summary says how many of how many it showed" "Showing 25 of 30"
 assert_summary "and names the artifact that has the rest" "artifact"
+
+# Agent tooling (.claude/, .agents/) is never bundled or shipped, yet novatalks.ui's
+# beautify-github-readme scripts took two of its three SAST ERRORs (NC2-2911). Excluded
+# in scan.sh rather than by a per-repository .semgrepignore, which would replace
+# Semgrep's default ignore list. The canary is mounted outside /src and is unaffected.
+SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 expect "agent tooling dirs are excluded" clean 0
+for d in .claude .agents; do
+    if grep -qx -- "--exclude=$d" "$WORK/docker-args"; then
+        echo "ok   semgrep is told to skip $d"; pass=$((pass + 1))
+    else
+        echo "FAIL semgrep is not told to skip $d"; fail=$((fail + 1))
+    fi
+done
 
 # A clean scan gets no findings block at all — an empty <details> to open is noise.
 SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 expect "a clean scan lists nothing" clean 0

@@ -66,6 +66,7 @@ docker run --rm \
     "$SEMGREP_IMAGE" \
     semgrep scan "${config_args[@]}" \
         --json --metrics=off --quiet --no-git-ignore \
+        --exclude=.claude --exclude=.agents \
         --output /out/semgrep.json \
         /src /canary-src
 rc=$?
