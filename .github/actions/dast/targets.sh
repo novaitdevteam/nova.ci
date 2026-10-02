@@ -95,10 +95,16 @@ AWS_S3_ENDPOINT=http://s3.example.invalid'
             # --env-file. Wrong for AWS_S3_* (the real .env.example has a working config),
             # right for these two: .env.example ships them blank on purpose, and core's
             # env.validation.ts refuses to boot without both under any NODE_ENV
-            # ("ENCRYPTION_SECRET: is not set", run 37033807083, NC2-2916). Fixed dummies,
-            # since this table cannot call openssl; the browser scan never logs in.
+            # ("ENCRYPTION_SECRET: is not set", run 37033807083, NC2-2916). The seeded
+            # example also turns on SDK auth and the ldap provider with their values blank,
+            # so SDK_AUTH_TOKEN_SECRET and the two LDAP DNs are required too (run
+            # 37043831132). Fixed dummies, since this table cannot call openssl; the
+            # browser scan never logs in, and the DNs sit at example.invalid.
             DT_EXTRA_ENV='ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy
-AUTH_JWT_SECRET=dast-dummy-jwt-dummy-dummy-dummy'
+AUTH_JWT_SECRET=dast-dummy-jwt-dummy-dummy-dummy
+SDK_AUTH_TOKEN_SECRET=dast-dummy-sdk-dummy-dummy-dummy
+LDAP_BIND_DN=cn=dast,dc=example,dc=invalid
+LDAP_SEARCH_BASE=dc=example,dc=invalid'
             ;;
         nova.botflow/browser)
             # No dedicated HTTP health route — the chart probes over tcpSocket. "/" is

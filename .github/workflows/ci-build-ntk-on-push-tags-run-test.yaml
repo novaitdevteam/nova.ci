@@ -252,18 +252,25 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # novatalks.core refuses to boot with a blank ENCRYPTION_SECRET or AUTH_JWT_SECRET
-      # under any NODE_ENV, and .env.example ships both blank on purpose (NC2-2916).
-      # Generated per run and masked before anything can print them; a later $GITHUB_ENV
-      # entry wins over the blank one "Get Env From Example" wrote.
+      # under any NODE_ENV, and .env.example ships both blank on purpose. It also enables
+      # SDK auth and the ldap provider with their values blank, which needs
+      # SDK_AUTH_TOKEN_SECRET and the two LDAP DNs (NC2-2916). Secrets are generated per
+      # run and masked before anything can print them; the DNs are placeholders at
+      # example.invalid. A later $GITHUB_ENV entry wins over "Get Env From Example".
       - name: 🔐 Generate boot secrets
         run: |
           ENCRYPTION_SECRET="$(openssl rand -hex 32)"
           AUTH_JWT_SECRET="$(openssl rand -hex 32)"
+          SDK_AUTH_TOKEN_SECRET="$(openssl rand -hex 32)"
           echo "::add-mask::$ENCRYPTION_SECRET"
           echo "::add-mask::$AUTH_JWT_SECRET"
+          echo "::add-mask::$SDK_AUTH_TOKEN_SECRET"
           {
             echo "ENCRYPTION_SECRET=$ENCRYPTION_SECRET"
             echo "AUTH_JWT_SECRET=$AUTH_JWT_SECRET"
+            echo "SDK_AUTH_TOKEN_SECRET=$SDK_AUTH_TOKEN_SECRET"
+            echo "LDAP_BIND_DN=cn=ci,dc=example,dc=invalid"
+            echo "LDAP_SEARCH_BASE=dc=example,dc=invalid"
           } >> "$GITHUB_ENV"
 
       # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by

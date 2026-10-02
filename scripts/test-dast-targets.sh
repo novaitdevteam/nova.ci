@@ -57,15 +57,16 @@ case "$DT_UNSEEDED_ENV" in
 esac
 # ENCRYPTION_SECRET/AUTH_JWT_SECRET in DT_EXTRA_ENV, never DT_UNSEEDED_ENV: core's
 # .env.example ships both blank, so they are needed on the seeded build path too, which
-# DT_UNSEEDED_ENV never reaches (NC2-2916).
-for var in ENCRYPTION_SECRET AUTH_JWT_SECRET; do
+# DT_UNSEEDED_ENV never reaches (NC2-2916). The seeded example also enables SDK auth and
+# the ldap provider with blank values, hence the other three.
+for var in ENCRYPTION_SECRET AUTH_JWT_SECRET SDK_AUTH_TOKEN_SECRET LDAP_BIND_DN LDAP_SEARCH_BASE; do
     case "$DT_EXTRA_ENV" in
         *"$var="*) echo "ok   core/browser extra-env carries $var"; pass=$((pass + 1)) ;;
         *) echo "FAIL core/browser extra-env is missing $var — env.validation.ts's requireStrongSecrets would crash boot"; fail=$((fail + 1)) ;;
     esac
 done
 case "$DT_UNSEEDED_ENV" in
-    *"ENCRYPTION_SECRET="*|*"AUTH_JWT_SECRET="*)
+    *"ENCRYPTION_SECRET="*|*"AUTH_JWT_SECRET="*|*"SDK_AUTH_TOKEN_SECRET="*|*"LDAP_BIND_DN="*)
         echo "FAIL core/browser put a secret in DT_UNSEEDED_ENV — scan.sh never applies that on the normal, seeded build-workflow path"; fail=$((fail + 1)) ;;
     *) echo "ok   core/browser's secrets are not hiding in DT_UNSEEDED_ENV"; pass=$((pass + 1)) ;;
 esac
