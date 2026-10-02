@@ -628,6 +628,15 @@ not come up within 300s"*. The values are fixed dummies, like the telegram arm's
 table cannot call `openssl`, neither scan reads them back, and both pass core's strength
 rules (at least 8 characters, at least 4 distinct, not on its exact-match placeholder list).
 
+The browser arm needs three more, because it seeds the example. That file sets
+`SDK_AUTH_ENABLED=true` and `AUTH_ACTIVE_PROVIDERS=email,ldap` and leaves their values
+blank. The next run, 37043831132, still failed to boot, now on
+`SDK_AUTH_TOKEN_SECRET: is not set` and `LDAP_BIND_DN`/`LDAP_SEARCH_BASE: is required when
+AUTH_ACTIVE_PROVIDERS contains "ldap"`. The arm now carries a dummy SDK secret and
+placeholder DNs at `example.invalid`. The provider set stays as the example has it. The api
+arm seeds nothing, so neither setting is on there, and it booted on that same run: 361
+operations scanned.
+
 Two entries that once lived in these same lists are gone now that `scan.sh` drops empty
 values instead of passing them through. `S3_PUBLIC_URL` is declared
 `Joi.string().uri(...).empty('')` — optional, no default needed, and

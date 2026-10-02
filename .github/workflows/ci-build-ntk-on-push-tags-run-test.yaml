@@ -89,9 +89,12 @@ jobs:
       - name: ▶️ Get Env From Example
         run: |
           sed '/^#/d' .env.example > .env
-          # Forward only well-formed KEY=value lines: .env.example may contain bare keys
-          # (e.g. MESSAGE_EXTERNAL_SOURCE_LAST_ID) that are invalid for $GITHUB_ENV.
-          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env >> "$GITHUB_ENV" || true
+          # $GITHUB_ENV takes a line literally, so `FILE_MAX_SIZE=10485760 #10mb` arrived as
+          # NaN and LDAP_URL with its quotes, failing core's boot validation (NC2-2916).
+          # Node's own dotenv parser strips both, as a local dotenv run does, and skips
+          # bare keys such as MESSAGE_EXTERNAL_SOURCE_LAST_ID.
+          node -e 'for (const [k, v] of Object.entries(require("node:util").parseEnv(require("node:fs").readFileSync(".env.example", "utf8"))))
+            process.stdout.write(v.includes("\n") ? k + "<<NOVA_CI_ENV_EOF\n" + v + "\nNOVA_CI_ENV_EOF\n" : k + "=" + v + "\n")' >> "$GITHUB_ENV"
 
       - name: ⏬ Install Dependencies
         env:
@@ -206,9 +209,12 @@ jobs:
       - name: ▶️ Get Env From Example
         run: |
           sed '/^#/d' .env.example > .env
-          # Forward only well-formed KEY=value lines: .env.example may contain bare keys
-          # (e.g. MESSAGE_EXTERNAL_SOURCE_LAST_ID) that are invalid for $GITHUB_ENV.
-          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env >> "$GITHUB_ENV" || true
+          # $GITHUB_ENV takes a line literally, so `FILE_MAX_SIZE=10485760 #10mb` arrived as
+          # NaN and LDAP_URL with its quotes, failing core's boot validation (NC2-2916).
+          # Node's own dotenv parser strips both, as a local dotenv run does, and skips
+          # bare keys such as MESSAGE_EXTERNAL_SOURCE_LAST_ID.
+          node -e 'for (const [k, v] of Object.entries(require("node:util").parseEnv(require("node:fs").readFileSync(".env.example", "utf8"))))
+            process.stdout.write(v.includes("\n") ? k + "<<NOVA_CI_ENV_EOF\n" + v + "\nNOVA_CI_ENV_EOF\n" : k + "=" + v + "\n")' >> "$GITHUB_ENV"
 
       - name: ⏬ Install Dependencies
         env:
@@ -246,18 +252,25 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # novatalks.core refuses to boot with a blank ENCRYPTION_SECRET or AUTH_JWT_SECRET
-      # under any NODE_ENV, and .env.example ships both blank on purpose (NC2-2916).
-      # Generated per run and masked before anything can print them; a later $GITHUB_ENV
-      # entry wins over the blank one "Get Env From Example" wrote.
+      # under any NODE_ENV, and .env.example ships both blank on purpose. It also enables
+      # SDK auth and the ldap provider with their values blank, which needs
+      # SDK_AUTH_TOKEN_SECRET and the two LDAP DNs (NC2-2916). Secrets are generated per
+      # run and masked before anything can print them; the DNs are placeholders at
+      # example.invalid. A later $GITHUB_ENV entry wins over "Get Env From Example".
       - name: 🔐 Generate boot secrets
         run: |
           ENCRYPTION_SECRET="$(openssl rand -hex 32)"
           AUTH_JWT_SECRET="$(openssl rand -hex 32)"
+          SDK_AUTH_TOKEN_SECRET="$(openssl rand -hex 32)"
           echo "::add-mask::$ENCRYPTION_SECRET"
           echo "::add-mask::$AUTH_JWT_SECRET"
+          echo "::add-mask::$SDK_AUTH_TOKEN_SECRET"
           {
             echo "ENCRYPTION_SECRET=$ENCRYPTION_SECRET"
             echo "AUTH_JWT_SECRET=$AUTH_JWT_SECRET"
+            echo "SDK_AUTH_TOKEN_SECRET=$SDK_AUTH_TOKEN_SECRET"
+            echo "LDAP_BIND_DN=cn=ci,dc=example,dc=invalid"
+            echo "LDAP_SEARCH_BASE=dc=example,dc=invalid"
           } >> "$GITHUB_ENV"
 
       # Integration sharding (jest --shard with a matrix) is intentionally NOT enabled by
