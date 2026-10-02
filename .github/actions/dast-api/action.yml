@@ -86,8 +86,20 @@ outputs:
     description: "clean | findings | not-run | error — a failed boot, migration, seed or login is not a clean scan"
     value: ${{ steps.scan.outputs.outcome }}
   findings:
-    description: "Number of WARN-level zap-api-scan findings"
+    description: "Offending rules, each counted once: FAIL-level (must-fix) plus WARN-level at ZAP risk High"
     value: ${{ steps.scan.outputs.findings }}
+  high:
+    description: "Rules at ZAP risk High, counted once each; IGNOREd rules excluded — High makes outcome=findings"
+    value: ${{ steps.scan.outputs.high }}
+  medium:
+    description: "Rules at ZAP risk Medium, counted once each; IGNOREd rules excluded"
+    value: ${{ steps.scan.outputs.medium }}
+  low:
+    description: "Rules at ZAP risk Low, counted once each; IGNOREd rules excluded"
+    value: ${{ steps.scan.outputs.low }}
+  informational:
+    description: "Rules at ZAP risk Informational, counted once each; IGNOREd rules excluded"
+    value: ${{ steps.scan.outputs.informational }}
   failures:
     description: "Number of FAIL-level zap-api-scan findings — those the triage register marks as must-fix"
     value: ${{ steps.scan.outputs.failures }}
