@@ -88,6 +88,7 @@ zap_work_dir="${RUNNER_TEMP:-/tmp}/zap-api-wrk"
 mkdir -p "$zap_work_dir"
 chmod 777 "$zap_work_dir"
 zap_out="${zap_work_dir}/zap-api.md"
+zap_json="${zap_work_dir}/zap-api.json"
 zap_console="${RUNNER_TEMP:-/tmp}/zap-api-console.log"
 # The triage register: which api-scan findings must be fixed, which are accepted, and
 # why. Its own file, not the baseline's zap-baseline.conf — api-scan loads a different
@@ -147,6 +148,10 @@ not_run() { # not_run <reason>
     emit outcome not-run
     emit findings 0
     emit failures 0
+    emit high 0
+    emit medium 0
+    emit low 0
+    emit informational 0
     emit_message "🕷 DAST (ZAP API): ⚠️ not run — $1"
     summary WARNING "Scan did not run: $1. This is not a clean result."
     { echo "=== DAST API: not run ==="; echo "$1"; } > "$DAST_REPORT_FILE"
@@ -158,6 +163,10 @@ scanner_error() { # scanner_error <reason>
     emit outcome error
     emit findings 0
     emit failures 0
+    emit high 0
+    emit medium 0
+    emit low 0
+    emit informational 0
     emit_message "🕷 DAST (ZAP API): ❌ scanner failed — $1"
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
@@ -526,12 +535,15 @@ esac
 # and zap_work_dir is chmod 777 above so that user can write into it regardless of the
 # host process's own uid (1000 on the self-hosted pool, 1001 on ubuntu-latest). All four
 # ZAP callers in this repository now share this one approach.
+# Both report files live in zap_work_dir, which outlives the job on a reused runner; a
+# previous run's file must never stand in for one this ZAP did not write.
+rm -f "$zap_out" "$zap_json"
 set +e
 docker run --rm --network host \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" "$ZAP_IMAGE" \
     zap-api-scan.py -t "$spec_url" -f openapi \
     ${zap_mode_args[@]+"${zap_mode_args[@]}"} -I \
-    -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" \
+    -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" -J "$(basename "$zap_json")" \
     -z "-config replacer.full_list(0).description=auth \
         -config replacer.full_list(0).enabled=true \
         -config replacer.full_list(0).matchtype=REQ_HEADER \
@@ -553,6 +565,9 @@ esac
 [ -s "$zap_out" ] || scanner_error "ZAP produced no report"
 
 zap_tally_parse "$zap_console" scanner_error
+# Risk per counted rule, the same join as the baseline: which rules count from the
+# console, their risk from -J. Only after the tally has proven the scan completed.
+zap_risk_counts "$zap_console" "$zap_json" scanner_error
 
 {
     echo "=============================="
@@ -564,6 +579,7 @@ zap_tally_parse "$zap_console" scanner_error
     echo ""
     echo "must fix (FAIL):   ${failures}"
     echo "warnings (WARN):   ${findings}"
+    echo "  by risk:         high ${risk_high} · medium ${risk_medium} · low ${risk_low} · informational ${risk_info}"
     echo "informational:     ${infos}"
     echo "accepted (IGNORE): ${accepted}"
     echo "passed:            ${passes}"
@@ -572,24 +588,29 @@ zap_tally_parse "$zap_console" scanner_error
 } > "$DAST_REPORT_FILE"
 
 emit failures "$failures"
+emit high "$risk_high"
+emit medium "$risk_medium"
+emit low "$risk_low"
+emit informational "$risk_info"
+# Each offending rule once: a FAIL rule that is also high is one rule, not two.
+emit findings "$(( failures + risk_high_warn ))"
+breakdown="${risk_high} high · ${risk_medium} medium · ${risk_low} low"
 
 if [ "$failures" -gt 0 ]; then
-    echo "::warning::ZAP API scan reported ${failures} must-fix and ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    echo "::warning::ZAP API scan reported ${failures} must-fix; by risk ${breakdown}. See ${DAST_REPORT_FILE}."
     emit outcome findings
-    emit findings "$findings"
-    emit_message "🕷 DAST (ZAP API): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary WARNING "🔴 ${failures} must-fix and ${findings} warning(s) — the register marks these as blocking."
-elif [ "$findings" -gt 0 ]; then
-    echo "::warning::ZAP API scan reported ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    emit_message "🕷 DAST (ZAP API): 🔴 ${failures} must-fix · ${breakdown}"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🔴 ${failures} must-fix — the register marks these as blocking. By risk: ${breakdown}, ${risk_info} informational."
+elif [ "$risk_high" -gt 0 ]; then
+    echo "::warning::ZAP API scan reported ${risk_high} high-risk rule(s). See ${DAST_REPORT_FILE}."
     emit outcome findings
-    emit findings "$findings"
-    emit_message "🕷 DAST (ZAP API): 🟡 ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary WARNING "⚠️ ${findings} api-scan warning(s) — review the report."
+    emit_message "🕷 DAST (ZAP API): 🟠 HIGH found · ${breakdown}"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🟠 ${risk_high} high-risk rule(s) — review the report. Also ${risk_medium} medium, ${risk_low} low, ${risk_info} informational."
 else
     emit outcome clean
-    emit findings 0
-    emit_message "🕷 DAST (ZAP API): 🟢 clean · ${op_count} operations · ${infos} info · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary NOTE "✅ No must-fix or warning findings across ${op_count} operations. ${infos} informational, ${accepted} accepted by the triage register."
+    # "noted" is the register's INFO level, "accepted" its IGNORE — see dast/scan.sh.
+    emit_message "🕷 DAST (ZAP API): 🟢 clean · ${op_count} operations · ${risk_medium} medium · ${risk_low} low · ${risk_info} informational · ${infos} noted · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary NOTE "✅ No high-risk or must-fix findings across ${op_count} operations. ${risk_medium} medium, ${risk_low} low and ${risk_info} informational are in the report; ${infos} noted and ${accepted} accepted by the triage register."
 fi
 
-echo "ZAP API scan — operations: ${op_count}, must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"
+echo "ZAP API scan — operations: ${op_count}, must-fix: ${failures}, warn rules: ${findings} (high ${risk_high}, medium ${risk_medium}, low ${risk_low}, informational ${risk_info}), accepted: ${accepted}, passed: ${passes}"

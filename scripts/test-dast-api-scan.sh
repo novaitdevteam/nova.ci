@@ -46,6 +46,13 @@ case "$1" in
                 printf '%s\n' "${SHIM_ZAP_MD:-# ZAP Scanning Report}" > "${SHIM_ZAP_OUT:?}"
                 printf '%s\n' "${SHIM_ZAP_CONSOLE:-PASS: everything
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40}"
+                # -J names the traditional-json report, written into the same /zap/wrk.
+                jname=""; prev=""
+                for a in "$@"; do [ "$prev" = "-J" ] && jname="$a"; prev="$a"; done
+                if [ -n "$jname" ] && [ -z "${SHIM_ZAP_SKIP_JSON:-}" ]; then
+                    empty_json='{"site":[]}'
+                    printf '%s' "${SHIM_ZAP_JSON:-$empty_json}" > "$(dirname "${SHIM_ZAP_OUT:?}")/$jname"
+                fi
                 exit "${SHIM_ZAP_RC:-0}" ;;
             *"--name nova-pg"*)    exit "${SHIM_PG_RUN_RC:-0}" ;;
             *"--name nova-redis"*) exit "${SHIM_REDIS_RUN_RC:-0}" ;;
@@ -272,14 +279,14 @@ else
     fail=$((fail + 1))
 fi
 
+. "$ROOT/scripts/zap-fixture.sh"
 # --- findings, including must-fix ----------------------------------------------------
 # One run, two counts: FAIL-NEW and WARN-NEW are read from the same tally line, and a
 # FAIL-level finding does not red the build — warn-only governs findings, not exit code.
-SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
-WARN-NEW: Some Warning Alert [10038] x 5
-FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 30" \
+zap_fixture FAIL 90001 3  FAIL 90002 3  WARN 10038 2  WARN 10020 2  WARN 10021 1  WARN 10063 1  WARN 10109 0
+SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
     expect "api-scan warnings are findings, build green" findings 0
-assert_findings "warnings counted from the tally" 5
+assert_findings "findings counts the two FAIL rules once each, no high WARN rule" 2
 assert_failures "FAIL-NEW counted on its own" 2
 
 # --- not-run: every precondition is a loud skip --------------------------------------
@@ -448,9 +455,8 @@ DAST_AUTH_MODE=env-token DAST_TOKEN_ENV_VAR="" \
     expect "env-token without a variable name is a scanner error" error 2
 
 # login mode still works unchanged (core), with the default Authorization/Bearer header
-SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
-WARN-NEW: Some Warning Alert [10038] x 5
-FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 30" \
+zap_fixture FAIL 90001 3  FAIL 90002 3  WARN 10038 2  WARN 10020 2  WARN 10021 1  WARN 10063 1  WARN 10109 0
+SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
     expect "login mode still injects Authorization: Bearer" findings 0
 assert_zap_flag "login mode keeps the Bearer prefix" 'replacement=Bearer '
 
@@ -710,6 +716,34 @@ unset GITHUB_REPOSITORY
 unset DAST_TARGET_REPO GITHUB_REPOSITORY
 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
     expect "both target-repository and GITHUB_REPOSITORY unset: no unbound-variable abort" clean 0
+
+# --- the api scan reports by risk ----------------------------------------------------
+zap_fixture WARN 10038 2  WARN 10021 1
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "api-scan medium and low without high is clean" clean 0
+grep -qE '🟢 clean · [0-9]+ operations · 1 medium · 1 low · 0 informational · 0 noted · 0 accepted' "$WORK/output" \
+    && { echo "ok   the api clean line carries operations and the breakdown"; pass=$((pass + 1)); } \
+    || { echo "FAIL the api clean line"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); }
+grep -qx -- '-J' "$WORK/zap-argv" && grep -qx 'zap-api.json' "$WORK/zap-argv" \
+    && { echo "ok   zap-api-scan.py is asked for the JSON report"; pass=$((pass + 1)); } \
+    || { echo "FAIL no -J zap-api.json passed"; fail=$((fail + 1)); }
+
+zap_fixture WARN 40012 3
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "api-scan high is a finding" findings 0
+grep -q '🟠 HIGH found · 1 high · 0 medium · 0 low' "$WORK/output" \
+    && { echo "ok   the api high line"; pass=$((pass + 1)); } \
+    || { echo "FAIL the api high line"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); }
+
+zap_fixture WARN 10038 2
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_SKIP_JSON=1 \
+    expect "api-scan without a JSON report is a scanner error" error 2
+
+# A previous run's JSON on a reused runner is never read.
+zap_fixture WARN 10038 2
+printf '%s' "$ZF_JSON" > "$WORK/zap-api-wrk/zap-api.json"
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_SKIP_JSON=1 \
+    expect "a leftover zap-api.json from an earlier run is not reused" error 2
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

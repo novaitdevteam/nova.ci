@@ -151,6 +151,13 @@ restricted. If it ever is not, revisit the exception. Do not just restrict the s
 list. Do not suppress either rule in `scan.sh`: in a product repository's own workflow,
 the same findings are real.
 
+The SAST line reports by severity, using Semgrep's own mapping. `secrets-inherit` is an
+`ERROR`, so it counts as High. Every product repository's trunk SAST line therefore reads
+`🟠 HIGH found · 1 high · …` from this one accepted finding, and the `@main` tag adds a
+Medium. That continues until the callers carry an inline `# nosemgrep:` on those two lines.
+This is a per-repository change, so it is the owners' call; it has not been made here. The
+accepted High is the same finding as before. The new line only names its severity.
+
 ## actionlint
 
 actionlint 1.7.12, pinned by SHA-256 like zizmor, has been **enforced** since

@@ -118,6 +118,13 @@ case "$1" in
 | Informational | 0 |}" > "${SHIM_ZAP_OUT:?}"
                 printf '%s\n' "${SHIM_ZAP_CONSOLE:-PASS: everything
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40}"
+                # -J names the traditional-json report, written into the same /zap/wrk.
+                jname=""; prev=""
+                for a in "$@"; do [ "$prev" = "-J" ] && jname="$a"; prev="$a"; done
+                if [ -n "$jname" ] && [ -z "${SHIM_ZAP_SKIP_JSON:-}" ]; then
+                    empty_json='{"site":[]}'
+                    printf '%s' "${SHIM_ZAP_JSON:-$empty_json}" > "$(dirname "${SHIM_ZAP_OUT:?}")/$jname"
+                fi
                 exit "${SHIM_ZAP_RC:-0}" ;;
             *nova-nats*)
                 # Separate control from SHIM_APP_RC: some scenarios need NATS to start
@@ -264,17 +271,19 @@ else
     echo "ok   ZAP container carries no --user, so the image's own uid is used"; pass=$((pass + 1))
 fi
 
-SHIM_CURL_RC=0 SHIM_ZAP_RC=2 SHIM_ZAP_CONSOLE="WARN-NEW: 3 things
-WARN-NEW: x
-WARN-NEW: y
-FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 4	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
-    expect "ZAP warnings are findings, not failure" findings 0
-# Deliberately disagreeing: three per-rule WARN-NEW lines but a tally of 4. If the count
-# ever came from the per-rule lines again, this would read 3 and the assertion below
-# would catch it — matching fixtures (three lines, a tally of 3) let a reversion to
-# counting per-rule lines pass unnoticed, which is exactly what happened here before.
-assert_findings "the tally line is the warning count, not the per-rule lines" 4
+. "$ROOT/scripts/zap-fixture.sh"
+zap_fixture WARN 10038 3  WARN 10020 2  WARN 10021 1  WARN 10063 1
+SHIM_CURL_RC=0 SHIM_ZAP_RC=2 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "a high ZAP warning is a finding, not a failure" findings 0
+assert_findings "findings is the high-risk rule count" 1
 assert_cleanup "findings run tears containers down"
+# Deliberately disagreeing: three per-rule WARN-NEW lines but a tally of 4. This used to
+# assert the tally won (4); now a mismatch is a broken scan. The risk join is per rule, so
+# lines that do not add up to the tally mean it would count something ZAP did not — the
+# old guard against counting per-rule lines survives as a refusal to count at all.
+zap_fixture WARN 10038 2  WARN 10020 2  WARN 10021 1
+SHIM_CURL_RC=0 SHIM_ZAP_RC=2 SHIM_ZAP_CONSOLE="${ZF_CONSOLE/WARN-NEW: 3/WARN-NEW: 4}" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "per-rule lines that disagree with the tally are a scanner error, never a count" error 2
 
 # The regression this whole rewiring exists for. zap-baseline.py -w writes the
 # traditional markdown report, which names alerts but never prints WARN-NEW; the
@@ -300,8 +309,11 @@ SHIM_ZAP_CONSOLE="WARN-NEW: Content Security Policy (CSP) Header Not Set [10038]
 WARN-NEW: Missing Anti-clickjacking Header [10020] x 1
 WARN-NEW: X-Content-Type-Options Header Missing [10021] x 6
 FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 3	WARN-INPROG: 0	INFO: 0	IGNORE: 0	PASS: 40" \
-    expect "warnings are counted from the console stream, not the -w markdown report" findings 0
-assert_findings "a markdown report with alert text but no WARN-NEW still counts 3" 3
+SHIM_ZAP_JSON='{"site":[{"alerts":[{"pluginid":"10038","riskcode":"2"},{"pluginid":"10020","riskcode":"2"},{"pluginid":"10021","riskcode":"1"}]}]}' \
+    expect "warnings are counted from the console stream, not the -w markdown report" clean 0
+if grep -qx 'medium=2' "$WORK/output" && grep -qx 'low=1' "$WORK/output"; then
+    echo "ok   a markdown report with alert text but no WARN-NEW still counts 2 medium, 1 low"; pass=$((pass + 1))
+else echo "FAIL the risk breakdown did not come from console + JSON"; { grep -E '^(medium|low)=' "$WORK/output" || true; } | sed 's/^/     /'; fail=$((fail + 1)); fi
 if grep -q 'Summary of Alerts' "$WORK/report"; then
     echo "ok   the .report still carries the human-readable markdown report"; pass=$((pass + 1))
 else
@@ -887,12 +899,14 @@ assert_failures() { # assert_failures <name> <expected>
 # line starts with the same `FAIL-NEW: ` prefix as the tally, so this is also the
 # regression fixture for the tally-line anchor: a `grep -m1 -E '^FAIL-NEW: '` with no
 # further shape check would take the per-rule line instead of the tally.
-SHIM_CURL_RC=0 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="FAIL-NEW: Some Critical Alert [90001] x 2
-WARN-NEW: Some Warning Alert [10038] x 5
-FAIL-NEW: 2	FAIL-INPROG: 0	WARN-NEW: 5	WARN-INPROG: 0	INFO: 1	IGNORE: 3	PASS: 30" \
+zap_fixture FAIL 90001 3  FAIL 90002 3  WARN 10038 2  WARN 10020 2  WARN 10021 1  WARN 10063 1  WARN 10109 0 \
+    IGNORE 10096 1  IGNORE 10110 1  IGNORE 10027 0
+# zap_fixture puts the per-rule lines ahead of the tally, as print_rule does: the per-rule
+# FAIL-NEW lines are the regression fixture for the tally-line anchor.
+SHIM_CURL_RC=0 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
     expect "a FAIL-level finding is a finding, not a broken scanner" findings 0
 assert_failures "FAIL-NEW is counted on its own" 2
-assert_findings "WARN-NEW keeps its own count alongside it" 5
+assert_findings "findings counts the two FAIL rules once each, no high WARN rule" 2
 if grep -q 'must-fix' "$WORK/output"; then
     echo "ok   the notification distinguishes must-fix from warnings"; pass=$((pass + 1))
 else
@@ -904,7 +918,7 @@ fi
 SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="FAIL-NEW: 0	FAIL-INPROG: 0	WARN-NEW: 0	WARN-INPROG: 0	INFO: 4	IGNORE: 7	PASS: 30" \
     expect "a clean run still reports info and accepted counts" clean 0
 assert_failures "a clean run reports zero failures" 0
-if grep -q '4 info' "$WORK/output" && grep -q '7 accepted' "$WORK/output"; then
+if grep -q '4 noted' "$WORK/output" && grep -q '7 accepted' "$WORK/output"; then
     echo "ok   the clean notification names what was suppressed"; pass=$((pass + 1))
 else
     echo "FAIL the clean notification hides the info and accepted counts"
@@ -1236,6 +1250,85 @@ else
     echo "FAIL the new gate broke seeding for the caller it must not change"; fail=$((fail + 1))
 fi
 unset GITHUB_WORKSPACE GITHUB_REPOSITORY DAST_TARGET_REPO
+
+# --- zap_risk_counts, called directly ------------------------------------------------
+. "$ROOT/scripts/zap-fixture.sh"
+. "$ROOT/.github/actions/dast/dast-common.sh"
+risk_err=""; risk_fail() { risk_err="$1"; }
+risk_case() { # risk_case <name> <want "h m l i" | ERR> <json-override|-|MISSING> <fixture args...>
+    local name="$1" want="$2" json_override="$3"; shift 3
+    zap_fixture "$@"
+    printf '%s\n' "$ZF_CONSOLE" > "$WORK/rc-console"
+    if [ "$json_override" = "-" ]; then printf '%s' "$ZF_JSON" > "$WORK/rc.json"
+    elif [ "$json_override" = "MISSING" ]; then rm -f "$WORK/rc.json"
+    else printf '%s' "$json_override" > "$WORK/rc.json"; fi
+    risk_err=""; risk_high=; risk_medium=; risk_low=; risk_info=
+    zap_tally_parse "$WORK/rc-console" risk_fail
+    zap_risk_counts "$WORK/rc-console" "$WORK/rc.json" risk_fail
+    local got="${risk_high} ${risk_medium} ${risk_low} ${risk_info}"
+    [ -n "$risk_err" ] && got=ERR
+    if [ "$got" = "$want" ]; then echo "ok   $name"; pass=$((pass + 1))
+    else echo "FAIL $name — want '$want', got '$got' ${risk_err}"; fail=$((fail + 1)); fi
+}
+
+risk_case "risk comes from the JSON, one per rule" "1 1 1 1" - \
+    WARN 40012 3  WARN 10038 2  WARN 10021 1  WARN 10109 0
+# The novatalks.ui case of 2026-10-02: ZAP's report lists IGNOREd rules too.
+risk_case "an IGNOREd rule in the JSON is not counted" "0 1 0 0" - \
+    WARN 10038 2  IGNORE 10096 1  IGNORE 10110 1
+risk_case "a FAIL rule is counted in its risk bucket" "1 0 0 0" - FAIL 90001 3
+# The same pluginid on two sites counts once, at its highest risk.
+risk_case "one rule on two sites counts once, highest risk" "0 1 0 0" \
+    '{"site":[{"alerts":[{"pluginid":"10038","riskcode":"1"}]},{"alerts":[{"pluginid":"10038","riskcode":"2"}]}]}' \
+    WARN 10038 2
+risk_case "a missing JSON is a scanner error" ERR MISSING WARN 10038 2
+risk_case "an unparseable JSON is a scanner error" ERR 'not json' WARN 10038 2
+risk_case "a counted rule absent from the JSON is a scanner error" ERR '{"site":[]}' WARN 10038 2
+risk_case "a clean run needs no alerts in the JSON" "0 0 0 0" '{"site":[]}'
+# Per-rule lines and the tally must agree, or the join is not counting what ZAP counted.
+zap_fixture WARN 10038 2
+printf '%s\n' "${ZF_CONSOLE/WARN-NEW: 1/WARN-NEW: 3}" > "$WORK/rc-console"; printf '%s' "$ZF_JSON" > "$WORK/rc.json"
+risk_err=""; zap_tally_parse "$WORK/rc-console" risk_fail; zap_risk_counts "$WORK/rc-console" "$WORK/rc.json" risk_fail
+if [ -n "$risk_err" ]; then echo "ok   per-rule lines that disagree with the tally are a scanner error"; pass=$((pass + 1))
+else echo "FAIL a tally of 3 with one per-rule line was accepted"; fail=$((fail + 1)); fi
+
+# --- the scan reports by risk --------------------------------------------------------
+zap_fixture WARN 10038 2  WARN 10021 1  WARN 10109 0  IGNORE 10096 1
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "medium and low without high is clean" clean 0
+if grep -q '🟢 clean · 1 medium · 1 low · 1 informational · 0 noted · 1 accepted' "$WORK/output"; then
+    echo "ok   the clean line carries the risk breakdown"; pass=$((pass + 1))
+else echo "FAIL the clean line"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); fi
+if grep -qE -- '-J zap\.json( |$)' "$WORK/dockerlog"; then
+    echo "ok   zap-baseline.py is asked for the JSON report"; pass=$((pass + 1))
+else echo "FAIL no -J passed to ZAP"; fail=$((fail + 1)); fi
+
+zap_fixture WARN 40012 3  WARN 10038 2
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "a high-risk rule is a finding" findings 0
+grep -q '🟠 HIGH found · 1 high · 1 medium · 0 low' "$WORK/output" \
+    && { echo "ok   the high line"; pass=$((pass + 1)); } \
+    || { echo "FAIL the high line"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); }
+
+# A FAIL stays red and is not counted twice in findings.
+zap_fixture FAIL 90001 3  WARN 10038 2
+SHIM_CURL_RC=0 SHIM_ZAP_RC=1 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_JSON="$ZF_JSON" \
+    expect "a FAIL rule stays must-fix" findings 0
+grep -q '🔴 1 must-fix · 1 high · 1 medium · 0 low' "$WORK/output" \
+    && { echo "ok   the must-fix line"; pass=$((pass + 1)); } \
+    || { echo "FAIL the must-fix line"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); }
+assert_findings "findings counts a high FAIL rule once" 1
+
+zap_fixture WARN 10038 2
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_SKIP_JSON=1 \
+    expect "no JSON report is a scanner error" error 2
+
+# A previous run's JSON on a reused runner is never read: nothing in the harness removes
+# it, so only scan.sh deleting it before ZAP runs makes this an error.
+zap_fixture WARN 10038 2
+printf '%s' "$ZF_JSON" > "$WORK/zap-wrk/zap.json"
+SHIM_CURL_RC=0 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_SKIP_JSON=1 \
+    expect "a leftover zap.json from an earlier run is not reused" error 2
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -121,9 +121,9 @@ SHIM_JSON="$(semgrep_json yes ERROR ERROR)" SHIM_RC=1 \
 # same filter built the report body, so a repository's WARNING findings appeared in
 # neither the count nor the published artifact. novatalks.core had 12 nobody ever saw.
 SHIM_JSON="$(semgrep_json yes WARNING)" SHIM_RC=1 \
-    expect "a lone WARNING is a finding, not a clean scan" findings 0
+    expect "a lone WARNING is medium: clean, still counted" clean 0
 assert_warnings "the WARNING lands in its own count" 1
-assert_report "report lists the WARNING section" "=== WARNING: 1 ==="
+assert_report "report lists the MEDIUM section" "=== MEDIUM: 1 ==="
 
 SHIM_JSON="$(semgrep_json no)" SHIM_RC=0 \
     expect "a missing canary is an error, never a clean run" error 0
@@ -194,8 +194,8 @@ assert_report "report never contains the canary" "nova-ci-semgrep-canary" --abse
 SHIM_JSON="$(semgrep_json yes ERROR ERROR WARNING WARNING WARNING)" SHIM_RC=1 \
     expect "ERROR and WARNING are counted separately" findings 2
 assert_warnings "the three WARNING findings are their own number" 3
-assert_report "report lists the ERROR section" "=== ERROR: 2 ==="
-assert_report "report lists the WARNING section too" "=== WARNING: 3 ==="
+assert_report "report lists the HIGH section" "=== HIGH: 2 ==="
+assert_report "report lists the MEDIUM section too" "=== MEDIUM: 3 ==="
 
 # INFO is counted for the summary but deliberately kept out of the report body: the OSS
 # packs emit it liberally and it would bury the two levels that carry a decision.
@@ -209,7 +209,7 @@ SHIM_JSON='{"results":[{"check_id":"nova-ci-semgrep-canary","extra":{"severity":
     expect "INFO alone is not a finding" clean 0
 assert_warnings "INFO alone counts no warnings" 0
 assert_report "the report body does not list INFO findings" "rule.info-only" --absent
-if grep -q 'INFO: 2' "$WORK/summary"; then
+if grep -q 'Low: 2' "$WORK/summary"; then
     echo "ok   INFO findings are still counted in the job summary"; pass=$((pass + 1))
 else
     echo "FAIL the job summary does not report the INFO count"; fail=$((fail + 1))
@@ -268,6 +268,43 @@ done
 # A clean scan gets no findings block at all — an empty <details> to open is noise.
 SHIM_JSON="$(semgrep_json yes)" SHIM_RC=0 expect "a clean scan lists nothing" clean 0
 assert_summary "no findings block on a clean scan" "<details>" --absent
+
+# --- severity buckets (Semgrep's own mapping) ---------------------------------------
+assert_out() { # assert_out <name> <key> <expected>
+    local got; got=$(sed -n "s/^$2=//p" "$WORK/output" | head -1)
+    if [ "$got" = "$3" ]; then echo "ok   $1"; pass=$((pass + 1))
+    else echo "FAIL $1 — expected $2=$3, got $2=$got"; fail=$((fail + 1)); fi
+}
+
+SHIM_JSON="$(semgrep_json yes ERROR WARNING WARNING INFO)" SHIM_RC=1 \
+    expect "ERROR is high and makes it a finding" findings 1
+assert_out "WARNING is medium" medium 2
+assert_out "INFO is low" low 1
+assert_out "warnings output stays the medium count" warnings 2
+if grep -q '🟠 HIGH found · 1 high · 2 medium · 1 low' "$WORK/output"; then
+    echo "ok   the line reads like Trivy's"; pass=$((pass + 1))
+else echo "FAIL the line is not severity-shaped"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); fi
+
+SHIM_JSON="$(semgrep_json yes WARNING WARNING)" SHIM_RC=1 \
+    expect "medium only is clean, not a finding" clean 0
+assert_out "medium is still counted on a clean run" medium 2
+assert_summary "medium is still listed on a clean run" "src/a.ts:3"
+assert_report "medium is still in the report on a clean run" "=== MEDIUM: 2 ==="
+if grep -q '🟢 clean · 2 medium · 0 low' "$WORK/output"; then
+    echo "ok   the clean line carries the breakdown"; pass=$((pass + 1))
+else echo "FAIL the clean line hides the breakdown"; sed 's/^/     /' "$WORK/output"; fail=$((fail + 1)); fi
+
+SHIM_JSON="$(semgrep_json yes HIGH CRITICAL MEDIUM LOW)" SHIM_RC=1 \
+    expect "native HIGH and CRITICAL are high" findings 2
+assert_out "native MEDIUM is medium" medium 1
+assert_out "native LOW is low" low 1
+
+# An unknown severity is never dropped.
+SHIM_JSON="$(semgrep_json yes BLOCKER)" SHIM_RC=1 \
+    expect "an unknown severity counts as high" findings 1
+if grep -q '::warning::.*unknown severity' "$WORK/log"; then
+    echo "ok   an unknown severity is called out"; pass=$((pass + 1))
+else echo "FAIL an unknown severity passed silently"; fail=$((fail + 1)); fi
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

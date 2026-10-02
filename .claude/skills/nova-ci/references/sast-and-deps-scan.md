@@ -93,9 +93,11 @@ mint a `TRIVY.SCAN_*` git tag per feature build.
 ## Rules and reporting
 
 **Rules come from the registry** (`p/typescript p/nodejs p/owasp-top-ten`), not vendored
-into `security/`. `ERROR` and `WARNING` are both counted and both listed in the report body —
-there is no `severity` input to narrow that. `INFO` is counted for the job summary only, kept
-out of the report body.
+into `security/`. Results bucket by Semgrep's own mapping (`ERROR`/native `CRITICAL`/`HIGH` →
+high, `WARNING`/`MEDIUM` → medium, `INFO`/`LOW` → low, anything else → high with a warning);
+only high makes `outcome=findings`. High and Medium are counted and listed in the report body
+and the summary on every run, clean or not — there is no `severity` input to narrow that. Low
+is counted only.
 
 ## Test coverage
 
