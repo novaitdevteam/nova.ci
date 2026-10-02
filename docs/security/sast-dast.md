@@ -874,7 +874,16 @@ Per-finding, next to the code it describes, reviewed in the pull request that in
 it. This is the analogue of a `.gitleaksignore` fingerprint. A path-scoped
 `.semgrepignore` is deliberately **not** used: it is the blanket `ignore tests/**` that
 [secret detection](secret-detection.md) already rejected, and it hides whole directories
-rather than one decision.
+rather than one decision. A repository's own `.semgrepignore` would also replace
+Semgrep's built-in ignore list instead of adding to it.
+
+**The one directory-level exclusion is agent tooling, and it lives in `scan.sh`.**
+`--exclude=.claude --exclude=.agents` keeps Claude Code and Codex skills, hooks and
+scripts out of the scan in every repository. They run on a developer's machine and are
+never bundled or shipped. On `novatalks.ui` (NC2-2911), the `beautify-github-readme`
+skill's Python scripts produced two of its three SAST `ERROR`s. Semgrep matches the
+pattern at any depth. The canary is mounted at `/canary-src`, outside `/src`, so it still
+fires. Do not widen this list to directories that ship.
 
 ### The Semgrep canary guard
 

@@ -122,6 +122,35 @@ on purpose**. Its only callers are the two APK workflows. #68 and #69 rewrote bo
 neither has run since, so a red first run after a merge could not be blamed on the bump
 or on the rewrite. It waits for one green `build-apk` on current `main`.
 
+## The caller template: an accepted exception
+
+Every product repository's `ci-build-trigger.yaml` produces two Semgrep findings on each
+scan (NC2-2911): `secrets-inherit`, an `ERROR` on the switcher job's
+`secrets: inherit`, and `github-actions-mutable-action-tag`, a `WARNING` on
+`nova.ci.hcloud-github-runner@main`. The same applies to every `nova.ci/...@main`
+reference and to the `curl` of `ci-build-create-runner.sh` from `main`. Both are
+**accepted on purpose**. Neither was fixed in the template:
+
+- **Explicit secrets would protect nothing and break quietly.** Between them, the
+  workflows the switcher routes to read about 40 secret names. The switcher would need
+  nearly all of them, so an explicit list narrows almost nothing. It would also have to be
+  copied into 13 callers and declared again at every hop. A name missing at one hop
+  arrives as an empty string, not an error, and the job carries on: a notifier goes
+  silent, or an upload has no credentials. That is a broken step that looks like it
+  worked.
+- **A SHA pin moves the update work to the product repositories.** Each nova.ci change
+  would then need 13 caller PRs, each merged by a different owner, and until then the
+  callers run different revisions. The
+  [self-reference pins](../reference/validation.md#self-reference-pins) check exists to
+  stop exactly that.
+
+Both choices put the trust boundary in one place: **who can merge to `main` in
+`nova.ci` and `nova.ci.hcloud-github-runner`**. Whoever can do that can read every
+product repository's secrets. The exception holds only while that set of people is
+restricted. If it ever is not, revisit the exception. Do not just restrict the secret
+list. Do not suppress either rule in `scan.sh`: in a product repository's own workflow,
+the same findings are real.
+
 ## actionlint
 
 actionlint 1.7.12, pinned by SHA-256 like zizmor, has been **enforced** since
