@@ -80,6 +80,7 @@ zap_work_dir="${RUNNER_TEMP:-/tmp}/zap-wrk"
 mkdir -p "$zap_work_dir"
 chmod 777 "$zap_work_dir"
 zap_out="${zap_work_dir}/zap.md"
+zap_json="${zap_work_dir}/zap.json"
 # zap-baseline.py's -w report is the human-readable markdown one; the WARN-NEW lines
 # the finding count comes from are printed to stdout only, never into that file.
 zap_console="${RUNNER_TEMP:-/tmp}/zap-console.log"
@@ -136,6 +137,10 @@ not_run() { # not_run <reason>
     emit outcome not-run
     emit findings 0
     emit failures 0
+    emit high 0
+    emit medium 0
+    emit low 0
+    emit informational 0
     emit_message "🕷 DAST (ZAP): ⚠️ not run — $1"
     summary WARNING "Scan did not run: $1. This is not a clean result."
     { echo "=== DAST: not run ==="; echo "$1"; } > "$DAST_REPORT_FILE"
@@ -147,6 +152,10 @@ scanner_error() { # scanner_error <reason>
     emit outcome error
     emit findings 0
     emit failures 0
+    emit high 0
+    emit medium 0
+    emit low 0
+    emit informational 0
     emit_message "🕷 DAST (ZAP): ❌ scanner failed — $1"
     summary CAUTION "The scanner itself failed: $1. This is a broken gate."
     exit 2
@@ -503,12 +512,15 @@ fi
 # ci-dast-live-baseline.yaml, and the live-target step in ci-dast-pentest.yaml) now share
 # this one approach rather than the self-hosted-only `--user "$(id -u):$(id -g)"` this
 # file used to carry.
+# Both report files live in zap_work_dir, which outlives the job on a reused runner; a
+# previous run's file must never stand in for one this ZAP did not write.
+rm -f "$zap_out" "$zap_json"
 set +e
 docker run --rm --network host \
     -v "$(dirname "$zap_out"):/zap/wrk:rw" \
     "$ZAP_IMAGE" "$zap_script" -t "$target" \
     ${zap_mode_args[@]+"${zap_mode_args[@]}"} \
-    -I -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" 2>&1 | tee "$zap_console"
+    -I -c "$(basename "$zap_conf")" -w "$(basename "$zap_out")" -J "$(basename "$zap_json")" 2>&1 | tee "$zap_console"
 # PIPESTATUS[0], not $?: it is ZAP's own exit status, unambiguously. $? happens to
 # agree only because pipefail is set above; it would silently become tee's status the
 # moment that changed, and it is tee's status whenever tee itself fails.
@@ -561,6 +573,9 @@ esac
 # completed scan reports "no tally" and reds the build. Every runner is GNU; a macOS
 # harness run is the one place the broken form passes. Do not "tidy" it back.
 zap_tally_parse "$zap_console" scanner_error
+# Risk per counted rule: which rules count from the console, their risk from -J. Only
+# after the tally has proven the scan completed — severity never decides clean vs error.
+zap_risk_counts "$zap_console" "$zap_json" scanner_error
 
 {
     echo "=============================="
@@ -571,6 +586,7 @@ zap_tally_parse "$zap_console" scanner_error
     echo ""
     echo "must fix (FAIL):   ${failures}"
     echo "warnings (WARN):   ${findings}"
+    echo "  by risk:         high ${risk_high} · medium ${risk_medium} · low ${risk_low} · informational ${risk_info}"
     echo "informational:     ${infos}"
     echo "accepted (IGNORE): ${accepted}"
     echo "passed:            ${passes}"
@@ -579,24 +595,31 @@ zap_tally_parse "$zap_console" scanner_error
 } > "$DAST_REPORT_FILE"
 
 emit failures "$failures"
+emit high "$risk_high"
+emit medium "$risk_medium"
+emit low "$risk_low"
+emit informational "$risk_info"
+# Each offending rule once: a FAIL rule that is also high is one rule, not two.
+emit findings "$(( failures + risk_high_warn ))"
+breakdown="${risk_high} high · ${risk_medium} medium · ${risk_low} low"
 
 if [ "$failures" -gt 0 ]; then
-    echo "::warning::ZAP baseline reported ${failures} must-fix and ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    echo "::warning::ZAP baseline reported ${failures} must-fix; by risk ${breakdown}. See ${DAST_REPORT_FILE}."
     emit outcome findings
-    emit findings "$findings"
-    emit_message "🕷 DAST (ZAP): 🔴 ${failures} must-fix · ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary WARNING "🔴 ${failures} must-fix and ${findings} warning(s) — the register marks these as blocking."
-elif [ "$findings" -gt 0 ]; then
-    echo "::warning::ZAP baseline reported ${findings} warning(s). See ${DAST_REPORT_FILE}."
+    emit_message "🕷 DAST (ZAP): 🔴 ${failures} must-fix · ${breakdown}"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🔴 ${failures} must-fix — the register marks these as blocking. By risk: ${breakdown}, ${risk_info} informational."
+elif [ "$risk_high" -gt 0 ]; then
+    echo "::warning::ZAP baseline reported ${risk_high} high-risk rule(s). See ${DAST_REPORT_FILE}."
     emit outcome findings
-    emit findings "$findings"
-    emit_message "🕷 DAST (ZAP): 🟡 ${findings} warnings"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary WARNING "⚠️ ${findings} baseline warning(s) — review the report."
+    emit_message "🕷 DAST (ZAP): 🟠 HIGH found · ${breakdown}"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary WARNING "🟠 ${risk_high} high-risk rule(s) — review the report. Also ${risk_medium} medium, ${risk_low} low, ${risk_info} informational."
 else
     emit outcome clean
-    emit findings 0
-    emit_message "🕷 DAST (ZAP): 🟢 clean · ${infos} info · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
-    summary NOTE "✅ No must-fix or warning findings. ${infos} informational, ${accepted} accepted by the triage register."
+    # "noted" is the register's INFO level (downgraded on purpose), "accepted" its IGNORE:
+    # what a clean run suppressed by decision stays on the line, apart from ZAP's own
+    # Informational risk.
+    emit_message "🕷 DAST (ZAP): 🟢 clean · ${risk_medium} medium · ${risk_low} low · ${risk_info} informational · ${infos} noted · ${accepted} accepted"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    summary NOTE "✅ No high-risk or must-fix findings. ${risk_medium} medium, ${risk_low} low and ${risk_info} informational are in the report; ${infos} noted and ${accepted} accepted by the triage register."
 fi
 
-echo "ZAP baseline — must-fix: ${failures}, warnings: ${findings}, info: ${infos}, accepted: ${accepted}, passed: ${passes}"
+echo "ZAP baseline — must-fix: ${failures}, warn rules: ${findings} (high ${risk_high}, medium ${risk_medium}, low ${risk_low}, informational ${risk_info}), accepted: ${accepted}, passed: ${passes}"

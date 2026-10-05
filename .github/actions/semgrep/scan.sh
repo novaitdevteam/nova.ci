@@ -34,6 +34,9 @@ finish_error() { # finish_error <reason>
     emit outcome error
     emit findings 0
     emit warnings 0
+    emit high 0
+    emit medium 0
+    emit low 0
     emit_message "🔍 SAST (Semgrep): ❌ scan failed — ${reason}"
     {
         echo "## 🔍 SAST (Semgrep)"
@@ -108,29 +111,32 @@ file_err_count=$(( err_count - config_err_count ))
 canary_hits=$(jq '[.results[] | select(.check_id | test("nova-ci-semgrep-canary"))] | length' "$json")
 [ "$canary_hits" -gt 0 ] || finish_error "the canary rule did not fire — the rule engine did not run"
 
-# The canary is mounted from this action's own directory, not from the repository under
-# scan, so it must be excluded from every bucket. It is excluded by check_id rather than
-# by severity: severity used to be a caller input and the exclusion silently stopped
-# working whenever the two happened to coincide.
-count_at() { # count_at <severity>
-    jq --arg sev "$1" \
-        '[.results[] | select(.extra.severity == $sev
-            and (.check_id | test("nova-ci-semgrep-canary") | not))] | length' "$json"
+# Semgrep's own mapping (ERROR/WARNING/INFO = high/medium/low); a rule that declares a
+# native severity keeps it. Anything else is counted high and called out — a severity
+# nobody recognises is never a silent zero. The canary is mounted from this action's own
+# directory, not from the repository under scan, so it is excluded from every bucket — by
+# check_id, not by severity: severity used to be a caller input and an exclusion by
+# severity silently stopped working whenever the two coincided.
+BUCKET='def bucket: ((.extra.severity // "") | ascii_upcase) as $s
+    | if ($s == "CRITICAL" or $s == "HIGH" or $s == "ERROR") then "high"
+      elif ($s == "MEDIUM" or $s == "WARNING") then "medium"
+      elif ($s == "LOW" or $s == "INFO") then "low" else "unknown" end;
+  def real: .results[] | select(.check_id | test("nova-ci-semgrep-canary") | not);'
+
+count_in() { jq --arg b "$1" "$BUCKET"' [real | select(bucket == $b)] | length' "$json"; }
+list_in() {
+    jq -r --arg b "$1" "$BUCKET"' real | select(bucket == $b)
+        | "\(.path):\(.start.line)  [\(.check_id)]\n    \(.extra.message)\n"' "$json"
 }
 
-list_at() { # list_at <severity>
-    jq -r --arg sev "$1" \
-        '.results[] | select(.extra.severity == $sev
-            and (.check_id | test("nova-ci-semgrep-canary") | not))
-         | "\(.path):\(.start.line)  [\(.check_id)]\n    \(.extra.message)\n"' "$json"
-}
+unknown=$(count_in unknown)
+[ "$unknown" -eq 0 ] || echo "::warning::Semgrep returned ${unknown} result(s) with an unknown severity — counted as high."
+high=$(( $(count_in high) + unknown ))
+medium=$(count_in medium)
+low=$(count_in low)
 
-errors=$(count_at ERROR)
-warnings=$(count_at WARNING)
-infos=$(count_at INFO)
-
-# Both decision-carrying levels are listed. INFO is counted for the summary only: the
-# registry packs emit it liberally, and burying ERROR and WARNING under it is how a
+# High and Medium are both listed. Low is counted for the summary only: the registry packs
+# emit INFO liberally, and burying the two levels that carry a decision under it is how a
 # report stops being read.
 {
     echo "=============================="
@@ -139,26 +145,26 @@ infos=$(count_at INFO)
     echo " Configs:  ${SEMGREP_CONFIGS}"
     echo "=============================="
     echo ""
-    echo "=== ERROR: ${errors} ==="
+    echo "=== HIGH: ${high} ==="
     echo ""
-    list_at ERROR
-    echo "=== WARNING: ${warnings} ==="
+    list_in high; list_in unknown
+    echo "=== MEDIUM: ${medium} ==="
     echo ""
-    list_at WARNING
-    echo "=== INFO: ${infos} (counted, not listed) ==="
+    list_in medium
+    echo "=== LOW: ${low} (counted, not listed) ==="
 } > "$SEMGREP_REPORT_FILE"
 
-if [ "$errors" -gt 0 ] || [ "$warnings" -gt 0 ]; then
+if [ "$high" -gt 0 ]; then
     outcome=findings
-    echo "::warning::Semgrep found ${errors} ERROR and ${warnings} WARNING finding(s). See ${SEMGREP_REPORT_FILE}."
-    message="🔍 SAST (Semgrep): 🟡 ${errors} error · ${warnings} warning"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    echo "::warning::Semgrep found ${high} high and ${medium} medium finding(s). See ${SEMGREP_REPORT_FILE}."
+    message="🔍 SAST (Semgrep): 🟠 HIGH found · ${high} high · ${medium} medium · ${low} low"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
     alert=WARNING
-    headline="⚠️ ${errors} ERROR and ${warnings} WARNING finding(s) — review the report."
+    headline="🟠 ${high} high-severity finding(s) — review the report."
 else
     outcome=clean
-    message="🔍 SAST (Semgrep): 🟢 clean"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
+    message="🔍 SAST (Semgrep): 🟢 clean · ${medium} medium · ${low} low"$'\n'"   📄 Report: ${REPORT_URL:-n/a}"
     alert=NOTE
-    headline="✅ No ERROR or WARNING findings."
+    headline="✅ No high-severity findings. ${medium} medium and ${low} low — medium is listed below for review."
 fi
 
 {
@@ -170,39 +176,31 @@ fi
     echo "- Image: \`${SEMGREP_IMAGE}\`"
     echo "- Configs: \`${SEMGREP_CONFIGS}\`"
     echo "- Files scanned: ${scanned}"
-    echo "- ERROR: ${errors} · WARNING: ${warnings} · INFO: ${infos}"
+    echo "- High: ${high} · Medium: ${medium} · Low: ${low}"
     echo "- Report: ${REPORT_URL:-not published}"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-# The findings themselves, inline in the summary, not only in the .report. A summary
-# that says "3 error" and nothing else makes the reader go and download an artifact,
-# and that is the step that does not happen — so the finding is read at the next audit
-# instead of by the developer who wrote it. Capped, because the summary is a place to
+# High and Medium inline in the summary, on every run, clean or not — Medium is the level
+# the old single-severity filter once hid from everyone (12 WARNINGs on novatalks.core). A
+# summary that says "3 high" and nothing else makes the reader go and download an artifact,
+# and that is the step that does not happen. Capped, because the summary is a place to
 # start triage, not the register: the artifact carries every finding, always.
 SUMMARY_LIST_CAP=25
-
-list_capped() { # list_capped <cap> — ERROR first, then WARNING; the canary never appears
-    jq -r --argjson cap "$1" '
-        [ .results[]
-          | select((.extra.severity == "ERROR" or .extra.severity == "WARNING")
-                   and (.check_id | test("nova-ci-semgrep-canary") | not)) ]
-        | sort_by(.extra.severity)
-        | .[:$cap][]
-        | "\(.extra.severity)  \(.path):\(.start.line)  [\(.check_id)]\n    \((.extra.message // "") | gsub("\n"; " ") | .[0:160])"' "$json"
-}
-
-if [ "$outcome" = findings ]; then
-    total=$(( errors + warnings ))
+listed=$(( high + medium ))
+if [ "$listed" -gt 0 ]; then
     {
         echo ""
-        echo "<details><summary>Findings</summary>"
+        echo "<details><summary>High and medium findings</summary>"
         echo ""
         echo '```'
-        list_capped "$SUMMARY_LIST_CAP"
+        jq -r --argjson cap "$SUMMARY_LIST_CAP" "$BUCKET"'
+            [real | {b: bucket, r: .} | select(.b != "low")]
+            | sort_by(if .b == "medium" then 1 else 0 end) | .[:$cap][]
+            | "\(if .b == "medium" then "MEDIUM" else "HIGH" end)  \(.r.path):\(.r.start.line)  [\(.r.check_id)]\n    \((.r.extra.message // "") | gsub("\n"; " ") | .[0:160])"' "$json"
         echo '```'
-        if [ "$total" -gt "$SUMMARY_LIST_CAP" ]; then
+        if [ "$listed" -gt "$SUMMARY_LIST_CAP" ]; then
             echo ""
-            echo "Showing ${SUMMARY_LIST_CAP} of ${total}. The full list is in the \`$(basename "$SEMGREP_REPORT_FILE")\` artifact."
+            echo "Showing ${SUMMARY_LIST_CAP} of ${listed}. The full list is in the \`$(basename "$SEMGREP_REPORT_FILE")\` artifact."
         fi
         echo ""
         echo "</details>"
@@ -210,7 +208,10 @@ if [ "$outcome" = findings ]; then
 fi
 
 emit outcome "$outcome"
-emit findings "$errors"
-emit warnings "$warnings"
+emit findings "$high"
+emit warnings "$medium"
+emit high "$high"
+emit medium "$medium"
+emit low "$low"
 emit_message "$message"
-echo "Semgrep results — ERROR: ${errors}, WARNING: ${warnings}, INFO: ${infos} (outcome: ${outcome})"
+echo "Semgrep results — high: ${high}, medium: ${medium}, low: ${low} (outcome: ${outcome})"

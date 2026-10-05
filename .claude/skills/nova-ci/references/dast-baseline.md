@@ -76,6 +76,20 @@ a *finding*, not a broken scanner — `-I` gates exit 2 alone and does not suppr
 into the error arm reds a trunk build the first time the triage register gains a `FAIL`
 entry.
 
+## Risk per rule
+
+The tally proves the scan ran and gives the `WARN`/`FAIL` counts. `zap_risk_counts`
+(`dast-common.sh`, shared with `dast-api`) then joins the console's per-rule
+`WARN-NEW`/`FAIL-NEW` lines with each rule's highest `riskcode` from the `-J` JSON report,
+one count per rule. Never count risk from the JSON alone: it lists `IGNORE`d rules too.
+
+- These fail closed (`scanner_error`): a missing or unparseable JSON, a counted rule without
+  a risk, and per-rule lines that disagree with the tally.
+- `findings` is FAIL rules plus WARN rules at High, each rule once. `outcome=findings` needs
+  one of them.
+- Both report files are deleted before ZAP runs, because `zap_work_dir` outlives the job on
+  a reused runner.
+
 ## Triage registers and scan modes
 
 **`.github/actions/dast/zap-baseline.conf` (baseline) and `zap-full-scan.conf` (full) are the
