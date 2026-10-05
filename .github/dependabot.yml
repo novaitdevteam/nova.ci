@@ -23,5 +23,13 @@ updates:
         # Trivy binary and its DB and cache behaviour. It gets its own PR.
         exclude-patterns:
           - "aquasecurity/*"
+    ignore:
+      # gradle/actions v6 moved its caching into gradle-actions-caching, a proprietary
+      # component under Gradle's Terms of Use, which upgrading accepts
+      # (https://blog.gradle.org/github-actions-for-gradle-v6). That is a licensing
+      # decision for the organisation, not a pin bump; v5 stays MIT. Remove this entry
+      # only together with that decision.
+      - dependency-name: "gradle/actions*"
+        versions: [">= 6"]
     commit-message:
       prefix: "ci"

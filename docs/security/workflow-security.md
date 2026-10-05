@@ -121,6 +121,15 @@ controller was patched the same day. `android-actions/setup-android` 4 (#73) is 
 on purpose**. Its only callers are the two APK workflows. #68 and #69 rewrote both of them, and
 neither has run since, so a red first run after a merge could not be blamed on the bump
 or on the rewrite. It waits for one green `build-apk` on current `main`.
+`actions/setup-java` 6 (#81) waits for the same run, for the same reason.
+
+**`gradle/actions` stops at v5.** Version 6 moved caching into `gradle-actions-caching`,
+a proprietary component. Upgrading means accepting Gradle's
+[Terms of Use](https://gradle.com/legal/terms-of-use/) ([announcement](https://blog.gradle.org/github-actions-for-gradle-v6)).
+That is a licensing decision for the organisation, so
+[`dependabot.yml`](../../.github/dependabot.yml) ignores `>= 6` and #80 was closed
+unmerged. Dependabot still proposes v5 releases. Like every APK-only bump, those wait
+for a green `build-apk`.
 
 ## The caller template: an accepted exception
 
