@@ -52,7 +52,7 @@ The image is built and pushed before the scan in every mode, so a failing scan m
 
 **Where the report is.**
 
-- **Release asset** — attached to a GitHub prerelease tagged `TRIVY.SCAN_<release>_<ref><suffix>_<sha>`, downloadable by stable URL:
+- **Release asset** — attached to a GitHub prerelease tagged `TRIVY.SCAN_<release>_<ref><suffix>_<sha>`, whose git tag points at the scanned commit (`target_commitish: github.sha` on every step that can create it; without it GitHub tags the default branch, and the tag no longer proves which commit the reports came from — NC2-2932), downloadable by stable URL:
 
   ```text
   https://github.com/<owner>/<repo>/releases/download/TRIVY.SCAN_<release>_<ref><suffix>_<sha>/trivy-<repo>-<ref><suffix>-<sha>.report

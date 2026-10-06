@@ -71,6 +71,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
+          target_commitish: ${{ github.sha }}
           name: NTK.CHATWIDGET_${{ env.RELEASE }}_${{ env.SHORT_REF_NAME }}_${{ env.SHORT_SHA }}
           body: Automated Deployment
           draft: false
@@ -143,6 +144,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           name: ${{ env.RELEASE_TAG }}
           prerelease: false
           files: ${{ env.REPORT_FILE }}
