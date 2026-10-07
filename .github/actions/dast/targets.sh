@@ -225,7 +225,12 @@ WEBHOOK_URL=http://engine.example.invalid/webhook'
             # required by design — unset, the app exits with "ZAPO_DB_SCHEMA is required"
             # and the scan reports "not run". The entrypoint's zapo-bootstrap creates the
             # schema; the pre-zapo image never reads the var.
-            DT_EXTRA_ENV='ZAPO_DB_SCHEMA=zapo'
+            # ENCRYPTION_SECRET is not boot-checked, but every /api/proxies write
+            # (encryptData in src/utils/helpers.ts) 500s without it, so the scan would
+            # only ever see "Encryption secret is not set" there. Any string works — it
+            # is hashed into the key.
+            DT_EXTRA_ENV='ZAPO_DB_SCHEMA=zapo
+ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy'
             ;;
         nova.chatsconnector.signal-client-api/api)
             # Expected to match whatsapp; verified independently against this

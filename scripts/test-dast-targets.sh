@@ -166,6 +166,10 @@ case "$DT_EXTRA_ENV" in
     *ZAPO_DB_SCHEMA=*) echo "ok   whatsapp sets ZAPO_DB_SCHEMA"; pass=$((pass + 1)) ;;
     *) echo "FAIL whatsapp has no ZAPO_DB_SCHEMA — the app exits at boot"; fail=$((fail + 1)) ;;
 esac
+case "$DT_EXTRA_ENV" in
+    *ENCRYPTION_SECRET=*) echo "ok   whatsapp sets ENCRYPTION_SECRET"; pass=$((pass + 1)) ;;
+    *) echo "FAIL whatsapp has no ENCRYPTION_SECRET — every /api/proxies write 500s"; fail=$((fail + 1)) ;;
+esac
 
 # signal: expected to match whatsapp, verified independently rather than copied. It does
 # NOT match on two points — no health controller at all (so "/", like telegram/botflow),
