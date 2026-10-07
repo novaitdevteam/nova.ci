@@ -204,7 +204,13 @@ WEBHOOK_URL=http://engine.example.invalid/webhook'
             DT_NEEDS_DB=true
             DT_AUTH_MODE=db-insert
             DT_AUTH_HEADER=api_access_token; DT_AUTH_SCHEME_PREFIX=''
-            DT_TOKEN_INSERT_SQL="INSERT INTO tokens (api_token, role_id, created_at, updated_at) VALUES ('%TOKEN%', (SELECT id FROM token_roles WHERE role = 'super_admin' LIMIT 1), NOW(), NOW());"
+            # Its own customer, not the seeded one: since the zapo migration
+            # (20260926104815-update-token_roles.js) every token has exactly one owner
+            # (CHECK tokens_owner_xor_check: customer_id XOR session_id) and a customer
+            # holds at most one token (tokens_customer_id_unique), and the seed already
+            # gave support@novatalks.ai its token. Also valid on the pre-zapo schema,
+            # where customer_id is a nullable column.
+            DT_TOKEN_INSERT_SQL="WITH c AS (INSERT INTO customers (uid, created_at, updated_at) VALUES ('dast-scan@nova.ci', NOW(), NOW()) RETURNING id) INSERT INTO tokens (api_token, role_id, customer_id, created_at, updated_at) SELECT '%TOKEN%', (SELECT id FROM token_roles WHERE role = 'super_admin' LIMIT 1), c.id, NOW(), NOW() FROM c;"
             # docker/server.Dockerfile's runtime stage ships no npm, but entrypoint.sh
             # still migrates and seeds itself, straight through `node` against the
             # compiled dist/scripts/*.js (nest build compiles scripts/ and the seeders
@@ -214,10 +220,17 @@ WEBHOOK_URL=http://engine.example.invalid/webhook'
             # needed either way.
             DT_SETUP_COMMAND=''
             DT_SWAGGER_ENABLE=false
-            # No boot-time config validator here at all — every src/config/*.ts factory
-            # reads process.env directly with no Joi/class-validator schema, so nothing
-            # rejects a blank var at startup (unlike signal, below).
-            DT_EXTRA_ENV=''
+            # Since the zapo migration a zod schema (src/config/env.schema.ts) validates
+            # env at boot. Every field has a safe default except ZAPO_DB_SCHEMA, which is
+            # required by design — unset, the app exits with "ZAPO_DB_SCHEMA is required"
+            # and the scan reports "not run". The entrypoint's zapo-bootstrap creates the
+            # schema; the pre-zapo image never reads the var.
+            # ENCRYPTION_SECRET is not boot-checked, but every /api/proxies write
+            # (encryptData in src/utils/helpers.ts) 500s without it, so the scan would
+            # only ever see "Encryption secret is not set" there. Any string works — it
+            # is hashed into the key.
+            DT_EXTRA_ENV='ZAPO_DB_SCHEMA=zapo
+ENCRYPTION_SECRET=dast-dummy-dummy-dummy-dummy-dummy'
             ;;
         nova.chatsconnector.signal-client-api/api)
             # Expected to match whatsapp; verified independently against this
