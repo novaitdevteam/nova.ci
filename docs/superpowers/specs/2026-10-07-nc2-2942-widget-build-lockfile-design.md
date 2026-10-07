@@ -61,8 +61,9 @@ would build for a production folder on a typo).
    which skips them).
 6. **Check output** (new): `dist/index.html` must reference `"/static/widget/$TARGET/js/`; otherwise `::error::` and
    `exit 1` — proves `PUBLIC_PATH` actually reached the build.
-7. **Names carry the target**: release/tag `NTK.CHATWIDGET_<release>_<ref>_<target>_<sha>`, zip
-   `widget-release-<ref>-<target>-<sha>.zip`. Without it two builds of one commit for two folders collide in one
+7. **Names carry the target**: the target is folded into `SHORT_REF_NAME` (`<ref>_<target>`), so release/tag
+   `NTK.CHATWIDGET_<release>_<ref>_<target>_<sha>`, zip `widget-release-<ref>_<target>-<sha>.zip`, the Semgrep
+   report and the notifier link all carry it with no further edits. Without it two builds of one commit for two folders collide in one
    release. Nothing parses these names (checked: only docs and human reports mention them).
 
 ### `sast-scan` and notifier
