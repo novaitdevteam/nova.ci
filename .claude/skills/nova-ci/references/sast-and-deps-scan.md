@@ -45,7 +45,7 @@ image, ZAP probes the running app. Gitleaks covers secrets; ESLint answers none 
 standard one) has its own `sast-scan` job mirroring the pattern above: same
 every-non-`pull_request`-build gate, SHA-pinned checkout, `install-docker`, the same
 `semgrep` composite action, and it upserts its report onto the release `build-widget` already
-creates (`NTK.CHATWIDGET_<release>_<ref>_<sha>`) rather than a second one. It needs no
+creates (`NTK.CHATWIDGET_<release>_<ref>_<target>_<sha>`) rather than a second one. It needs no
 `PUBLISH_RELEASE` equivalent — `build-widget`'s `Create a Release` step is itself ungated, so
 every build it follows already has a release to attach to. It has **no Trivy and no DAST
 job** — that workflow zips `dist` and publishes it as a release asset, so there is no

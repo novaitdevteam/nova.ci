@@ -17,6 +17,7 @@ jobs:
       SHORT_SHA: ${{ steps.prep.outputs.SHORT_SHA }}
       SHORT_REF_NAME: ${{ steps.prep.outputs.SHORT_REF_NAME }}
       RELEASE: ${{ steps.prep.outputs.RELEASE }}
+      TARGET: ${{ steps.prep.outputs.TARGET }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,6 +39,16 @@ jobs:
           fi
           # A ref name is data: it is expanded into run: and script: further down.
           short_ref_name="$(printf '%s' "$short_ref_name" | sed 's#[^A-Za-z0-9_.-]#-#g')"
+          # The target folder comes from the tag, through an allowlist only: build-<target>[-anything].
+          # No match leaves TARGET empty; "Check target" fails the run after the tag is deleted.
+          target=""
+          if [[ "${GITHUB_REF_NAME}" =~ ^build-(v2|v3|qa1|ka|dev)(-|$) ]]; then
+            target="${BASH_REMATCH[1]}"
+            echo "PUBLIC_PATH=/static/widget/${target}" >> "$GITHUB_ENV"
+            # Carry the target into every name built from SHORT_REF_NAME (release, zip, report, link).
+            short_ref_name="${short_ref_name}_${target}"
+          fi
+          echo "TARGET=${target}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           echo "SHORT_REF_NAME=${short_ref_name}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Delete Tag
@@ -48,22 +59,34 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           #repo: ${{ github.repository_owner }}/${{ env.REP_NAME }} # target repo (optional). defaults to repo running this action
 
+      - name: Check target
+        run: |
+          if [[ -z "${TARGET}" ]]; then
+            echo "::error title=Unknown widget target::Tag '${GITHUB_REF_NAME}' names no target. Push build-v2, build-v3, build-qa1, build-ka or build-dev (an optional -suffix is allowed). The tag has been deleted."
+            exit 1
+          fi
+          echo "Building for PUBLIC_PATH=${PUBLIC_PATH}"
+
       - name: 💿 Setup NODEJS
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         id: node_inst
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
           package-manager-cache: false
 
       - name: Setup Components & Build
         env:
           UV_THREADPOOL_SIZE: 2
         run: |
-          curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-          echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-          sudo apt-get update && sudo apt-get install yarn zip -y
-          yarn install
-          yarn build
+          # Self-hosted images ship no zip (runner-environment rule); yarn is gone — the lockfile is the contract.
+          sudo apt-get update && sudo apt-get install -y zip
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          # PUBLIC_PATH must have reached the build: every asset path in index.html is under the target folder.
+          if ! grep -q "\"${PUBLIC_PATH}/js/" dist/index.html; then
+            echo "::error title=Wrong asset paths::dist/index.html does not reference ${PUBLIC_PATH}/js/ — PUBLIC_PATH did not reach the build."
+            exit 1
+          fi
           zip -r ./widget-release-"${SHORT_REF_NAME}"-"${SHORT_SHA}".zip ./dist
 
       - name: Create a Release
@@ -193,6 +216,7 @@ jobs:
             Image building has been completed ✅
 
             Download Link: https://github.com/novaitdevteam/novatalks.chatwidget/releases/download/NTK.CHATWIDGET_${{ needs.build-widget.outputs.RELEASE }}_${{ needs.build-widget.outputs.SHORT_REF_NAME }}_${{ needs.build-widget.outputs.SHORT_SHA }}/widget-release-${{ needs.build-widget.outputs.SHORT_REF_NAME }}-${{ needs.build-widget.outputs.SHORT_SHA }}.zip
+            Target: /static/widget/${{ needs.build-widget.outputs.TARGET }}
 
             ${{ steps.sast_line.outputs.value }}
 
