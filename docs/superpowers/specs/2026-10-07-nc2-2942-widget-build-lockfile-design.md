@@ -83,7 +83,7 @@ Switcher routing, Semgrep wrapper and its guards, permissions, pins, the `pull_r
 | `build-v3`, `build-qa1-NC2-2941`        | builds for that folder                                            |
 | `build` (old habit), `build-v4`, `build-NC2-2940` | tag deleted, run fails: "unknown target … use build-v2/v3/qa1/ka/dev" |
 | `rebuild-v3`, `x-build-v3`              | routed (contains `build`), no `^build-` match → fails loudly      |
-| Branch without `package-lock.json`      | `npm ci` fails loudly (every chatwidget branch has one today)     |
+| Branch without `package-lock.json` / `.nvmrc` | fails loudly at Setup Node ("node version file does not exist") or `npm ci`, after the tag is deleted. 48 of 109 remote branches (old dependabot/snyk, pre-2024) have neither; every active branch has both |
 | Branch where lockfile and `package.json` disagree | `npm ci` fails loudly — correct, the lockfile is the contract |
 | Branch built before #121 merges         | ships its lockfile versions (older than today's yarn resolution) — reason #121 merges first |
 
