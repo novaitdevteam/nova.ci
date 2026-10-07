@@ -156,11 +156,21 @@ case "$DT_TOKEN_INSERT_SQL" in
     *"'super_admin'"*) echo "ok   whatsapp INSERT targets the lowercase role value"; pass=$((pass + 1)) ;;
     *) echo "FAIL whatsapp INSERT does not reference the real 'super_admin' role value"; fail=$((fail + 1)) ;;
 esac
+# tokens_owner_xor_check rejects a token with neither customer_id nor session_id.
+case "$DT_TOKEN_INSERT_SQL" in
+    *"INSERT INTO customers"*"customer_id"*) echo "ok   whatsapp INSERT gives the token its own customer"; pass=$((pass + 1)) ;;
+    *) echo "FAIL whatsapp INSERT leaves the token ownerless — tokens_owner_xor_check rejects it"; fail=$((fail + 1)) ;;
+esac
+# The zod env schema has no default for ZAPO_DB_SCHEMA; without it the app never boots.
+case "$DT_EXTRA_ENV" in
+    *ZAPO_DB_SCHEMA=*) echo "ok   whatsapp sets ZAPO_DB_SCHEMA"; pass=$((pass + 1)) ;;
+    *) echo "FAIL whatsapp has no ZAPO_DB_SCHEMA — the app exits at boot"; fail=$((fail + 1)) ;;
+esac
 
 # signal: expected to match whatsapp, verified independently rather than copied. It does
 # NOT match on two points — no health controller at all (so "/", like telegram/botflow),
 # and a Joi env-validation schema (env.validation.ts) that requires five storage/S3 vars
-# non-blank, which whatsapp has no equivalent of.
+# non-blank (whatsapp's zod schema requires only ZAPO_DB_SCHEMA).
 reset_dt; dast_resolve_target nova.chatsconnector.signal-client-api api
 check "signal auth mode"       db-insert          "$DT_AUTH_MODE"
 check "signal header"          api_access_token   "$DT_AUTH_HEADER"
