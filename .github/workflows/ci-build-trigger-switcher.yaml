@@ -432,7 +432,7 @@ jobs:
       contents: write
     name: Call Widget Build On Push Tags
     if: ${{ github.event.repository.name == 'novatalks.chatwidget' && github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref_name, 'build') }}
-    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml@main
+    uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-widget-build.yaml@NC2-2942
     secrets: inherit
     with:
       runner_labels: ${{ inputs.runner_labels  || 'self-hosted' }}
