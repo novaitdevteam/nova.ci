@@ -1753,9 +1753,9 @@ Each report is also uploaded as a run-scoped artifact. It is kept one day where 
 release holds the report and the summary links it (Trivy, both ZAP scans), and fourteen
 days where the summary names the artifact as the full list and it may be the only copy
 (Semgrep, `deps-scan`). The artifact quota is the organisation's, so none of these keeps
-GitHub's 90-day default. The `workflow_dispatch` pentest and live-baseline reports do keep
-it: there the artifact is the only copy, and a pentest's result has to be readable three
-months later. A failed upload does not red the job (step-level `continue-on-error`): the quota
+GitHub's 90-day default. The `workflow_dispatch` pentest and live-baseline reports keep
+seven days: there the artifact is the only copy, so a result that has to be readable later
+is downloaded within the week. A failed upload does not red the job (step-level `continue-on-error`): the quota
 is the organisation's, and a full one is not a finding. Each job also writes a summary
 banner — `NOTE` when clean, `WARNING` for findings or a not-run, `CAUTION` when the
 scanner broke.
