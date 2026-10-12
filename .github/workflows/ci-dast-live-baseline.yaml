@@ -177,6 +177,7 @@ jobs:
           name: zap-live-baseline-report
           path: report.md
           if-no-files-found: warn
+          retention-days: 7
 
       # The notification's whole job is to save a click, so it carries the report's own
       # download URL, not just the run's. `artifact-url` is an output of the upload
