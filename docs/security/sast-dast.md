@@ -992,7 +992,7 @@ Trivy scans images, DAST boots them. Semgrep reads source, so it applies exactly
 does everywhere else. The widget's `sast-scan` mirrors the main workflow's: every
 non-`pull_request` build on any branch, same SHA-pinned checkout, same report-file
 convention, and it upserts its report onto the release `build-widget` already creates
-(`NTK.CHATWIDGET_<release>_<ref>_<sha>`) instead of a second one. It needs no
+(`NTK.CHATWIDGET_<release>_<ref>_<target>_<sha>`) instead of a second one. It needs no
 `PUBLISH_RELEASE` equivalent: `build-widget`'s own `Create a Release` step is ungated,
 so every build it follows already has a release, feature branches included.
 
