@@ -275,6 +275,14 @@ jobs:
               set_output unit_test_command "npm test"
               selected_unit_cmd="npm test"
               ;;
+            nova.botflow)
+              # Node's built-in runner over the repository's contract tests: no network, no services.
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output unit_test_command "npm test"
+              selected_unit_cmd="npm test"
+              ;;
             *) ;;  # other repos: no unit gate (no-op success)
           esac
 
