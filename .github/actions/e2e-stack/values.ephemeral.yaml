@@ -37,8 +37,6 @@ global:
     enabled: 'false'
   securityContext:
     enabled: 'false'
-  noderedSwaggerStats:
-    enabled: 'true'
   getFlowsJob: 'false'
   maintenance:
     enabled: 'false'
@@ -116,6 +114,18 @@ secrets:
       # /accounts/1/agents answered 422 password_policy_violation and the test blamed the
       # product for an input. Same shape as the @local admin address in .claude/rules/code-scanning.md.
       DEFAULT_USER_PASSWORD: E2e-Ephemeral-Not-A-Real-Secret-1!
+      # Chart 5.5.0 owns BotFlow's two tokens here, on the engine, and hands them to BotFlow
+      # (as NOVATALKS_BOTAGENT_TOKEN / NOVATALKS_ENGINE_TOKEN) and the dialer from its
+      # Deployments, which this stack does not render — stack.sh passes them on itself. The
+      # engine's seeds give the AgentBot and the AgentBot user these exact tokens. Two
+      # different values, as on the lab, and deliberately not the same string: while both held
+      # one placeholder the connector authenticated against the agent bot's row by coincidence.
+      AGENTBOT_INBOX_TOKEN: e2e-ephemeral-botagent-not-a-real-secret
+      AGENTBOT_USER_TOKEN: e2e-ephemeral-engine-not-a-real-secret
+      # Without these the chart generates both into a Secret per release, which this stack does
+      # not read, and the engine refuses to start: SDK auth and /bull-board are both on.
+      SDK_AUTH_TOKEN_SECRET: e2e-ephemeral-not-a-real-secret
+      BULL_BOARD_PASSWORD: e2e-ephemeral-not-a-real-secret
     firebaseData: {}
   objectStorage:
     Endpoint: https://s3.example.invalid
@@ -140,7 +150,7 @@ postgres:
   replica: 1
   sizing: small
   jobType: cron
-  jobToS3: 'true'
+  jobToS3: 'false'
   jobReindexSchedule: 30 5 * * *
   partitioningBootstrap:
     enabled: 'false'
@@ -163,14 +173,6 @@ engine:
   replica: 1
   probes: 'true'
   sizing: medium
-  # Campaigns need a JetStream consumer, and this flag is what makes the chart render the
-  # keys that build one — NATS_DURABLE, NATS_DELIVER_TO, NATS_SUBJECTS. Turning the feature
-  # on without it (an -e on the container, which is how this was first tried) leaves the
-  # engine building a consumer out of undefined, and it never reaches app.listen(). The
-  # server address is the one thing stack.sh overrides, like every other host and port.
-  nats:
-    enabled: 'true'
-    tls: 'false'
 botflow:
   replica: 1
   probes: 'false'
@@ -190,6 +192,9 @@ signal_client:
   enabled: 'false'
 dialer:
   enabled: 'false'
+# The stack does not run Flow Bot (on by default since chart 5.5.0), and no spec uses it.
+flowbot:
+  enabled: 'false'
 reporting_services:
   enabled: 'false'
 env:
@@ -198,7 +203,6 @@ env:
   ENGINE_LOG_LEVEL: debug
   ENGINE_FRONTEND_URL: https://localhost:18080
   ENGINE_STORE_URL: https://localhost:18080
-  ENGINE_AUTH_ACTIVE_PROVIDERS: email,ldap
   # A duration, not a credential — the name ends in TOKEN_EXPIRES_IN and the placeholder
   # landed here because of it. The lab runs 7d; a run lasts under two hours, so anything
   # sane works, but a non-duration string does not.
@@ -217,7 +221,6 @@ env:
   ENGINE_MAIL_REQUIRE_TLS: 'false'
   ENGINE_MAIL_SECURE: 'false'
   ENGINE_APPLICATION_CAMPAIGN_ENABLE: 'true'
-  ENGINE_NATS_SERVERS: 127.0.0.1:4222
   ENGINE_AWS_S3_BUCKET: ntk-dev-e2e-test
   ENGINE_AWS_S3_PUBLIC_URL: https://ntk-dev-e2e-test.novatalks.xyz
   ENGINE_AWS_S3_REGION: eeur
@@ -234,12 +237,6 @@ env:
   UI_VITE_APP_DELETE_CONTACT: 'false'
   UI_VITE_APP_MESSAGE_DYNAMIC_TIME: 'false'
   UI_NODE_TLS_REJECT_UNAUTHORIZED: '0'
-  # Two different tokens, as on the lab, and deliberately not the same string: BotFlow
-  # presents the first as the agent bot and the second from the NovaTalks connector, and
-  # while both held the identical placeholder the connector authenticated against the agent
-  # bot's row by coincidence. A coincidence that works is worse than a fault that shows.
-  BF_NOVATALKS_BOTAGENT_TOKEN: e2e-ephemeral-botagent-not-a-real-secret
-  BF_NOVATALKS_ENGINE_TOKEN: e2e-ephemeral-engine-not-a-real-secret
   BF_NODE_RED_CREDENTIAL_SECRET: e2e-ephemeral-not-a-real-secret
   BF_CONFIG_STORAGE_TYPE: redis
   BF_MULTINODE_SYNC: 'true'
