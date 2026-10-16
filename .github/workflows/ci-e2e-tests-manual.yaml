@@ -68,7 +68,7 @@ on:
       chart_version:
         required: false
         type: string
-        default: "5.5.0"
+        default: "5.5.0-rc.1"
       source_botflow_url:
         description: "Node-RED admin API of the stand whose flows an ephemeral stack copies."
         required: false
@@ -385,7 +385,7 @@ jobs:
         if: ${{ inputs.target == 'ephemeral' }}
         env:
           CHART_VERSION: ${{ inputs.chart_version }}
-          # The four builds chart 5.5.0 ships as its defaults (values.yaml, ver_*), and the same
+          # The four builds chart 5.5.0-rc.1 ships as its defaults (values.yaml, ver_*), and the same
           # four the lab should run: change them together with the chart and the lab, or an
           # ephemeral run and a lab run stop testing the same thing. A tag on the form replaces
           # its own image only. Chart 5.5.0 needs R4 builds: an R3 engine or dialer still waits

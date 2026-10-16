@@ -34,7 +34,7 @@ load_env() {
     . "${TESTS_REPO}/.env"
     set +a
 
-    export CHART_VERSION="${CHART_VERSION:-5.5.0}"
+    export CHART_VERSION="${CHART_VERSION:-5.5.0-rc.1}"
     export ENGINE_IMAGE="${ENGINE_IMAGE:-ghcr.io/novaitdevteam/novatalks.core:2026_R4_development_engine_b0044fe9}"
     export UI_IMAGE="${UI_IMAGE:-ghcr.io/novaitdevteam/novatalks.ui:2026_R4_chore-post-vite8-followups_b6bc8b29}"
     export BOTFLOW_IMAGE="${BOTFLOW_IMAGE:-ghcr.io/novaitdevteam/nova.botflow:2026_R4_development_028dff54}"

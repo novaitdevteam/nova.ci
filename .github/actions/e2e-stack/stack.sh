@@ -182,8 +182,8 @@ render_env() { # render_env <configmap-suffix> <output file>
 # NOVATALKS_BOTFLOW_HOST, DIALER_SERVICE_URL and BF_CONFIG_BOTFLOW_URL.
 #
 # Only a name in host position is touched — followed by a colon, a slash or the end of the
-# value — so NATS_NAME=e2e-engine-listener, which is an identifier and not an address, is
-# left alone. The dialer moves port as well as host: the chart gives it 3000, which the
+# value — so an identifier that merely starts with a service name (NATS_NAME=e2e-engine-listener
+# up to chart 5.4) is left alone. The dialer moves port as well as host: the chart gives it 3000, which the
 # engine already holds here.
 localise_env() { # localise_env <env-file>
     local file="$1" before after
