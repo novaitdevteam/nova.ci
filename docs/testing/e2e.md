@@ -29,7 +29,7 @@ one, which sits `open/inqueue` with the agent `online/Idle` beside it.
 | Comes from | whatever is deployed there | the release builds the lab runs, unless the form names another tag for an image; a chart version |
 | Runs at a time | one — a lease on the stand's own reset service, behind a `concurrency` group on `env_url` | as many as the pool allows; the group keys on the run id |
 | State | survives runs, so `reset_stand` exists | new every time, so `reset_stand` is refused |
-| Campaigns | run: since 2026-09-21 the lab's engine has a user on the cluster's NATS (`values.nats.yaml` in the lab's values, copied from `lab-evo` — those values are gitignored in `novatalks.charts`, so this lives only in a working copy and the Helm release, not in version control) | run, because the stack brings its own NATS and dialer |
+| Campaigns | run: since 2026-09-21 the lab's engine has a user on the cluster's NATS (`values.nats.yaml` in the lab's values, copied from `lab-evo` — those values are gitignored in `novatalks.charts`, so this lives only in a working copy and the Helm release, not in version control) | run, because the stack brings its own dialer; since chart 5.5.0 the engine and the dialer exchange campaigns over the dialer's Redis database, so there is no NATS |
 | Costs | a `drop` when asked for one (121 s, run 36062984485) | 139 s of bring-up (run 36062979251), on an `e2e-medium` runner |
 
 One lab run at a time is held by the stand, not only by the workflow. The `concurrency` group
@@ -58,7 +58,7 @@ particular build, to run two suites at once, or to get a failure somebody else c
 the stand moves under you, and a run there cannot be repeated twice the same way.
 
 The ephemeral stack is [`e2e-stack/stack.sh`](../../.github/actions/e2e-stack/stack.sh): postgres,
-redis, NATS, the engine, the dialer, BotFlow, the UI and one nginx serving the single origin
+redis, the engine, the dialer, BotFlow, the UI and one nginx serving the single origin
 `http://localhost:18080`. Its configuration is rendered from the published chart rather than
 kept here, its flows are copied from the stand at boot, and it is torn down whatever the suite
 did — with every container's log when the suite went red, and on every run a digest of the

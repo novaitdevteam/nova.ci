@@ -34,11 +34,11 @@ load_env() {
     . "${TESTS_REPO}/.env"
     set +a
 
-    export CHART_VERSION="${CHART_VERSION:-5.4.7}"
-    export ENGINE_IMAGE="${ENGINE_IMAGE:-ghcr.io/novaitdevteam/novatalks.core:2026_R3_NC2-2778_engine_f64f9736}"
-    export UI_IMAGE="${UI_IMAGE:-ghcr.io/novaitdevteam/novatalks.ui:2026_R3_development_20fdf74f}"
-    export BOTFLOW_IMAGE="${BOTFLOW_IMAGE:-ghcr.io/novaitdevteam/nova.botflow:2026_R3_master_f9126a11}"
-    export DIALER_IMAGE="${DIALER_IMAGE:-ghcr.io/novaitdevteam/novatalks.dialer:2026_R3_master_a81e7763}"
+    export CHART_VERSION="${CHART_VERSION:-5.5.0-rc.1}"
+    export ENGINE_IMAGE="${ENGINE_IMAGE:-ghcr.io/novaitdevteam/novatalks.core:2026_R4_development_engine_b0044fe9}"
+    export UI_IMAGE="${UI_IMAGE:-ghcr.io/novaitdevteam/novatalks.ui:2026_R4_chore-post-vite8-followups_b6bc8b29}"
+    export BOTFLOW_IMAGE="${BOTFLOW_IMAGE:-ghcr.io/novaitdevteam/nova.botflow:2026_R4_development_028dff54}"
+    export DIALER_IMAGE="${DIALER_IMAGE:-ghcr.io/novaitdevteam/novatalks.dialer:2026_R4_development_7361b4f5}"
 
     export E2E_SOURCE_BOTFLOW_URL="${E2E_SOURCE_BOTFLOW_URL:-https://novatalks-e2e-tests.k3s.dev.novait.com.ua/redbot}"
     export E2E_SOURCE_BOTFLOW_LOGIN="${BOTFLOW_ADMIN_LOGIN:?BOTFLOW_ADMIN_LOGIN is not in the tests .env}"

@@ -68,7 +68,7 @@ on:
       chart_version:
         required: false
         type: string
-        default: "5.4.7"
+        default: "5.5.0-rc.1"
       source_botflow_url:
         description: "Node-RED admin API of the stand whose flows an ephemeral stack copies."
         required: false
@@ -385,13 +385,15 @@ jobs:
         if: ${{ inputs.target == 'ephemeral' }}
         env:
           CHART_VERSION: ${{ inputs.chart_version }}
-          # The release builds, and the same four the lab runs: change them together with the
-          # lab, or an ephemeral run and a lab run stop testing the same thing. A tag on the form
-          # replaces its own image only.
-          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag || '2026_R3_NC2-2778_engine_f64f9736' }}
-          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag || '2026_R3_development_20fdf74f' }}
-          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag || '2026_R3_master_f9126a11' }}
-          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag || '2026_R3_master_a81e7763' }}
+          # The four builds chart 5.5.0-rc.1 ships as its defaults (values.yaml, ver_*), and the same
+          # four the lab should run: change them together with the chart and the lab, or an
+          # ephemeral run and a lab run stop testing the same thing. A tag on the form replaces
+          # its own image only. Chart 5.5.0 needs R4 builds: an R3 engine or dialer still waits
+          # for NATS, which this stack no longer starts.
+          ENGINE_IMAGE: ghcr.io/novaitdevteam/novatalks.core:${{ inputs.engine_tag || '2026_R4_development_engine_b0044fe9' }}
+          UI_IMAGE: ghcr.io/novaitdevteam/novatalks.ui:${{ inputs.ui_tag || '2026_R4_chore-post-vite8-followups_b6bc8b29' }}
+          BOTFLOW_IMAGE: ghcr.io/novaitdevteam/nova.botflow:${{ inputs.botflow_tag || '2026_R4_development_028dff54' }}
+          DIALER_IMAGE: ghcr.io/novaitdevteam/novatalks.dialer:${{ inputs.dialer_tag || '2026_R4_development_7361b4f5' }}
           # Attachments go to the stand's own bucket, whose 30-day retention is the cleanup
           # (spec D8).
           # No `local` fallback: there is no such driver. Both the engine's and the dialer's

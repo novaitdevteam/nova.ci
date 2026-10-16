@@ -12,20 +12,18 @@
 #     the chart learns it, and this stack keeps booting yesterday's product.
 #   * Flows are copied from the stand at boot (D7). The canonical chatbot flow does not transfer
 #     a conversation to a team the way the QA set does, proven on the stand on 2026-09-17.
-#   * NATS starts before the engine: with campaigns on, the engine awaits it before listening.
+#   * No NATS: since chart 5.5.0 (R4) the engine and the dialer exchange campaigns over the
+#     dialer's Redis database, the CAMPAIGN_BUS_* keys the chart renders for the engine.
 #   * One front proxy serves a single origin (D15), because the UI image serves static files and
 #     proxies nothing, and the suite derives its API URL from ENV_URL.
-#   * Everything runs on the host network, like the DAST bring-up: that is what lets
-#     dast_bring_up_nats be reused unchanged rather than parameterised for a bridge network,
-#     and a runner VM serves one job at a time, so the fixed ports cannot collide.
+#   * Everything runs on the host network, like the DAST bring-up: a runner VM serves one
+#     job at a time, so the fixed ports cannot collide.
 #
 # Every wait fails loudly with the container's own log. "The image did not come up" with no
 # evidence is the failure mode this repository has paid for twice.
 set -euo pipefail
 
 STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/dev/null
-. "${STACK_DIR}/../dast/dast-common.sh"
 # The per-repository boot table, sourced rather than copied for the same reason every DAST
 # caller reaches it through one file: what an image needs before it will answer is knowledge
 # that goes stale in every copy but the one being maintained.
@@ -60,9 +58,7 @@ RELEASE="${E2E_HELM_RELEASE:-e2e}"
 PG="${PREFIX}-postgres"; REDIS="${PREFIX}-redis"
 ENGINE="${PREFIX}-engine"; DIALER="${PREFIX}-dialer"; BOTFLOW="${PREFIX}-botflow"
 UI="${PREFIX}-ui"; PROXY="${PREFIX}-proxy"; MAIL="${PREFIX}-mail"; PASTEBIN="${PREFIX}-pastebin"; GEOIP="${PREFIX}-geoip"
-# nova-nats is the name dast_bring_up_nats gives it; this reuses that helper rather than
-# copying its stream setup, so the name comes with it.
-ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" "$PASTEBIN" "$GEOIP" nova-nats "$REDIS" "$PG" "$PREFIX-probe")
+ALL_CONTAINERS=("$PROXY" "$UI" "$BOTFLOW" "$DIALER" "$ENGINE" "$MAIL" "$PASTEBIN" "$GEOIP" "$REDIS" "$PG" "$PREFIX-probe")
 
 # The stack's own mail server: SMTP and IMAP in one container, any address, any password.
 # Every letter the suite reads used to cross the internet: customer mail went out through
@@ -186,8 +182,8 @@ render_env() { # render_env <configmap-suffix> <output file>
 # NOVATALKS_BOTFLOW_HOST, DIALER_SERVICE_URL and BF_CONFIG_BOTFLOW_URL.
 #
 # Only a name in host position is touched — followed by a colon, a slash or the end of the
-# value — so NATS_NAME=e2e-engine-listener, which is an identifier and not an address, is
-# left alone. The dialer moves port as well as host: the chart gives it 3000, which the
+# value — so an identifier that merely starts with a service name (NATS_NAME=e2e-engine-listener
+# up to chart 5.4) is left alone. The dialer moves port as well as host: the chart gives it 3000, which the
 # engine already holds here.
 localise_env() { # localise_env <env-file>
     local file="$1" before after
@@ -342,7 +338,7 @@ up() {
     grep -q "localhost:${PROXY_PORT}" "${STACK_DIR}/values.ephemeral.yaml" \
         || fail "values.ephemeral.yaml does not name localhost:${PROXY_PORT} — the origin and the proxy port have drifted apart"
     : "${CHART_PACKAGE:=ghcr.io/novaitdevteam/novatalks.charts/novatalks-platform}"
-    : "${CHART_VERSION:?CHART_VERSION must name a published chart version, e.g. 5.4.7}"
+    : "${CHART_VERSION:?CHART_VERSION must name a published chart version, e.g. 5.5.0}"
     : "${ENGINE_IMAGE:?}" "${UI_IMAGE:?}" "${BOTFLOW_IMAGE:?}" "${DIALER_IMAGE:?}"
 
     # The chart is a published OCI package, not a git checkout: a version pins configuration
@@ -436,20 +432,13 @@ up() {
     started "$GEOIP" "the GeoIP API"
     wait_http "geoip" "http://127.0.0.1:${GEOIP_PORT}/readyz" "$GEOIP" 60
 
-    log "nats"
-    # Shared with the DAST bring-up rather than copied: the 'campaign' stream the dialer's
-    # client asks for at startup is easy to forget, and a JetStream without it still answers
-    # "no stream matches subject".
-    dast_bring_up_nats fail "${WORK}/nats-stream.log"
-
-    # Read before the engine starts, because the seeder needs one of them. The seeds create
-    # the AgentBot *and* a token for it, from AGENTBOT_INBOX_TOKEN or a random value when
-    # that is unset — and the chart never renders it, so on a fresh database the engine ends
-    # up signing its calls to BotFlow with a token BotFlow has never heard of. BotFlow then
-    # ignores every agent-bot call in silence: the conversation is created, the bot is asked,
-    # nothing answers, and the suite waits for an offer that cannot come.
-    bot_token="$(env_value NOVATALKS_BOTAGENT_TOKEN "${WORK}/botflow.env")"
-    engine_token="$(env_value NOVATALKS_ENGINE_TOKEN "${WORK}/botflow.env")"
+    # BotFlow's two tokens. Since chart 5.5.0 they are the engine's (AGENTBOT_INBOX_TOKEN,
+    # AGENTBOT_USER_TOKEN), and the chart's BotFlow Deployment, which this stack does not
+    # render, hands them on — so they are passed to BotFlow below. The seeds give the AgentBot
+    # and the AgentBot user these exact tokens; before the chart rendered them the seeds made
+    # random ones, and BotFlow ignored every agent-bot call in silence.
+    bot_token="$(env_value AGENTBOT_INBOX_TOKEN "${WORK}/engine.env")"
+    engine_token="$(env_value AGENTBOT_USER_TOKEN "${WORK}/engine.env")"
     # The engine calls the dialer with this and the dialer accepts it because it is in its
     # API_ACCESS_TOKENS — the env-token path targets.sh documents for the DAST api-scan. Both
     # sides are given the same generated value, which avoids the ordering problem the stand
@@ -457,8 +446,12 @@ up() {
     # upgraded a second time to learn it. Nothing is written to the dialer's database.
     dialer_token="$(openssl rand -hex 24)"
     mask "$dialer_token"
+    # The chart hands the engine its JWT key from a Secret (secretKeyRef), which this stack does
+    # not render, and the R4 engine refuses to start without one; per run, like the token above.
+    jwt_secret="$(openssl rand -hex 32)"
+    mask "$jwt_secret"
     [ -n "$bot_token" ] && [ -n "$engine_token" ] \
-        || fail "the chart rendered no NOVATALKS_BOTAGENT_TOKEN / NOVATALKS_ENGINE_TOKEN for BotFlow"
+        || fail "the chart rendered no AGENTBOT_INBOX_TOKEN / AGENTBOT_USER_TOKEN for the engine — chart older than 5.5.0?"
 
     log "engine ${ENGINE_IMAGE}"
     # The key pair goes in under the names the engine reads, AWS_S3_ACCESS_KEY_ID and
@@ -470,12 +463,10 @@ up() {
     docker run -d --name "$ENGINE" --network host --env-file "${WORK}/engine.env" \
         -v "${WORK}/proxy.crt:/etc/e2e-proxy-ca.crt:ro" \
         -e NODE_EXTRA_CA_CERTS=/etc/e2e-proxy-ca.crt \
-        -e AGENTBOT_INBOX_TOKEN="$bot_token" \
-        -e DIALER_SERVICE_TOKEN="$dialer_token" \
+        -e DIALER_SERVICE_TOKEN="$dialer_token" -e AUTH_JWT_SECRET="$jwt_secret" \
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=novatalks \
         -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
-        -e NATS_SERVERS=127.0.0.1:4222 \
         -e MAIL_SYSTEM_HOST=127.0.0.1 -e MAIL_SYSTEM_PORT="$MAIL_SMTP_PORT" -e MAIL_SYSTEM_USER= \
         -e MAIL_HOST=127.0.0.1 -e MAIL_PORT="$MAIL_SMTP_PORT" \
         -e PASTEBIN_BASE_URL="http://127.0.0.1:${PASTEBIN_PORT}/" \
@@ -486,13 +477,6 @@ up() {
         -e AWS_S3_REGION="${AWS_S3_REGION:-eeur}" -e AWS_S3_FORCE_PATH_STYLE=true \
         "$ENGINE_IMAGE" >/dev/null || fail "the engine container refused to start"
     started "$ENGINE" "the engine"
-    # Campaigns are on, and they are on in the values rather than as an -e here: the engine
-    # awaits a JetStream consumer before it listens, and the chart renders the keys that
-    # build one — NATS_DURABLE, NATS_DELIVER_TO, NATS_SUBJECTS — only under
-    # engine.nats.enabled. Forcing the feature past that flag builds a consumer out of
-    # undefined and never reaches app.listen(). NATS_SERVERS below is a host override, which
-    # is all this script is allowed to change about a rendered environment.
-    #
     # Migrations and seeds run from the engine's own entrypoint; /readyz is the completion
     # signal, which is why nothing here runs a setup command of its own. It gets its own,
     # longer budget because that work is real: 291 migrations and the full seed set against an
@@ -573,15 +557,15 @@ up() {
         limit 1 returning 1" 2>&1)" || fail "could not seed the API token: ${inserted}" "$PG"
     [ "$inserted" = "1" ] \
         || fail "no users row for ${admin_user}, so every API call the suite makes answers 401 (psql said: ${inserted:-nothing})" "$PG"
-    # The NovaTalks connector in BotFlow presents its own token on every call into the engine
-    # — find_or_create, messages, everything the channel flows do. The seeds create no row for
-    # it, and it only appeared to work while it held the same string as the agent bot's.
+    # The NovaTalks connector in BotFlow presents its own token on every call into the engine.
+    # The seeds give it to the AgentBot user from AGENTBOT_USER_TOKEN, as on the lab; inserting
+    # it again for the admin, as this did before chart 5.5.0, now breaks the token's unique index.
+    # Checked rather than assumed, because a missing row is a 401 on every channel message.
     inserted="$(docker exec "$PG" psql -U novatalks -d novatalks -v ON_ERROR_STOP=1 -qtAX -c "
-        insert into access_tokens (owner_type, owner_id, token, created_at, updated_at)
-        select 'User', id, '${engine_token}', now(), now() from users where email = '${admin_user}'
-        limit 1 returning 1" 2>&1)" || fail "could not seed the BotFlow connector token: ${inserted}" "$PG"
+        select count(*) from access_tokens where owner_type = 'User' and token = '${engine_token}'" 2>&1)" \
+        || fail "could not check the BotFlow connector token: ${inserted}" "$PG"
     [ "$inserted" = "1" ] \
-        || fail "no users row for ${admin_user}, so every call BotFlow makes into the engine answers 401" "$PG"
+        || fail "the seeds made no users token from AGENTBOT_USER_TOKEN, so every call BotFlow makes into the engine answers 401" "$PG"
 
     # The admin has signed in before, as on any stand that has been used. The UI opens its
     # onboarding modal over the whole page for a user whose last_sign_in_at is null, so on a
@@ -592,7 +576,7 @@ up() {
         -c "update users set last_sign_in_at = now() where email = '${admin_user}'" >/dev/null \
         || fail "could not mark ${admin_user} as having signed in" "$PG"
 
-    log "seeded an API token for ${admin_user}, and BotFlow's own connector token"
+    log "seeded an API token for ${admin_user}"
 
     # One admin per worker, beyond the seeded one. The engine keeps one session per device type,
     # and 70 spec files sign in as the default admin, so parallel workers signed each other out:
@@ -620,10 +604,10 @@ up() {
     log "created ${E2E_ADMIN_POOL_SIZE:-7} per-worker admins"
 
     log "dialer ${DIALER_IMAGE}"
-    # Its boot environment — HEALTH_ENABLED, the NATS keys, the S3 dummies — comes from the
-    # api-scan arm of the target table, which is the one place that knows it. NATS_DELIVER_TO
-    # is the line that matters: without it the dialer connects, finds the stream, and dies
-    # building a push consumer with no deliver_subject. A live pentest run paid for that once.
+    # Its boot environment — HEALTH_ENABLED, the S3 dummies — comes from the api-scan arm of
+    # the target table, which is the one place that knows it. The campaign bus has to be the
+    # engine's to the byte, so it is read from the engine's render rather than written twice;
+    # its Redis is the dialer's own default, 127.0.0.1:6379.
     dast_resolve_target novatalks.dialer api
     printf '%s\n' "$DT_EXTRA_ENV" > "${WORK}/dialer.env"
     # APP_PORT, not PORT: app.config.ts validates APP_PORT with a Joi default of 3006, so PORT
@@ -649,7 +633,8 @@ up() {
         -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
         -e DATABASE_USERNAME=novatalks -e DATABASE_PASSWORD=e2e-local -e DATABASE_NAME=dialer \
         -e DATABASE_URL="postgresql://novatalks:e2e-local@127.0.0.1:5432/dialer" \
-        -e NATS_SERVERS=127.0.0.1:4222 \
+        -e CAMPAIGN_BUS_REDIS_DB="$(env_value CAMPAIGN_BUS_REDIS_DB "${WORK}/engine.env")" \
+        -e CAMPAIGN_BUS_PREFIX="$(env_value CAMPAIGN_BUS_PREFIX "${WORK}/engine.env")" \
         "$DIALER_IMAGE" >/dev/null || fail "the dialer container refused to start"
     started "$DIALER" "the dialer"
     wait_http "dialer" "http://127.0.0.1:${DIALER_PORT}/readyz" "$DIALER"
@@ -669,6 +654,7 @@ up() {
         -e BF_REDIS_HOST=127.0.0.1 -e BF_REDIS_PORT=6379 -e BF_REDIS_DB=15 \
         -e NOVATALKS_ENGINE_URL="http://127.0.0.1:${ENGINE_PORT}" \
         -e NOVATALKS_BOTAGENT_WEBHOOK="$bot_hook" \
+        -e NOVATALKS_BOTAGENT_TOKEN="$bot_token" -e NOVATALKS_ENGINE_TOKEN="$engine_token" \
         "$BOTFLOW_IMAGE" >/dev/null || fail "the botflow container refused to start"
     started "$BOTFLOW" "botflow"
     wait_http "botflow" "http://127.0.0.1:${BOTFLOW_PORT}/redbot/" "$BOTFLOW"
@@ -844,7 +830,7 @@ down() {
     # A runner is reused: a container left holding 3000 or 5432 meets the next job as a boot
     # failure in whatever runs there next, with nothing pointing back here.
     local left
-    left="$(docker ps -a --filter "name=^${PREFIX}-" --filter 'name=^nova-nats$' --format '{{.Names}}' | tr '\n' ' ')"
+    left="$(docker ps -a --filter "name=^${PREFIX}-" --format '{{.Names}}' | tr '\n' ' ')"
     if [ -n "$left" ]; then
         printf '::error::teardown left containers behind: %s\n' "$left" >&2
         exit 1
