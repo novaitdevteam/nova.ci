@@ -71,6 +71,10 @@ Images are pushed to Docker Hub and GHCR as:
 
 The workflow deletes the source tag only for real tag-triggered builds where `build_target` is empty. PR builds never delete tags.
 
+A tag build whose commit is on `master` also moves `latest` to the new image. In a repository with several images (`novatalks.core`'s engine and reporting, `novatalks.rag`'s processes) that is whichever image built last, so deploy those by the full tag above, never by `latest`. A per-image `latest${IMAGE_SUFFIX}` would fix it but changes what core's `latest` points at, so it waits for its own decision.
+
+The build passes no `--build-arg`, so the `GIT_SHA` / `BUILD_DATE` labels the product Dockerfiles declare (`org.opencontainers.image.revision`, `.created`) are empty in CI-built images. The commit is still in the tag's `<short-sha>`.
+
 ## Build cache
 
 A GHCR registry cache is kept per image variant:

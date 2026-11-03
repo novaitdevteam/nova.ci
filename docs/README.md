@@ -26,6 +26,8 @@ Pages are grouped by section; each section keeps its diagrams in its own `assets
 | | [Reference](reference/reference.md) | Every reusable workflow, internal action and agent-context file. |
 | [`superpowers/`](superpowers/) | plans and specs | Records of how larger changes were designed; not pages. |
 
+**Working on nova.ci itself with an agent:** copy `.env.example` to `.env`, fill in the Outline and Jira values, and launch with `make claude`. `.mcp.json` takes `${outline_host}`, `${jira_mcp}` and their tokens from the process environment, not from `.env`, so a plain `claude` starts with both servers failed (`'url' is not a valid URL`). Run [`make validate`](reference/validation.md) after every change.
+
 ---
 
 [← Repository README](../README.md)

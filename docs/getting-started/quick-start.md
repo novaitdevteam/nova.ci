@@ -82,11 +82,27 @@ jobs:
 
 Runner selection lives in [`ci-build-create-runner.sh`](../../.github/workflows/ci-build-create-runner.sh), downloaded from `main` — see [Runners](../pipeline/runners.md).
 
+The caller reads `PERSONAL_ACCESS_TOKEN` and `HCLOUD_TOKEN`; the build reads `CR_DH_USERNAME` / `CR_DH_TOKEN` for Docker Hub and the notifiers `TG_NOTIFICATION_BOT_ID` / `TG_NOTIFICATION_BOT_TOKEN` / `GC_NOTIFICATION_WEBHOOK`. Check they exist on the repository (`gh secret list`) before the first run: a missing one arrives as an empty string, not an error.
+
+<details>
+<summary>A new repository: the nova.ci side comes first</summary>
+
+The caller alone does nothing for a repository nova.ci does not know: every switcher job is gated on a repository list, so the first run reports a green bootstrap and skips everything else. Land the nova.ci change **before** the caller, so the caller's first pull request is the first live run. `novatalks.rag` (NC2-3092, nova.ci#98) is the worked example. The nova.ci change touches:
+
+- [`ci-build-trigger-switcher.yaml`](../../.github/workflows/ci-build-trigger-switcher.yaml): the three scan lists (`secret-scan`, `sast-scan`, `deps-scan` — identical, keep them so), the tag build route and the pull request build route.
+- [`ci-build-ntk-on-push-tags-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-build.yaml): a lint arm and a unit arm in the two `Resolve … plan` steps (none means `⏭️ n/a`, never a fake `✅`), and a `Set Dockerfile path` arm if the repository has no `docker/server.Dockerfile`. Run the repository's own lint and test scripts locally first.
+- The repository counts and lists in `docs/`, `.claude/rules/`, the `nova-ci` skill and its mirror, and `scripts/gitleaks-baseline.sh`.
+
+Trivy and Semgrep need nothing more. DAST does: a repository joins it only on request, through its own `targets.sh` arm read from its code — see the `dast-target-wiring` skill.
+
+</details>
+
 **2. Trigger something:**
 
 | I want to… | Do this |
 | --- | --- |
 | Build and publish an image | `git tag build-NC2-1234 && git push origin build-NC2-1234` |
+| Build one image of a multi-image repository | `novatalks.core`: `build-engine`, `build-reporting`, … ([Dockerfile selection](../pipeline/build-pipeline.md#dockerfile-selection)); `novatalks.rag`: `build-<process>[-NC2-1234]`, one tag per process in its `docker/` |
 | Build **and** scan the image for CVEs | `git tag scan-NC2-1234 && git push origin scan-NC2-1234` |
 | Run unit tests only | `git tag unit-test-NC2-1234 && git push …` |
 | Run integration tests only | `git tag int-test-NC2-1234 && git push …` |
