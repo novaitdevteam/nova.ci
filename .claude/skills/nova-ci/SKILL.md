@@ -99,7 +99,7 @@ Standard build repositories currently are:
 - `build-message-source-id`: `docker/message-source-id.Dockerfile`, suffix `_migrate-message-source-id`.
 - `build` or any default target: `docker/server.Dockerfile`, no suffix.
 - On `novatalks.flowrunner`, any target: `./Dockerfile` at the repository root, no suffix — it has no `docker/` directory for the default arm to find.
-- On `novatalks.rag`, one image per process: `build-api`, `build-worker-index`, `build-worker-crawl`, `build-scheduler`, `build-migrate` (each may carry a `-…` tail) → `docker/<process>.Dockerfile`, suffix `_<process>`. A bare `build` or a `scan*` tag builds the API, the representative image; any other target fails the step rather than quietly building the API for a mistyped name — `apiscan*` included, since rag has no `api-scan` target and the run would build and scan nothing. It has no `server.Dockerfile`.
+- On `novatalks.rag` — microservices, one image per process, each built by its own tag: `build-<process>[-…]` → `docker/<process>.Dockerfile`, suffix `_<process>`. The process list is read from the checkout's `docker/*.Dockerfile`, not kept in nova.ci, so a new process needs no change here; the longest matching name wins (`build-worker-index-2` is `worker-index` even beside a `worker`). A bare `build` or a `scan*` tag builds the API, the representative image. A name with no Dockerfile fails the step rather than publishing the wrong image under a plausible tag — `apiscan*` too, since rag has no `api-scan` target and the run would scan nothing. It has no `server.Dockerfile`.
 
 Pull request events run lint and unit tests only. Keep the `build-image` and notifier jobs gated on `github.event_name != 'pull_request'` so PRs never build or publish an image.
 

@@ -503,23 +503,29 @@ jobs:
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_OUTPUT"
           elif [[ "$REPO_NAME" == "novatalks.rag" ]]; then
-            # One image per process, docker/<process>.Dockerfile, and no server.Dockerfile:
-            # build-<process>[-…] picks one; a bare build or a scan* tag builds the API,
-            # the representative image, as the engine is for novatalks.core. Anything else
-            # fails rather than quietly building the API for a mistyped process name, and so
-            # does apiscan*: rag has no api-scan target, so it would build and scan nothing.
-            case "$BUILD_TARGET" in
-              build-api|build-api-*)                   process=api ;;
-              build-worker-index|build-worker-index-*) process=worker-index ;;
-              build-worker-crawl|build-worker-crawl-*) process=worker-crawl ;;
-              build-scheduler|build-scheduler-*)       process=scheduler ;;
-              build-migrate|build-migrate-*)           process=migrate ;;
-              build|scan*)                             process=api ;;
-              *)
-                echo "::error::novatalks.rag: '$BUILD_TARGET' names no image. Use build-api, build-worker-index, build-worker-crawl, build-scheduler or build-migrate."
-                exit 1
-                ;;
-            esac
+            # One image per process, each built by its own tag: build-<process>[-…] picks
+            # docker/<process>.Dockerfile, read from the checkout, so a new process needs
+            # no change here. The longest matching name wins (build-worker-index-2 is
+            # worker-index, not worker). A bare build or a scan* tag builds the API, the
+            # representative image, as the engine is for novatalks.core. A name with no
+            # Dockerfile fails rather than publishing the wrong image under a plausible
+            # tag, and so does apiscan*: rag has no api-scan target, so it would scan nothing.
+            process=""
+            available=""
+            rest="${BUILD_TARGET#build-}"
+            for f in docker/*.Dockerfile; do
+              [[ -f "$f" ]] || continue
+              name="$(basename "$f" .Dockerfile)"
+              available+=" build-${name}"
+              if [[ "$BUILD_TARGET" == build-* ]] && [[ "$rest" == "$name" || "$rest" == "$name"-* ]] && (( ${#name} > ${#process} )); then
+                process="$name"
+              fi
+            done
+            case "$BUILD_TARGET" in build|scan*) process=api ;; esac
+            if [[ -z "$process" || ! -f "docker/${process}.Dockerfile" ]]; then
+              echo "::error::novatalks.rag: '$BUILD_TARGET' names no image. Use one of:${available:- <no docker/*.Dockerfile found>}."
+              exit 1
+            fi
             echo "DOCKERFILE_PATH=./docker/${process}.Dockerfile" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_${process}" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_${process}" >> "$GITHUB_OUTPUT"
