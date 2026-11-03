@@ -122,6 +122,13 @@ jobs:
               set_output cache_dependency_path "package-lock.json"
               set_output lint_command "npm run lint"
               ;;
+            novatalks.rag)
+              strategy="novatalks.rag"
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output lint_command "npm run lint"
+              ;;
             novatalks.uspacy.connector)
               strategy="novatalks.uspacy.connector"
               set_output install_command "npm install"
@@ -277,6 +284,15 @@ jobs:
               ;;
             nova.botflow)
               # Node's built-in runner over the repository's contract tests: no network, no services.
+              set_output install_command "npm ci"
+              set_output node_cache "npm"
+              set_output cache_dependency_path "package-lock.json"
+              set_output unit_test_command "npm test"
+              selected_unit_cmd="npm test"
+              ;;
+            novatalks.rag)
+              # `jest --selectProjects unit`: no database, no network. Its integration
+              # project needs pgvector, Redis and MinIO and is not wired into CI.
               set_output install_command "npm ci"
               set_output node_cache "npm"
               set_output cache_dependency_path "package-lock.json"
@@ -500,6 +516,26 @@ jobs:
             echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_OUTPUT"
+          elif [[ "$REPO_NAME" == "novatalks.rag" ]]; then
+            # One image per process, docker/<process>.Dockerfile, and no server.Dockerfile:
+            # build-<process>[-…] picks one; a bare build or a scan* tag builds the API,
+            # the representative image, as the engine is for novatalks.core. Anything else
+            # fails rather than quietly building the API for a mistyped process name.
+            case "$BUILD_TARGET" in
+              build-api*)                   process=api ;;
+              build-worker-index*)          process=worker-index ;;
+              build-worker-crawl*)          process=worker-crawl ;;
+              build-scheduler*)             process=scheduler ;;
+              build-migrate*)               process=migrate ;;
+              build|scan*|apiscan*)         process=api ;;
+              *)
+                echo "::error::novatalks.rag: '$BUILD_TARGET' names no image. Use build-api, build-worker-index, build-worker-crawl, build-scheduler or build-migrate."
+                exit 1
+                ;;
+            esac
+            echo "DOCKERFILE_PATH=./docker/${process}.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_${process}" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_${process}" >> "$GITHUB_OUTPUT"
           elif [[ "$REPO_NAME" == "novatalks.flowrunner" ]]; then
             # Single image, Dockerfile at the repository root -- it has no docker/ directory
             # for the default arm below to find.

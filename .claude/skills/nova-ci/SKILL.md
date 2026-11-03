@@ -68,7 +68,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - Specialized tag workflows exist for docs, mobile APK/PWA/SPA/CRM, chat widget and botflow assets.
 - The chat widget builds with `npm ci` from its lockfile (never `yarn`: the repo has no `yarn.lock`, so yarn ignored the lockfile and shipped whatever was newest in range). The tag must be `build-<target>[-…]` with `<target>` ∈ `v2` `v3` `qa1` `ka` `dev`; the workflow sets `PUBLIC_PATH=/static/widget/<target>` itself and does not rely on the repo's `.env` (untracked once chatwidget#112 merges), folds the target into `SHORT_REF_NAME` so the release and zip carry it, and fails a bare `build` after deleting the tag.
 - Playwright E2E is **dispatch only**: `workflow_dispatch` in `novatalks.tests` → `ci-e2e-tests-manual.yaml` with `tests_ref`, `test_tags`, `env_url` and `botflow_url` plus the rest of the form (`target`, `reset_stand`, `workers`, `suite_timeout_minutes`, the four image tags, ...), read in the switcher from `github.event.inputs`. No tag route; the `concurrency` group keys on `env_url`, since runs share a stand, and the stand's reset service holds a lease (`Take the stand` / `Release the stand`) that `/drop`, `/prune` and `/normalize` enforce, because the group cannot see a run from another repository or with the URL spelled differently. The stand's URLs are inputs (public, and one form must reach another stand); only the four credentials and the API token are secrets, named `E2E_*`. Seven environment variables total — the suite derives the client URLs from `ENV_URL`, and with `USE_DB` unset it needs no database, so the workflow carries no kubeconfig and no DB credentials. The lab restore/Redis-sync/engine-restart steps were removed on 2026-09-17: they needed in-cluster access the deprecated in-cluster runners had. Never `FLUSHALL` the stand's Redis — DB 15 holds `nr:flows`. A second **`target`** landed on 2026-09-21 as exactly that — an optional input with a default, not a second workflow: `lab` (unchanged) or `ephemeral`, which boots the whole product on the runner from four image tags and a chart version and destroys it afterwards. Its configuration is rendered from the published chart rather than listed in nova.ci, its flows are copied from the stand at boot, its origin is `localhost:18080` (the runner VM already has an nginx on 8080), and its `concurrency` keys on the run id so ephemeral runs never queue behind each other. `reset_stand` is refused there rather than ignored. See `.claude/rules/e2e.md` before changing it — most of what it does is a scar.
-- The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for the 13 repositories on the NC2-2742 list. Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
+- The inline `secret-scan` job runs on `pull_request` (drafts included, like the build routes since drafts are linted too) and on branch pushes to the repository's `default_branch` or `main`/`master`/`development`, for 14 repositories — the 13 on the NC2-2742 list plus `novatalks.rag` (NC2-3092). Keep the `default_branch` half even when every repository looks conventional: it makes the gate follow whatever a repo treats as its trunk, and dropping it silently un-covers the next repo with an odd default (the failure mode is a scan that never runs, not one that errors). It is the one switcher job that is not a `uses:` dispatch — see Secret Detection Semantics.
 
 Standard build repositories currently are:
 
@@ -83,6 +83,7 @@ Standard build repositories currently are:
 - `nova.chatsconnector.whatsapp-client-api`
 - `nova.chatsconnector.signal-client-api`
 - `novatalks.uspacy.connector`
+- `novatalks.rag`
 
 `novatalks.core` is excluded from the generic PR build route because it has dedicated PR targets.
 
@@ -98,6 +99,7 @@ Standard build repositories currently are:
 - `build-message-source-id`: `docker/message-source-id.Dockerfile`, suffix `_migrate-message-source-id`.
 - `build` or any default target: `docker/server.Dockerfile`, no suffix.
 - On `novatalks.flowrunner`, any target: `./Dockerfile` at the repository root, no suffix — it has no `docker/` directory for the default arm to find.
+- On `novatalks.rag`, one image per process: `build-api`, `build-worker-index`, `build-worker-crawl`, `build-scheduler`, `build-migrate` (each may carry a `-…` tail) → `docker/<process>.Dockerfile`, suffix `_<process>`. A bare `build`, `scan*` or `apiscan*` builds the API, the representative image; any other target fails the step rather than quietly building the API for a mistyped name. It has no `server.Dockerfile`.
 
 Pull request events run lint and unit tests only. Keep the `build-image` and notifier jobs gated on `github.event_name != 'pull_request'` so PRs never build or publish an image.
 
@@ -119,7 +121,7 @@ Mobile APK workflows should keep Node.js at `22.22.0` or newer because current Q
 
 ### Unit Test Gate (ci-build-ntk-on-push-tags-build.yaml)
 
-A `unit-test` job runs sequentially after `linter` (`needs: [linter]`, `if: !cancelled()`) on both PR and non-PR events, so a build uses one runner at a time instead of two. It runs even when lint failed. It is repo-aware via a "Resolve test plan" step. `novatalks.core` runs `npm run test:unit` and `novatalks.flowrunner` runs its own `npm test` (it has no `test:unit` script; the canonical-script rule is that the command lives in the product repository's `package.json`, not that the name is literal), preceded by `npx prisma generate` with a stub `DATABASE_URL` — its specs import `PrismaService`, `@prisma/client` throws on import before generate, and `prisma.config.ts` will not load without that variable. `nova.botflow` runs its own `npm test` (Node's built-in `node --test` over its contract tests, no network or services) after a plain `npm ci`. All other standard build repos resolve to a no-op success. To enable unit tests for a new repository, add a case in that step.
+A `unit-test` job runs sequentially after `linter` (`needs: [linter]`, `if: !cancelled()`) on both PR and non-PR events, so a build uses one runner at a time instead of two. It runs even when lint failed. It is repo-aware via a "Resolve test plan" step. `novatalks.core` runs `npm run test:unit` and `novatalks.flowrunner` runs its own `npm test` (it has no `test:unit` script; the canonical-script rule is that the command lives in the product repository's `package.json`, not that the name is literal), preceded by `npx prisma generate` with a stub `DATABASE_URL` — its specs import `PrismaService`, `@prisma/client` throws on import before generate, and `prisma.config.ts` will not load without that variable. `nova.botflow` runs its own `npm test` (Node's built-in `node --test` over its contract tests, no network or services) after a plain `npm ci`. `novatalks.rag` runs its own `npm test` (`jest --selectProjects unit`, no database or network) after `npm ci`; its lint is `npm run lint`. All other standard build repos resolve to a no-op success. To enable unit tests for a new repository, add a case in that step.
 
 `build-image` has `needs: [linter, unit-test]`. The condition is `!cancelled() && github.event_name != 'pull_request'`. Both lint and unit tests are advisory: the build runs even if either fails. They are reported in the notifier and PR checks.
 
@@ -259,11 +261,11 @@ Preserve these behaviors:
 - Changing `scan.sh` means adding a scenario to `scripts/test-secret-scan.sh` in the
   same change; `validate.sh` also fails if any workflow invokes Gitleaks directly.
 
-Repositories covered (13, all reached through their existing caller workflow, no
+Repositories covered (14, all reached through their existing caller workflow, no
 product-repo change): `novatalks.core`, `novatalks.ui`, `novatalks.ui-lite`,
 `nova.botflow`, `novatalks.flowrunner`, `novatalks.dialer`, `novatalks.chatwidget`,
 `novatalks.geoip-api`, `novatalks.uspacy.connector`, the telegram, whatsapp and
-signal chatsconnectors, and `novatalks.tests`.
+signal chatsconnectors, `novatalks.tests` and `novatalks.rag` (since 2026-11-03, NC2-3092).
 `nova.ci` scans itself via `ci-self-validate.yaml`.
 
 `novatalks.tests` joined on 2026-09-25 at the owner's request. Out of scope by decision on
@@ -323,7 +325,7 @@ reasoning and evidence behind every rule in this section — **read the invarian
 its "why" lives one hop away, never dropped, only moved.**
 
 Job map: the switcher runs inline `sast-scan` and `deps-scan` jobs on `pull_request` (Semgrep;
-Trivy fs + OSV-Scanner) for the thirteen `secret-scan` repositories, since a PR builds no image
+Trivy fs + OSV-Scanner) for the fourteen `secret-scan` repositories, since a PR builds no image
 and would otherwise get no SAST/dependency feedback until trunk. The build workflow runs
 `sast-scan` on every build of every standard repository, and `dast-scan` (ZAP baseline/full)
 plus opt-in `api-scan` (authenticated ZAP) only on trunk/`scan*` builds of the repositories

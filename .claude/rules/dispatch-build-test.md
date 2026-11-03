@@ -17,6 +17,7 @@ Loaded when Claude Code reads a matching file; Codex and humans read it from the
 
 - Keep dispatch logic centralized in `ci-build-trigger-switcher.yaml`, and build target interpretation centralized in `ci-build-ntk-on-push-tags-build.yaml`.
 - `novatalks.flowrunner` builds from `./Dockerfile` at its repository root; it has no `docker/` directory for the default `docker/server.Dockerfile` arm to find. That is an arm in the build workflow's `Set Dockerfile path and image suffix` step, not a file move in the product repository.
+- `novatalks.rag` has one Dockerfile per process and no `server.Dockerfile`: `build-<process>[-…]` picks `docker/<process>.Dockerfile` with suffix `_<process>`, a bare `build`/`scan*`/`apiscan*` builds the API, and **any other target fails the step**. Do not turn that last arm into a fallback to the API — a mistyped `build-worker-idx` would publish the wrong image under a plausible tag.
 - Do not edit product repository caller workflows unless the user explicitly asks.
 - Keep the legacy branch-push build route (`call-external-on-pull-request-merged`) **commented, not deleted**. A bare `contains(head_commit.message, 'build')` matched ordinary prose and built images from feature branches. If it is ever revived, gate it on an explicit marker (e.g. `[build]`) and/or a branch allowlist.
 

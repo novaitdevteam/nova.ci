@@ -54,6 +54,9 @@ Based on `build_target` when present, otherwise `github.ref_name`:
 | `build-message-source-id` | `docker/message-source-id.Dockerfile` | `_migrate-message-source-id` |
 | `build` / default | `docker/server.Dockerfile` | none |
 | any target, on `novatalks.flowrunner` | `Dockerfile` (repository root — it has no `docker/` directory) | none |
+| `build-api` / `build-worker-index` / `build-worker-crawl` / `build-scheduler` / `build-migrate` (`-…` tail allowed), on `novatalks.rag` | `docker/<process>.Dockerfile` | `_<process>` |
+| bare `build`, `scan*`, `apiscan*`, on `novatalks.rag` | `docker/api.Dockerfile` — the representative image | `_api` |
+| any other target, on `novatalks.rag` | — the step fails: a mistyped process name must not publish the API under a plausible tag | — |
 | `build-pwa` / `build-spa` / `build-crm` (mobile workflow) | — | `_pwa` / `_spa` / `_crm` |
 
 ## Image tags

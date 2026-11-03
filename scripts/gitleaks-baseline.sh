@@ -44,6 +44,7 @@ DEFAULT_REPOS=(
     nova.chatsconnector.whatsapp-client-api
     nova.chatsconnector.signal-client-api
     novatalks.tests
+    novatalks.rag
     nova.ci
 )
 

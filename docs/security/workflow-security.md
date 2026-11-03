@@ -143,12 +143,12 @@ reference and to the `curl` of `ci-build-create-runner.sh` from `main`. Both are
 - **Explicit secrets would protect nothing and break quietly.** Between them, the
   workflows the switcher routes to read about 40 secret names. The switcher would need
   nearly all of them, so an explicit list narrows almost nothing. It would also have to be
-  copied into 13 callers and declared again at every hop. A name missing at one hop
+  copied into 14 callers and declared again at every hop. A name missing at one hop
   arrives as an empty string, not an error, and the job carries on: a notifier goes
   silent, or an upload has no credentials. That is a broken step that looks like it
   worked.
 - **A SHA pin moves the update work to the product repositories.** Each nova.ci change
-  would then need 13 caller PRs, each merged by a different owner, and until then the
+  would then need 14 caller PRs, each merged by a different owner, and until then the
   callers run different revisions. The
   [self-reference pins](../reference/validation.md#self-reference-pins) check exists to
   stop exactly that.

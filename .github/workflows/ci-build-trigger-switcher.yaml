@@ -37,6 +37,7 @@ jobs:
     # whether a repo publishes an image, so novatalks.chatwidget and novatalks.ui-lite
     # are in even though they are not build repositories. novatalks.tests joined on 2026-09-25:
     # it is out of the build list, but it holds the lab's tokens in flow exports and fixtures.
+    # novatalks.rag joined on 2026-11-03 (NC2-3092) together with its build routes.
     #
     # Deliberately NOT in the list, tracked in docs/security/secret-detection.md:
     #   nova.ci                       - scans itself via ci-self-validate.yaml
@@ -46,7 +47,7 @@ jobs:
     #   novatalks.grafana.connector   - out of scope (also has no caller workflow)
     # Do not add a repository here without also confirming it is still live.
     if:
-      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.flowrunner", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.tests" ]'), github.event.repository.name)
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.flowrunner", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.tests", "novatalks.rag" ]'), github.event.repository.name)
       && (
         (github.event_name == 'pull_request'
           && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action))
@@ -101,7 +102,7 @@ jobs:
     # The same repository list as secret-scan above — SAST asks a different question but
     # of the same set of live repositories. Keep the two lists in step.
     if:
-      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.flowrunner", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.tests" ]'), github.event.repository.name)
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.flowrunner", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.tests", "novatalks.rag" ]'), github.event.repository.name)
       && github.event_name == 'pull_request'
       && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -172,7 +173,7 @@ jobs:
     name: deps-scan
     # The same repository list as secret-scan and sast-scan above.
     if:
-      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.flowrunner", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.tests" ]'), github.event.repository.name)
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "novatalks.ui-lite", "nova.botflow", "novatalks.flowrunner", "novatalks.dialer", "novatalks.chatwidget", "novatalks.geoip-api", "novatalks.uspacy.connector", "nova.chatsconnector.telegram-client-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.tests", "novatalks.rag" ]'), github.event.repository.name)
       && github.event_name == 'pull_request'
       && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
@@ -270,7 +271,7 @@ jobs:
     name: Call Builder On Push Tags
     # apiscan* is an addition, not a double-match: "apiscan" does not start with "scan",
     # so it would not reach the build workflow through the existing scan* clause.
-    if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "novatalks.flowrunner", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, 'build') || startsWith(github.ref_name, 'scan') || startsWith(github.ref_name, 'apiscan')) }}
+    if: ${{ contains(fromJSON('["novatalks.core", "novatalks.ui", "nova.botflow", "novatalks.flowrunner", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector", "novatalks.rag" ]'), github.event.repository.name) && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, 'build') || startsWith(github.ref_name, 'scan') || startsWith(github.ref_name, 'apiscan')) }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
     secrets: inherit
     with:
@@ -340,7 +341,7 @@ jobs:
       packages: write
     name: Call Builder On Pull Request
     if:
-      ${{ contains(fromJSON('["novatalks.ui", "nova.botflow", "novatalks.flowrunner", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector" ]'), github.event.repository.name)
+      ${{ contains(fromJSON('["novatalks.ui", "nova.botflow", "novatalks.flowrunner", "nova.chatsconnector.telegram-client-api", "novatalks.dialer", "nova.chatsconnector.genesys.cloud.premium.wizard.engine", "novatalks.geoip-api", "nova.chatsconnector.whatsapp-client-api", "nova.chatsconnector.signal-client-api", "novatalks.uspacy.connector", "novatalks.rag" ]'), github.event.repository.name)
       && github.event_name == 'pull_request'
       && contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action) }}
     uses: novaitdevteam/nova.ci/.github/workflows/ci-build-ntk-on-push-tags-build.yaml@main
