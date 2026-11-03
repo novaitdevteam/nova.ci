@@ -115,8 +115,8 @@ jobs:
               set_output cache_dependency_path "package-lock.json"
               set_output lint_command "npm run lint"
               ;;
-            nova.botflow)
-              strategy="nova.botflow"
+            nova.botflow|novatalks.rag)
+              strategy="$REPO_NAME"
               set_output install_command "npm ci"
               set_output node_cache "npm"
               set_output cache_dependency_path "package-lock.json"
@@ -275,8 +275,10 @@ jobs:
               set_output unit_test_command "npm test"
               selected_unit_cmd="npm test"
               ;;
-            nova.botflow)
-              # Node's built-in runner over the repository's contract tests: no network, no services.
+            nova.botflow|novatalks.rag)
+              # Each repository's own `npm test`, no network, no services: Node's built-in
+              # runner over botflow's contract tests; rag's jest unit project (its
+              # integration project needs pgvector, Redis and MinIO and is not wired into CI).
               set_output install_command "npm ci"
               set_output node_cache "npm"
               set_output cache_dependency_path "package-lock.json"
@@ -500,6 +502,33 @@ jobs:
             echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_OUTPUT"
+          elif [[ "$REPO_NAME" == "novatalks.rag" ]]; then
+            # One image per process, each built by its own tag: build-<process>[-…] picks
+            # docker/<process>.Dockerfile, read from the checkout, so a new process needs
+            # no change here. The longest matching name wins (build-worker-index-2 is
+            # worker-index, not worker). A bare build or a scan* tag builds the API, the
+            # representative image, as the engine is for novatalks.core. A name with no
+            # Dockerfile fails rather than publishing the wrong image under a plausible
+            # tag, and so does apiscan*: rag has no api-scan target, so it would scan nothing.
+            process=""
+            available=""
+            rest="${BUILD_TARGET#build-}"
+            for f in docker/*.Dockerfile; do
+              [[ -f "$f" ]] || continue
+              name="$(basename "$f" .Dockerfile)"
+              available+=" build-${name}"
+              if [[ "$BUILD_TARGET" == build-* ]] && [[ "$rest" == "$name" || "$rest" == "$name"-* ]] && (( ${#name} > ${#process} )); then
+                process="$name"
+              fi
+            done
+            case "$BUILD_TARGET" in build|scan*) process=api ;; esac
+            if [[ -z "$process" || ! -f "docker/${process}.Dockerfile" ]]; then
+              echo "::error::novatalks.rag: '$BUILD_TARGET' names no image. Use one of:${available:- <no docker/*.Dockerfile found>}."
+              exit 1
+            fi
+            echo "DOCKERFILE_PATH=./docker/${process}.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_${process}" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_${process}" >> "$GITHUB_OUTPUT"
           elif [[ "$REPO_NAME" == "novatalks.flowrunner" ]]; then
             # Single image, Dockerfile at the repository root -- it has no docker/ directory
             # for the default arm below to find.

@@ -57,7 +57,7 @@ Wired through the switcher — **no change needed in these repositories**:
 `novatalks.geoip-api` · `novatalks.uspacy.connector` ·
 `nova.chatsconnector.telegram-client-api` ·
 `nova.chatsconnector.whatsapp-client-api` · `nova.chatsconnector.signal-client-api` ·
-`novatalks.tests`
+`novatalks.tests` · `novatalks.rag`
 
 `novatalks.tests` joined on 2026-09-25, out of scope until then. It builds nothing, but it holds
 the lab's tokens in flow exports and fixtures, and it now has the Telegram notifier secrets (`TG_NOTIFICATION_BOT_*`; Google Chat reaches it only if the organisation's `GC_NOTIFICATION_WEBHOOK` does). Its pushes to `main` get a Hetzner runner only once its caller passes `HCLOUD_TOKEN` to `find-runner` (novatalks.tests#137); until then they fall back to any `self-hosted` runner. Its full-history
@@ -90,13 +90,13 @@ than a hardcoded list. As verified for NC2-2742:
 
 | Default branch | Repositories |
 | --- | --- |
-| `development` | 4 — `novatalks.core`, `novatalks.ui`, `nova.botflow`, whatsapp connector |
+| `development` | 5 — `novatalks.core`, `novatalks.ui`, `nova.botflow`, whatsapp connector, `novatalks.rag` |
 | `master` | 3 — `novatalks.dialer`, `novatalks.chatwidget`, telegram connector |
 | `main` | 5 — `novatalks.ui-lite`, `novatalks.geoip-api`, `novatalks.uspacy.connector`, `novatalks.flowrunner`, `novatalks.tests` |
 | `NC2-1992_docker` | 1 — `nova.chatsconnector.signal-client-api`, **temporary**: unifies to `development`/`master` once its regression run finishes |
 
-`master` exists in 11 of the 13 (`novatalks.flowrunner` and `novatalks.tests` have only `main` —
-no `master`, no `development`), `development` in 9 (not in `novatalks.geoip-api`,
+`master` exists in 12 of the 14 (`novatalks.flowrunner` and `novatalks.tests` have only `main` —
+no `master`, no `development`), `development` in 10 (not in `novatalks.geoip-api`,
 `novatalks.flowrunner`, `novatalks.tests` or the signal connector), so both of the branches the
 team actually works on are covered everywhere. The
 `default_branch` clause is what covers the signal connector, whose default is a feature
