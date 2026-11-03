@@ -1688,6 +1688,7 @@ coverage it does not have.
 | `nova.chatsconnector.whatsapp-client-api` | api | `db-insert` | `operations: 44, must-fix: 0, warnings: 7, info: 0, accepted: 0, passed: 112` | [33873563894](https://github.com/novaitdevteam/nova.ci/actions/runs/33873563894) |
 | `nova.chatsconnector.signal-client-api` | api | `db-insert` | `operations: 26, must-fix: 0, warnings: 5, info: 0, accepted: 0, passed: 114` | [33875964532](https://github.com/novaitdevteam/nova.ci/actions/runs/33875964532) |
 | `novatalks.dialer` | api | `env-token` | `operations: 19, must-fix: 0, warnings: 5, info: 0, accepted: 0, passed: 114` | [33876797012](https://github.com/novaitdevteam/nova.ci/actions/runs/33876797012) |
+| `novatalks.rag` | api | `jwt-es256` | `operations: 37, must-fix: 0, warn rules: 2 (high 0, medium 0, low 2), accepted: 0, passed: 117` — auth probe `HTTP 200`, ZAP done 36 s after the token was signed | [41635608632](https://github.com/novaitdevteam/novatalks.rag/actions/runs/41635608632) (private repository) |
 | `nova.botflow` | browser | none | `must-fix: 0, warnings: 12, info: 0, accepted: 0, passed: 129` | [33876812531](https://github.com/novaitdevteam/nova.ci/actions/runs/33876812531) |
 
 All six runs are dated 2026-09-04. This table is what the quarterly evidence report is
