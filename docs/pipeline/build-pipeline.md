@@ -55,8 +55,8 @@ Based on `build_target` when present, otherwise `github.ref_name`:
 | `build` / default | `docker/server.Dockerfile` | none |
 | any target, on `novatalks.flowrunner` | `Dockerfile` (repository root — it has no `docker/` directory) | none |
 | `build-<process>[-…]`, on `novatalks.rag` — one tag per microservice; the process list is the checkout's own `docker/*.Dockerfile`, so a new process needs no nova.ci change, and the longest matching name wins | `docker/<process>.Dockerfile` | `_<process>` |
-| bare `build`, `scan*`, on `novatalks.rag` | `docker/api.Dockerfile` — the representative image | `_api` |
-| a name with no Dockerfile, or `apiscan*` (no `api-scan` target), on `novatalks.rag` | — the step fails and lists the valid `build-<process>` tags: a mistyped name must not publish the wrong image under a plausible tag | — |
+| bare `build`, `scan*`, `apiscan*`, on `novatalks.rag` | `docker/api.Dockerfile` — the representative image; `apiscan*` then runs its `api-scan` | `_api` |
+| a name with no Dockerfile, on `novatalks.rag` | — the step fails and lists the valid `build-<process>` tags: a mistyped name must not publish the wrong image under a plausible tag | — |
 | `build-pwa` / `build-spa` / `build-crm` (mobile workflow) | — | `_pwa` / `_spa` / `_crm` |
 
 ## Image tags

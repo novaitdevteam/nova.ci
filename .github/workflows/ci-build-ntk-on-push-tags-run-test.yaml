@@ -87,6 +87,9 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: ▶️ Get Env From Example
+        # novatalks.rag's tests overwrite every connection value with their own
+        # (test/support/test-env.ts), so its example would only add stray keys.
+        if: ${{ github.event.repository.name != 'novatalks.rag' }}
         run: |
           sed '/^#/d' .env.example > .env
           # $GITHUB_ENV takes a line literally, so `FILE_MAX_SIZE=10485760 #10mb` arrived as
@@ -107,9 +110,12 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
           LOG_LEVEL: "error"
+          # The command lives in the repository's own package.json: novatalks.rag has no
+          # test:unit, its unit project is `npm test`.
+          UNIT_SCRIPT: ${{ github.event.repository.name == 'novatalks.rag' && 'test' || 'test:unit' }}
         run: |
           set -o pipefail
-          npm run test:unit 2>&1 | tee results.txt
+          npm run "$UNIT_SCRIPT" 2>&1 | tee results.txt
 
       - name: 📊 Summarize results
         if: always()
@@ -173,24 +179,29 @@ jobs:
 
       - name: 🐘 Start Postgres + Redis
         env:
-          # novatalks.core mirrors the production PG major version (PG 17.9); others use postgres:16.
-          PG_IMAGE: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || 'postgres:16' }}
+          # novatalks.core mirrors the production PG major version (PG 17.9); novatalks.rag
+          # needs pgvector 0.8 (its docker-compose.test.yaml pin); others use postgres:16.
+          PG_IMAGE: ${{ github.event.repository.name == 'novatalks.core' && 'postgres:17.9-trixie' || github.event.repository.name == 'novatalks.rag' && 'pgvector/pgvector:0.8.7-pg16' || 'postgres:16' }}
+          # rag's tests hardcode database `rag` (test/support/test-env.ts), and a parallel
+          # HNSW build needs more than Docker's 64 MB of shared memory.
+          PG_DB: ${{ github.event.repository.name == 'novatalks.rag' && 'rag' || env.DATABASE_NAME }}
+          PG_SHM: ${{ github.event.repository.name == 'novatalks.rag' && '1g' || '64m' }}
         run: |
           set -euo pipefail
           docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
-          docker run -d --name nova-pg \
+          docker run -d --name nova-pg --shm-size="$PG_SHM" \
             -e POSTGRES_PASSWORD="$DATABASE_PASSWORD" \
-            -e POSTGRES_DB="$DATABASE_NAME" \
+            -e POSTGRES_DB="$PG_DB" \
             -e POSTGRES_USER="$DATABASE_USERNAME" \
             -p 5432:5432 "$PG_IMAGE"
           docker run -d --name nova-redis -p 6379:6379 redis:8
 
           echo "Waiting for Postgres..."
           for _ in $(seq 1 30); do
-            docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" >/dev/null 2>&1 && break
+            docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$PG_DB" >/dev/null 2>&1 && break
             sleep 2
           done
-          docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$DATABASE_NAME"
+          docker exec nova-pg pg_isready -U "$DATABASE_USERNAME" -d "$PG_DB"
 
           echo "Waiting for Redis..."
           for _ in $(seq 1 15); do
@@ -207,6 +218,9 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: ▶️ Get Env From Example
+        # novatalks.rag's tests overwrite every connection value with their own
+        # (test/support/test-env.ts), so its example would only add stray keys.
+        if: ${{ github.event.repository.name != 'novatalks.rag' }}
         run: |
           sed '/^#/d' .env.example > .env
           # $GITHUB_ENV takes a line literally, so `FILE_MAX_SIZE=10485760 #10mb` arrived as
@@ -224,10 +238,49 @@ jobs:
           npm ci
 
       - name: Enable pgcrypto extension
+        if: ${{ github.event.repository.name != 'novatalks.rag' }}
         run: |
           docker exec -e PGPASSWORD="$DATABASE_PASSWORD" nova-pg \
             psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
             -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+      # novatalks.rag: its roles and the vector extension come from the checkout's own
+      # docker/init-db.sql (the tests migrate in globalSetup but create neither), and its
+      # storage specs need a MinIO with bucket rag-kb. The tests overwrite every connection
+      # value with hardcoded ones — database `rag`, MinIO rag / rag-test-secret, bucket
+      # rag-kb, host 127.0.0.1 (test/support/test-env.ts) — so these are matched, not
+      # chosen. Postgres is docker-compose.test.yaml's pin. MinIO is not: its pin
+      # (minio/minio:RELEASE.2025-09-07T16-13-09Z) no longer pulls — MinIO withdrew its
+      # images from Docker Hub and quay — so the server and the client come from
+      # Chainguard's free images, pinned by digest. The ports are preset so the
+      # tests never ask `docker compose` (test/support/test-ports.ts), which the runners
+      # are not known to have.
+      - name: 🧩 Prepare novatalks.rag's database and object storage
+        if: ${{ github.event.repository.name == 'novatalks.rag' }}
+        run: |
+          set -euo pipefail
+          docker exec -i -e PGPASSWORD="$DATABASE_PASSWORD" nova-pg \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$DATABASE_USERNAME" -d rag < docker/init-db.sql
+          docker rm -f nova-minio >/dev/null 2>&1 || true
+          docker run -d --name nova-minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=rag -e MINIO_ROOT_PASSWORD=rag-test-secret \
+            cgr.dev/chainguard/minio@sha256:3c60a2a8c4d33409a9bc7a623a7fcbfb4605adc3d89422d2f53b3f673a6e5597 server /data
+          created=no
+          for _ in $(seq 1 30); do
+            if docker run --rm --network host -e MC_HOST_local=http://rag:rag-test-secret@127.0.0.1:9000 \
+              cgr.dev/chainguard/minio-client@sha256:1dccd2a6fd59914a98ac2d9dad95e552c91243cb0bd7242aaa224802df4b3432 \
+              mb --ignore-existing local/rag-kb; then created=yes; break; fi
+            sleep 2
+          done
+          if [ "$created" != yes ]; then
+            docker logs --tail 40 nova-minio || true
+            echo "::error::MinIO never accepted the rag-kb bucket"; exit 1
+          fi
+          {
+            echo "RAG_TEST_FOUND_RAG_POSTGRES_TEST_PORT=5432"
+            echo "RAG_TEST_FOUND_RAG_REDIS_TEST_PORT=6379"
+            echo "RAG_TEST_FOUND_RAG_S3_TEST_PORT=9000"
+          } >> "$GITHUB_ENV"
 
       # novatalks.core integration tests exercise S3 (Cloudflare R2) file storage.
       # Inject the R2 credentials for novatalks.core only, so other repos (e.g. engine)
@@ -325,7 +378,7 @@ jobs:
 
       - name: 🧹 Tear down containers
         if: always()
-        run: docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
+        run: docker rm -f nova-pg nova-redis nova-minio >/dev/null 2>&1 || true
 
   notify-telegram:
     permissions:

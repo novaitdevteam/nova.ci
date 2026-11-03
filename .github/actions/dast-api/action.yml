@@ -22,7 +22,7 @@ inputs:
     required: false
     default: "/api-docs-json"
   auth-mode:
-    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), db-insert (write a generated token into the seeded database with a caller-supplied INSERT, rather than depending on whatever key the image's own seeder happened to write), or env-token (generate a token before the container starts and hand it in as an environment variable, for an app that accepts any token present in a var it reads at boot — no database involved)"
+    description: "How the scan acquires its token: login (POST username/password, read the token from the response), db-token (read a token straight out of the seeded database with a caller-supplied SELECT), db-insert (write a generated token into the seeded database with a caller-supplied INSERT, rather than depending on whatever key the image's own seeder happened to write), env-token (generate a token before the container starts and hand it in as an environment variable, for an app that accepts any token present in a var it reads at boot — no database involved), or jwt-es256 (generate an ES256 key pair before the container starts, hand the app the public key, then sign a JWT for the tenant token-sql returns)"
     required: false
     default: "login"
   scan-mode:
@@ -42,7 +42,7 @@ inputs:
     required: false
     default: "Bearer "
   token-sql:
-    description: "SELECT run against the seeded database when auth-mode is db-token; required in that mode"
+    description: "SELECT run against the seeded database when auth-mode is db-token (the token) or jwt-es256 (the tenant id the JWT speaks for); required in those modes"
     required: false
     default: ""
   token-insert-sql:
@@ -50,7 +50,7 @@ inputs:
     required: false
     default: ""
   token-env-var:
-    description: "Environment variable the application reads its accepted API tokens from, when auth-mode is env-token. Required in that mode. novatalks.dialer uses API_ACCESS_TOKENS."
+    description: "Environment variable the application reads its accepted API tokens from, when auth-mode is env-token. Required in that mode. novatalks.dialer uses API_ACCESS_TOKENS. For jwt-es256, the variable the app reads its public keys from (novatalks.rag: JWT_PUBLIC_KEYS)."
     required: false
     default: ""
   setup-command:
@@ -70,7 +70,23 @@ inputs:
     required: false
     default: ""
   extra-env:
-    description: "Newline-separated KEY=VALUE lines applied to the application container via -e, for per-repository env the engine's own vars don't cover"
+    description: "Newline-separated KEY=VALUE lines applied to the application container via -e, for per-repository env the engine's own vars don't cover. Applied after the database defaults, so DATABASE_URL can be replaced. %JWT_PRIVATE_KEY% is replaced with the jwt-es256 private key."
+    required: false
+    default: ""
+  pg-image:
+    description: "Postgres image for the scan's database. Empty keeps the default split: postgres:17.9-trixie for novatalks.core, postgres:16 otherwise. novatalks.rag needs pgvector."
+    required: false
+    default: ""
+  pre-boot-command:
+    description: "Shell run on the runner, in the scanned repository's checkout, after postgres is ready and before the app starts; sees DAST_IMAGE and DATABASE_USERNAME/PASSWORD/NAME. For an image that cannot set its own database up. A failure is a loud skip with the output printed."
+    required: false
+    default: ""
+  auth-probe-path:
+    description: "One authenticated GET path tried with the token before ZAP runs; anything but 2xx is a loud skip, because a refused token makes every operation a 401 that ZAP would report as clean. Empty skips the probe."
+    required: false
+    default: ""
+  jwt-claims:
+    description: "auth-mode jwt-es256: the token's static claims as JSON with string iss, aud, sub and scope. tid comes from token-sql; iat/exp are set per run, 300 s apart."
     required: false
     default: ""
   report-file:
@@ -136,6 +152,10 @@ runs:
         DAST_NEEDS_NATS: ${{ inputs.needs-nats }}
         DAST_TARGET_REPO: ${{ inputs.target-repository }}
         DAST_EXTRA_ENV: ${{ inputs.extra-env }}
+        PG_IMAGE: ${{ inputs.pg-image }}
+        DAST_PRE_BOOT_CMD: ${{ inputs.pre-boot-command }}
+        DAST_JWT_CLAIMS: ${{ inputs.jwt-claims }}
+        DAST_AUTH_PROBE_PATH: ${{ inputs.auth-probe-path }}
         ZAP_IMAGE: "ghcr.io/zaproxy/zaproxy:stable@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
         DAST_REPORT_FILE: ${{ inputs.report-file }}
         REPORT_URL: ${{ inputs.report-url }}

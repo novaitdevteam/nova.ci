@@ -11,7 +11,7 @@ into this table, and `references/dast-baseline.md` for the shared mechanics (tal
 seed, acquire a token, and run `zap-api-scan.py -f openapi` against the app's own
 `/api-docs-json`.
 
-## The four auth modes
+## The five auth modes
 
 **Parameterised auth**: `auth-mode` is `login` (POST username/password, read the token from
 the response — `novatalks.core`, `Authorization: Bearer`), `db-token` (read the seeded token
@@ -39,6 +39,27 @@ generated locally, never read back), so their own loud-skip/error paths differ i
 `db-insert`'s is a failed `INSERT` (`not-run`, the migration never created the table),
 `env-token`'s is a missing `token-env-var` name (a **scanner error** — nothing to generate a
 token for).
+
+`jwt-es256` (`novatalks.rag`, NC2-3092): `scan.sh` generates a P-256 key pair before the
+container starts, masks the private key line by line, and passes the public half as
+`-e <token-env-var>={"nova-ci-dast":{"iss":<jwt-claims.iss>,"pem":<SPKI>}}`;
+`%JWT_PRIVATE_KEY%` in `extra-env` becomes the private half. After boot, `token-sql` (run
+with `ON_ERROR_STOP`, output printed on failure) returns the tenant id; the token is
+`jwt-claims` + `tid`/`iat`/`exp` (`exp = iat + 300`, rag's `MAX_TOKEN_TTL_SECONDS`), signed
+with `openssl dgst -sha256 -sign` and converted from DER to raw `r‖s`. An empty tenant id is
+`not-run`; unusable `jwt-claims` is a scanner error; **a scan that ran past 300 s after
+`iat` is `not-run`**, because ZAP cannot renew the token and its later requests went out
+expired. Two inputs serve it: `pre-boot-command` (runs on the runner in the scanned
+checkout after postgres is ready, before the app — rag pipes its `docker/init-db.sql` into
+postgres and runs `sequelize-cli` from the scanned image with `.sequelizerc`/`src/database`
+mounted; a failure is `not-run` with its output) and `pg-image` (rag:
+`pgvector/pgvector:0.8.7-pg16`). `extra-env` is applied after the database defaults, so
+rag's `DATABASE_URL` connects as `rag_app` — the API refuses a superuser.
+
+`auth-probe-path` (any mode; rag sets `/knowledge-bases`): one authenticated GET with the
+token before ZAP; anything but 2xx is `not-run` with the status, because a refused token
+turns every operation into a 401 that ZAP reports as clean. Verified locally on
+2026-11-03 against rag's API image: probe `HTTP 200`, then 37 operations, 2 low.
 
 There is a fifth value, `none`, for a repository with no authentication at all — see
 `.agents/skills/dast-target-wiring/SKILL.md`.

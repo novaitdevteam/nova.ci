@@ -133,6 +133,11 @@ case "$url" in
     *api-docs-json*)
         printf '%s' "${SHIM_SPEC_BODY:-$default_spec_body}" > "${out:-/dev/null}"
         exit 0 ;;
+    # auth-probe-path: one authenticated GET before ZAP. Records the header it carried.
+    *auth-probe*)
+        printf '%s\n' "$*" >> "${SHIM_PROBE_LOG:-/dev/null}"
+        printf '%s' "${SHIM_PROBE_CODE:-200}"
+        exit 0 ;;
 esac
 [ "${SHIM_CURL_RC:-0}" = "0" ] && { printf '200'; exit 0; }
 printf '000'; exit 7
@@ -141,6 +146,19 @@ chmod +x "$WORK/bin/curl"
 
 printf '#!/usr/bin/env bash\nexit 0\n' > "$WORK/bin/sleep"   # no real waiting
 chmod +x "$WORK/bin/sleep"
+
+# date shim: `date +%s` answers SHIM_NOW on its first call and SHIM_NOW+SHIM_CLOCK_STEP on
+# every later one, so a scenario can make ZAP "take" longer than a token lives. Anything
+# else goes to the real date.
+cat > "$WORK/bin/date" <<'SHIM'
+#!/usr/bin/env bash
+if [ "${1:-}" = "+%s" ] && [ -n "${SHIM_NOW:-}" ]; then
+    if [ -e "${SHIM_CLOCK_FILE:?}" ]; then echo $(( SHIM_NOW + ${SHIM_CLOCK_STEP:-0} )); else : > "$SHIM_CLOCK_FILE"; echo "$SHIM_NOW"; fi
+    exit 0
+fi
+exec /bin/date "$@"
+SHIM
+chmod +x "$WORK/bin/date"
 
 expect() { # expect <name> <expected-outcome> <expected-exit-code>
     local name="$1" want_outcome="$2" want_rc="$3"
@@ -152,11 +170,12 @@ expect() { # expect <name> <expected-outcome> <expected-exit-code>
     mkdir -p "$WORK/zap-api-wrk"
     : >"$WORK/zap-api-wrk/zap-api.md"; : >"$WORK/report"; rm -f "$WORK/zap-api-console.log"
     : >"$WORK/zap-argv"
+    rm -f "$WORK/clock"; : >"$WORK/probe"
 
     set +e
     PATH="$WORK/bin:$PATH" \
     SHIM_LOG="$WORK/dockerlog" SHIM_ZAP_OUT="$WORK/zap-api-wrk/zap-api.md" \
-    SHIM_ZAP_ARGV="$WORK/zap-argv" \
+    SHIM_ZAP_ARGV="$WORK/zap-argv" SHIM_CLOCK_FILE="$WORK/clock" SHIM_PROBE_LOG="$WORK/probe" \
     DAST_IMAGE="ghcr.io/x/y:z" \
     DAST_BOOT_TIMEOUT="6" \
     DAST_NEEDS_NATS="${DAST_NEEDS_NATS:-false}" \
@@ -744,6 +763,148 @@ zap_fixture WARN 10038 2
 printf '%s' "$ZF_JSON" > "$WORK/zap-api-wrk/zap-api.json"
 SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZF_CONSOLE" SHIM_ZAP_SKIP_JSON=1 \
     expect "a leftover zap-api.json from an earlier run is not reused" error 2
+
+
+# --- jwt-es256: sign our own ES256 token, the app is handed the public key ------------
+# novatalks.rag verifies ES256 tokens against JWT_PUBLIC_KEYS ({"kid":{"iss","pem"}}),
+# needs aud/iss/sub/tid/scope/iat/exp with exp-iat <= 300, and a tid that exists in
+# its tenants table. The key pair is generated per run before the app starts; the tid
+# comes from token-sql after boot.
+RAG_CLAIMS='{"iss":"engine","aud":"novatalks.rag","sub":"1","scope":"kb:read kb:write kb:search"}'
+RAG_TID="3f2b8a4e-5c1d-4e7f-9a0b-1c2d3e4f5a6b"
+DAST_AUTH_MODE=jwt-es256 DAST_TOKEN_ENV_VAR=JWT_PUBLIC_KEYS DAST_JWT_CLAIMS="$RAG_CLAIMS" \
+DAST_TOKEN_SQL="SELECT id FROM tenants" SHIM_TOKEN_SQL_RESULT="$RAG_TID" \
+DAST_EXTRA_ENV='RAG_JWT_PRIVATE_KEY=%JWT_PRIVATE_KEY%' \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "jwt-es256 mode: keys, tenant, signed token" clean 0
+jwt=$(grep -o "replacement=Bearer [^']*" "$WORK/zap-argv" | head -1 | sed 's/^replacement=Bearer //' || true)
+pub_json=$(grep -o 'JWT_PUBLIC_KEYS={.*}' "$WORK/dockerlog" | head -1 | sed 's/^JWT_PUBLIC_KEYS=//; s/} -e .*/}/' || true)
+if [ -n "$jwt" ] && [ -n "$pub_json" ] && command -v node >/dev/null 2>&1 \
+    && JWT="$jwt" PUB="$pub_json" TID="$RAG_TID" node -e '
+        const c = require("node:crypto");
+        const [h, p, s] = process.env.JWT.split(".");
+        const d = (x) => JSON.parse(Buffer.from(x, "base64url").toString());
+        const head = d(h), body = d(p), entry = JSON.parse(process.env.PUB)[head.kid];
+        const ok = head.alg === "ES256" && head.kid === "nova-ci-dast" && entry && entry.iss === "engine"
+          && body.iss === "engine" && body.aud === "novatalks.rag" && body.sub === "1"
+          && body.scope === "kb:read kb:write kb:search" && body.tid === process.env.TID
+          && body.exp - body.iat === 300
+          && c.verify("sha256", Buffer.from(h + "." + p), { key: entry.pem, dsaEncoding: "ieee-p1363" }, Buffer.from(s, "base64url"));
+        process.exit(ok ? 0 : 1);'; then
+    echo "ok   the token verifies against the public key the app was given, with every claim rag requires"; pass=$((pass + 1))
+else
+    echo "FAIL the jwt-es256 token does not verify or misses a claim (node present: $(command -v node >/dev/null && echo yes || echo no))"
+    echo "     token: ${jwt:0:40}…  keys: ${pub_json:0:60}…"; fail=$((fail + 1))
+fi
+assert_mask_emitted "the signed token is masked" "$jwt"
+# The PEM header is split so this file never carries the literal a secret scanner keys on.
+pem_head="-----BEGIN PRIVATE"" KEY-----"
+if grep -qF -- "-e RAG_JWT_PRIVATE_KEY=${pem_head}" "$WORK/dockerlog" && ! grep -q '%JWT_PRIVATE_KEY%' "$WORK/dockerlog"; then
+    echo "ok   %JWT_PRIVATE_KEY% in extra-env becomes the generated PEM"; pass=$((pass + 1))
+else
+    echo "FAIL the private-key placeholder was not substituted"; fail=$((fail + 1))
+fi
+key_line=$(grep -A1 -F -- "-e RAG_JWT_PRIVATE_KEY=${pem_head}" "$WORK/dockerlog" | sed -n 2p || true)
+if [ -n "$key_line" ] && grep -qF "::add-mask::${key_line}" "$WORK/log"; then
+    echo "ok   the private key's lines are masked"; pass=$((pass + 1))
+else
+    echo "FAIL the private key is not masked"; fail=$((fail + 1))
+fi
+
+DAST_AUTH_MODE=jwt-es256 DAST_TOKEN_ENV_VAR=JWT_PUBLIC_KEYS DAST_JWT_CLAIMS="$RAG_CLAIMS" \
+DAST_TOKEN_SQL="SELECT id FROM tenants" SHIM_TOKEN_SQL_RESULT="" \
+    expect "jwt-es256 with no tenant id is a loud skip" not-run 0
+
+DAST_AUTH_MODE=jwt-es256 DAST_TOKEN_ENV_VAR=JWT_PUBLIC_KEYS DAST_JWT_CLAIMS='not json' \
+DAST_TOKEN_SQL="SELECT id FROM tenants" \
+    expect "jwt-es256 with unusable jwt-claims is a scanner error" error 2
+
+DAST_AUTH_MODE=login DAST_EXTRA_ENV='RAG_JWT_PRIVATE_KEY=%JWT_PRIVATE_KEY%' \
+    expect "the private-key placeholder outside jwt-es256 is a scanner error" error 2
+
+# rag caps a token at 300s. A scan that outlives it sent its later requests unauthenticated.
+DAST_AUTH_MODE=jwt-es256 DAST_TOKEN_ENV_VAR=JWT_PUBLIC_KEYS DAST_JWT_CLAIMS="$RAG_CLAIMS" \
+DAST_TOKEN_SQL="SELECT id FROM tenants" SHIM_TOKEN_SQL_RESULT="$RAG_TID" \
+SHIM_NOW=1800000000 SHIM_CLOCK_STEP=301 \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "a scan that outlives its token is never clean" not-run 0
+SHIM_NOW=1800000000 SHIM_CLOCK_STEP=299 \
+DAST_AUTH_MODE=jwt-es256 DAST_TOKEN_ENV_VAR=JWT_PUBLIC_KEYS DAST_JWT_CLAIMS="$RAG_CLAIMS" \
+DAST_TOKEN_SQL="SELECT id FROM tenants" SHIM_TOKEN_SQL_RESULT="$RAG_TID" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "a scan inside its token's lifetime stays clean" clean 0
+
+# --- auth-probe-path: the token must be accepted before ZAP spends a scan on it ----------
+# A token the app refuses produces 401s on every operation, and ZAP reports that as a
+# clean scan. One authenticated GET first: anything but 2xx is a loud skip.
+DAST_AUTH_PROBE_PATH=/auth-probe SHIM_PROBE_CODE=401 \
+    expect "a refused token is a loud skip, never a clean scan" not-run 0
+if ! grep -q 'zap-api-scan' "$WORK/dockerlog"; then
+    echo "ok   ZAP never ran on a refused token"; pass=$((pass + 1))
+else
+    echo "FAIL ZAP ran although the probe was refused"; fail=$((fail + 1))
+fi
+DAST_AUTH_PROBE_PATH=/auth-probe SHIM_PROBE_CODE=200 \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "an accepted token proceeds to the scan" clean 0
+if grep -q 'Authorization: Bearer test-jwt-token-123' "$WORK/probe"; then
+    echo "ok   the probe carries the same header and token ZAP will"; pass=$((pass + 1))
+else
+    echo "FAIL the probe did not send the scan's own auth header"; sed 's/^/     /' "$WORK/probe"; fail=$((fail + 1))
+fi
+
+# --- pre-boot-command: database init and migrations before the app starts -------------
+DAST_PRE_BOOT_CMD='echo "PREBOOT image=$DAST_IMAGE db=$DATABASE_NAME user=$DATABASE_USERNAME" >> "$SHIM_LOG"' \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "pre-boot-command runs and the scan proceeds" clean 0
+preboot_at=$(grep -n '^PREBOOT image=ghcr.io/x/y:z db=db_name user=postgres$' "$WORK/dockerlog" | cut -d: -f1 | head -1 || true)
+app_at=$(grep -n -- '--name nova-app' "$WORK/dockerlog" | grep '^[0-9]*:run' | cut -d: -f1 | head -1 || true)
+pg_at=$(grep -n -- '--name nova-pg' "$WORK/dockerlog" | grep '^[0-9]*:run' | cut -d: -f1 | head -1 || true)
+if [ -n "$preboot_at" ] && [ -n "$app_at" ] && [ -n "$pg_at" ] && [ "$pg_at" -lt "$preboot_at" ] && [ "$preboot_at" -lt "$app_at" ]; then
+    echo "ok   pre-boot-command runs after postgres and before the app, with the image and database"; pass=$((pass + 1))
+else
+    echo "FAIL pre-boot-command order/env (pg=$pg_at preboot=$preboot_at app=$app_at)"; sed 's/^/     /' "$WORK/dockerlog"; fail=$((fail + 1))
+fi
+
+DAST_PRE_BOOT_CMD='echo "migration 20261002100000 failed: role rag_admin does not exist"; exit 3' \
+    expect "a failing pre-boot-command is a loud skip" not-run 0
+if grep -q 'role rag_admin does not exist' "$WORK/log" && ! grep -q -- '--name nova-app' "$WORK/dockerlog"; then
+    echo "ok   its output is printed and the app is never started"; pass=$((pass + 1))
+else
+    echo "FAIL a failed pre-boot-command must print its output and stop before the app"; fail=$((fail + 1))
+fi
+
+# --- extra-env wins over the database defaults, and pg-image reaches postgres ---------
+DAST_EXTRA_ENV='DATABASE_URL=postgresql://rag_app:rag_app@127.0.0.1:5432/db_name' \
+PG_IMAGE="pgvector/pgvector:0.8.7-pg16" \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "extra-env DATABASE_URL and a pg-image override" clean 0
+app_cmd=$(grep -- '--name nova-app' "$WORK/dockerlog" | grep '^run' | head -1 || true)
+default_pos=$(printf '%s' "$app_cmd" | grep -bo 'DATABASE_URL=postgresql://postgres:' | cut -d: -f1 | head -1 || true)
+extra_pos=$(printf '%s' "$app_cmd" | grep -bo 'DATABASE_URL=postgresql://rag_app:' | cut -d: -f1 | head -1 || true)
+if [ -n "$default_pos" ] && [ -n "$extra_pos" ] && [ "$extra_pos" -gt "$default_pos" ]; then
+    echo "ok   extra-env comes after the default DATABASE_URL, so docker keeps it"; pass=$((pass + 1))
+else
+    echo "FAIL extra-env cannot override DATABASE_URL (default at $default_pos, extra at $extra_pos)"; fail=$((fail + 1))
+fi
+if grep -- '--name nova-pg' "$WORK/dockerlog" | grep -q 'pgvector/pgvector:0.8.7-pg16'; then
+    echo "ok   the pg-image override starts postgres"; pass=$((pass + 1))
+else
+    echo "FAIL PG_IMAGE did not reach the postgres container"; fail=$((fail + 1))
+fi
+# ...but the values scan.sh itself depends on — the port it polls, the admin it logs in as —
+# come after extra-env, so an arm cannot move them out from under the script.
+DAST_EXTRA_ENV='PORT=9999
+DEFAULT_ADMIN_USER=someone@example.invalid' \
+SHIM_ZAP_RC=0 SHIM_ZAP_CONSOLE="$ZAP_CLEAN_CONSOLE" \
+    expect "extra-env cannot move the polled port or the login admin" clean 0
+app_cmd=$(grep -- '--name nova-app' "$WORK/dockerlog" | grep '^run' | head -1 || true)
+if [ "$(printf '%s' "$app_cmd" | grep -o -- '-e PORT=[0-9]*' | tail -1)" = "-e PORT=3000" ] \
+    && [ "$(printf '%s' "$app_cmd" | grep -o -- '-e DEFAULT_ADMIN_USER=[^ ]*' | tail -1)" = "-e DEFAULT_ADMIN_USER=nova-ci-apiscan@example.invalid" ]; then
+    echo "ok   scan.sh's own PORT and DEFAULT_ADMIN_USER are the last -e"; pass=$((pass + 1))
+else
+    echo "FAIL extra-env overrides a value scan.sh depends on"; fail=$((fail + 1))
+fi
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

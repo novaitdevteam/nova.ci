@@ -109,7 +109,7 @@ Trivy and Semgrep need nothing more. DAST does: a repository joins it only on re
 | Run both suites | `git tag full-test-NC2-1234 && git push …` |
 | Lint + unit tests on a change | Open a pull request — drafts included |
 
-Trigger tags are consumed: the workflow deletes them after the run. Test tags (`unit-test`, `int-test`, `full-test`) are routed for `novatalks.core` only.
+Trigger tags are consumed: the workflow deletes them after the run. Test tags (`unit-test`, `int-test`, `full-test`) are routed for `novatalks.core` and `novatalks.rag`. An `apiscan-…` tag runs the authenticated ZAP API scan on the repositories wired for it (core, the four connectors, rag).
 
 **3. Keep routing centralized.** Build dispatch belongs in [`ci-build-trigger-switcher.yaml`](../../.github/workflows/ci-build-trigger-switcher.yaml), not in the local caller. The caller may receive PR-related events the switcher does not route; only matched switcher jobs do shared CI work.
 

@@ -17,8 +17,10 @@
 # via compiled JS, but the token they produce is theirs, not ours); `env-token` generates a token before
 # the container ever starts and hands it in as an environment variable, for an app that
 # accepts any token present in a var it reads at boot (novatalks.dialer) — no database,
-# no seed, no call to the engine at all. All four end with a bare token in $TOKEN,
-# re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
+# no seed, no call to the engine at all; `jwt-es256` generates an ES256 key pair before
+# the container starts, hands the app the public key, and after boot signs its own JWT
+# for a tenant token-sql returns (novatalks.rag). All five end with a bare token in
+# $TOKEN, re-applied with the caller's own DAST_AUTH_HEADER/DAST_AUTH_PREFIX at injection.
 #
 # Zero secrets stored: the database is ours and dies with this job, so the admin
 # password is generated here and used once to log in. The token reaches ZAP as a
@@ -100,6 +102,11 @@ spec_file="${RUNNER_TEMP:-/tmp}/dast-api-spec.json"
 # Printed on failure, never suppressed, same reasoning as dast/scan.sh's own copy of
 # this path: a stream that cannot be created must say why.
 nats_stream_log="${RUNNER_TEMP:-/tmp}/nats-stream.log"
+# jwt-es256's private key: a per-run throwaway, but a private key all the same.
+jwt_key_file="${RUNNER_TEMP:-/tmp}/dast-api-jwt.pem"
+# The lifetime jwt-es256 signs for and the scan must finish within: rag's
+# MAX_TOKEN_TTL_SECONDS (src/shared/guards/jwt-auth.guard.ts).
+JWT_TTL=300
 
 emit() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
@@ -118,7 +125,7 @@ cleanup() {
     # pooled, reused runner past this process's own lifetime. The spec file is a scratch
     # copy of a public route; same reasoning, lower stakes. The NATS stream-creation log
     # is the same idea as the zap console — printed on failure, never left behind.
-    rm -f "$zap_console" "$spec_file" "$nats_stream_log" >/dev/null 2>&1 || true
+    rm -f "$zap_console" "$spec_file" "$nats_stream_log" "$jwt_key_file" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -201,6 +208,32 @@ if [ "${DAST_AUTH_MODE:-login}" = "env-token" ]; then
     echo "::add-mask::${ENV_TOKEN}"
 fi
 
+# jwt-es256 shares env-token's ordering for the same reason: the app reads its accepted
+# public keys once, at boot. The key pair is generated per run and stored nowhere; the
+# private key is masked line by line before anything can print it (a NestJS bootstrap
+# that logs its config, or extra-env's -e, would), and %JWT_PRIVATE_KEY% in extra-env
+# hands the same key to an app that also signs with one (rag's RAG_JWT_PRIVATE_KEY).
+JWT_PRIV=""
+JWT_PUB_JSON=""
+if [ "${DAST_AUTH_MODE:-login}" = "jwt-es256" ]; then
+    [ -n "${DAST_TOKEN_ENV_VAR:-}" ] || scanner_error "jwt-es256 mode needs a token-env-var name (the app's public-key variable)"
+    jq -e 'type == "object" and ([.iss, .aud, .sub, .scope] | all(type == "string"))' \
+        <<<"${DAST_JWT_CLAIMS:-}" >/dev/null 2>&1 \
+        || scanner_error "jwt-es256 mode needs jwt-claims: a JSON object with string iss, aud, sub and scope"
+    ( umask 077; openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
+        | openssl pkcs8 -topk8 -nocrypt -out "$jwt_key_file" 2>/dev/null ) \
+        || scanner_error "could not generate the ES256 key pair"
+    while IFS= read -r key_line; do
+        case "$key_line" in ''|-----*) ;; *) echo "::add-mask::${key_line}" ;; esac
+    done < "$jwt_key_file"
+    JWT_PRIV="$(cat "$jwt_key_file")"
+    jwt_pub="$(openssl pkey -in "$jwt_key_file" -pubout 2>/dev/null)" \
+        || scanner_error "could not derive the ES256 public key"
+    # The shape rag's parsePublicKeys reads (src/config/auth.config.ts): kid -> iss + SPKI.
+    JWT_PUB_JSON="$(jq -cn --arg iss "$(jq -r .iss <<<"$DAST_JWT_CLAIMS")" --arg pem "$jwt_pub" \
+        '{"nova-ci-dast": {iss: $iss, pem: $pem}}')"
+fi
+
 # Validated before anything is booted, same reasoning as the baseline: a broken register
 # means ZAP silently applies a policy nobody wrote, and finding that out after a
 # five-minute boot-and-seed helps nobody.
@@ -217,6 +250,11 @@ conf_bad="$(awk -F'\t' '
 cp "$zap_conf_src" "$zap_conf"
 
 # --- postgres and redis, identical shape to dast/scan.sh's needs-db block ------------
+# Exported so a pre-boot-command (below) names the same database this script starts.
+export DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}"
+export DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}"
+export DATABASE_NAME="${DATABASE_NAME:-db_name}"
+export DAST_IMAGE
 docker rm -f nova-pg nova-redis >/dev/null 2>&1 || true
 # The Docker Official image, and the same expression the integration suite uses
 # (ci-build-ntk-on-push-tags-run-test.yaml) — that postgres demonstrably works.
@@ -279,6 +317,25 @@ if [ "$DAST_NEEDS_NATS" = "true" ]; then
     dast_bring_up_nats not_run "$nats_stream_log"
 fi
 
+# --- pre-boot-command: for an image that cannot set its own database up -------------
+# Runs on the runner, in the workspace (the scanned repository's checkout), after the
+# database is ready and before the app exists — novatalks.rag's API refuses to start
+# against a database without its roles and schema, and its image carries no migrations.
+# Same evidence rule as setup-command: output captured, printed on failure, a failure is a
+# loud skip that names itself rather than the boot timeout it would otherwise become.
+if [ -n "${DAST_PRE_BOOT_CMD:-}" ]; then
+    pre_boot_log="${RUNNER_TEMP:-/tmp}/dast-api-pre-boot.log"
+    if ! bash -c "$DAST_PRE_BOOT_CMD" > "$pre_boot_log" 2>&1; then
+        echo "--- pre-boot-command failed, last 60 lines ---"
+        tail -60 "$pre_boot_log" || true
+        echo "--- end ---"
+        not_run "the pre-boot command (database init or migrations) failed — see the step log for its output"
+    fi
+    echo "--- pre-boot-command done, last 20 lines ---"
+    tail -20 "$pre_boot_log" || true
+    echo "--- end ---"
+fi
+
 # --- the engine, seeded with the admin this run generates ----------------------------
 # SWAGGER_ENABLE and NODE_ENV=production: without both, /api-docs-json comes back empty
 # and step 6 below reports a loud skip rather than guessing a route exists. SWAGGER_ENABLE
@@ -299,6 +356,9 @@ app_env_args=()
 if [ -n "$ENV_TOKEN" ]; then
     app_env_args+=(-e "${DAST_TOKEN_ENV_VAR}=${ENV_TOKEN}")
 fi
+if [ -n "$JWT_PUB_JSON" ]; then
+    app_env_args+=(-e "${DAST_TOKEN_ENV_VAR}=${JWT_PUB_JSON}")
+fi
 
 # extra-env: a per-repository escape hatch, same shape as the baseline dast/scan.sh —
 # one -e per non-empty line, never word-split, so a value containing spaces or `=`
@@ -309,6 +369,11 @@ if [ -n "${DAST_EXTRA_ENV:-}" ]; then
         trimmed="${extra_line#"${extra_line%%[![:space:]]*}"}"
         trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
         [ -z "$trimmed" ] && continue
+        case "$trimmed" in
+            *%JWT_PRIVATE_KEY%*)
+                [ -n "$JWT_PRIV" ] || scanner_error "extra-env names %JWT_PRIVATE_KEY% outside jwt-es256 mode"
+                trimmed="${trimmed//%JWT_PRIVATE_KEY%/$JWT_PRIV}" ;;
+        esac
         extra_env_args+=(-e "$trimmed")
     done <<< "$DAST_EXTRA_ENV"
 fi
@@ -317,15 +382,15 @@ docker rm -f nova-app >/dev/null 2>&1 || true
 docker run -d --name nova-app --network host \
     ${app_env_args[@]+"${app_env_args[@]}"} \
     -e NODE_ENV=production \
-    ${extra_env_args[@]+"${extra_env_args[@]}"} \
-    -e DEFAULT_ADMIN_USER="$ADMIN_USER" \
-    -e DEFAULT_USER_PASSWORD="$ADMIN_PASS" \
     -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
     -e DATABASE_USERNAME="${DATABASE_USERNAME:-postgres}" \
     -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-password}" \
     -e DATABASE_NAME="${DATABASE_NAME:-db_name}" \
     -e "DATABASE_URL=postgresql://${DATABASE_USERNAME:-postgres}:${DATABASE_PASSWORD:-password}@127.0.0.1:5432/${DATABASE_NAME:-db_name}" \
     -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
+    ${extra_env_args[@]+"${extra_env_args[@]}"} \
+    -e DEFAULT_ADMIN_USER="$ADMIN_USER" \
+    -e DEFAULT_USER_PASSWORD="$ADMIN_PASS" \
     -e PORT="$DAST_PORT" -e APP_PORT="$DAST_PORT" \
     -e NATS_SERVERS=127.0.0.1:4222 \
     "$DAST_IMAGE" || true
@@ -335,6 +400,12 @@ docker run -d --name nova-app --network host \
 # because the client resolved `localhost` to IPv6 and a NATS server bound to 0.0.0.0
 # still refuses that connection; naming 127.0.0.1 explicitly removes the resolution
 # question. Listed last so it wins over any same-named override in extra-env.
+#
+# extra-env sits after the database and redis block, not before it: docker keeps the last
+# -e, and novatalks.rag must connect as rag_app — its API refuses a superuser
+# DATABASE_URL. The values this script itself depends on — the admin it logs in as and the
+# port it polls — come after extra-env, so no arm can move them. No arm set any of the
+# database keys before the move (core, telegram, whatsapp, signal, dialer).
 
 # `docker exec` against a container that never started fails on its own, so this used to
 # cascade into the setup step's loud skip and report "database setup failed" for an image
@@ -397,6 +468,12 @@ if [ "$booted" != "yes" ]; then
     docker logs --tail 40 nova-app 2>&1 | sed 's/^/    /' || true
     not_run "the image did not come up within ${DAST_BOOT_TIMEOUT}s"
 fi
+
+# --- pull ZAP before any token exists ------------------------------------------------------
+# jwt-es256's token lives 300 s from the moment it is signed and ZAP cannot renew it. On a
+# fresh runner the ZAP image is a gigabyte-scale pull; done after signing, it alone could
+# use most of that window. Pulled here, for every mode — the scan needs it either way.
+docker pull -q "$ZAP_IMAGE" >/dev/null || scanner_error "could not pull the ZAP image"
 
 # --- acquire the auth token -------------------------------------------------------------
 # login: -D - dumps headers to stdout, -o /dev/null discards the body — the token is read
@@ -481,6 +558,40 @@ case "${DAST_AUTH_MODE:-login}" in
         # Already generated above — it had to exist before the container did.
         TOKEN="$ENV_TOKEN"
         ;;
+    jwt-es256)
+        [ -n "${DAST_TOKEN_SQL:-}" ] || scanner_error "jwt-es256 mode needs a token-sql query that returns the tenant id"
+        # The tenant the token speaks for. rag answers 404 to a write of a tenant it does
+        # not know, so the arm registers one and returns its id. Captured, not discarded.
+        tid_log="${RUNNER_TEMP:-/tmp}/dast-api-tid.log"
+        if ! docker exec -e PGPASSWORD="${DATABASE_PASSWORD}" nova-pg \
+            psql -tAq -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${DATABASE_USERNAME}" -d "${DATABASE_NAME}" \
+            -c "$DAST_TOKEN_SQL" > "$tid_log" 2>&1; then
+            echo "--- psql output (tenant query failed) ---"; sed 's/^/    /' "$tid_log" || true; echo "--- end ---"
+            not_run "the tenant query failed — psql's own output is above"
+        fi
+        tid="$(head -1 "$tid_log" | tr -d '[:space:]')"
+        rm -f "$tid_log"
+        [ -n "$tid" ] || not_run "the tenant query returned no id — the token would speak for nobody"
+        b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+        JWT_IAT="$(date +%s)"
+        jwt_header='{"alg":"ES256","typ":"JWT","kid":"nova-ci-dast"}'
+        jwt_payload="$(jq -c --arg tid "$tid" --argjson iat "$JWT_IAT" --argjson ttl "$JWT_TTL" \
+            '. + {tid: $tid, iat: $iat, exp: ($iat + $ttl)}' <<<"$DAST_JWT_CLAIMS")"
+        signing_input="$(printf '%s' "$jwt_header" | b64url).$(printf '%s' "$jwt_payload" | b64url)"
+        # openssl signs ECDSA as DER (SEQUENCE of two INTEGERs); a JWS wants the two
+        # 32-byte big-endian integers r‖s. Leading 00 sign bytes go, short ones are padded.
+        rs_hex=""
+        while IFS= read -r int_hex; do
+            int_hex="${int_hex#"${int_hex%%[!0]*}"}"
+            while [ "${#int_hex}" -lt 64 ]; do int_hex="0${int_hex}"; done
+            rs_hex+="$int_hex"
+        done < <(printf '%s' "$signing_input" | openssl dgst -sha256 -sign "$jwt_key_file" \
+            | openssl asn1parse -inform DER 2>/dev/null | awk -F: '/INTEGER/ { print $NF }')
+        [ "${#rs_hex}" -eq 128 ] || scanner_error "could not sign the ES256 token"
+        # shellcheck disable=SC2059 # the format IS the bytes, built from hex above
+        jwt_sig="$(printf "$(printf '%s' "$rs_hex" | sed 's/../\\x&/g')" | b64url)"
+        TOKEN="${signing_input}.${jwt_sig}"
+        ;;
     *) scanner_error "unknown auth-mode: ${DAST_AUTH_MODE}" ;;
 esac
 
@@ -494,6 +605,21 @@ esac
 # exact string wherever it appears in later output — defence in depth, independent of
 # what echoes it. nova.ci is public, so the log is world-readable.
 echo "::add-mask::${TOKEN}"
+
+# --- prove the token works before scanning with it -------------------------------------
+# An app that refuses the token answers 401 on every operation, and ZAP reports that as a
+# perfectly clean scan. auth-probe-path names one authenticated GET; anything but 2xx is a
+# loud skip, with the status, before any ZAP time is spent.
+if [ -n "${DAST_AUTH_PROBE_PATH:-}" ]; then
+    probe_code="$(curl -s --max-time 30 -o /dev/null -w '%{http_code}' \
+        -H "${DAST_AUTH_HEADER:-Authorization}: ${DAST_AUTH_PREFIX-Bearer }${TOKEN}" \
+        "${target}${DAST_AUTH_PROBE_PATH}" || true)"
+    case "$probe_code" in
+        2??) echo "Auth probe ${DAST_AUTH_PROBE_PATH}: HTTP ${probe_code} — the token is accepted." ;;
+        *) dump_app_log "the auth probe was refused"
+           not_run "the app refused the scan's token (HTTP ${probe_code:-none} on ${DAST_AUTH_PROBE_PATH}) — every operation would have been unauthenticated" ;;
+    esac
+fi
 
 # --- fetch the engine's own OpenAPI spec -----------------------------------------------
 curl -s -o "$spec_file" "$spec_url" || true
@@ -563,6 +689,16 @@ case "$zap_rc" in
 esac
 
 [ -s "$zap_out" ] || scanner_error "ZAP produced no report"
+
+# jwt-es256 signs a token that lives JWT_TTL seconds and ZAP cannot renew it. Requests
+# after that went out with an expired token, i.e. unauthenticated, and a report built
+# from them must not read as clean.
+if [ -n "${JWT_IAT:-}" ]; then
+    jwt_elapsed=$(( $(date +%s) - JWT_IAT ))
+    if [ "$jwt_elapsed" -gt "$JWT_TTL" ]; then
+        not_run "the scan ran ${jwt_elapsed}s, past its token's ${JWT_TTL}s lifetime — later requests went out unauthenticated"
+    fi
+fi
 
 zap_tally_parse "$zap_console" scanner_error
 # Risk per counted rule, the same join as the baseline: which rules count from the
