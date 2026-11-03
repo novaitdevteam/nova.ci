@@ -647,6 +647,7 @@ jobs:
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     permissions:
       contents: write
+      packages: read
     # Lint-only for PRs: never scan on pull_request. Only scan a successfully built image.
     if: ${{ always() && github.event_name != 'pull_request' && needs.build-image.result == 'success' }}
     needs: [build-image]
@@ -1205,6 +1206,10 @@ jobs:
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     permissions:
       contents: write
+      # Pulls the image it scans from GHCR, as trivy-scan does. Every other package in the
+      # org is public, so the read never mattered; novatalks.rag's is private and the pull
+      # answered `denied` (NC2-3092).
+      packages: read
     # Opt-in only: an apiscan* tag on one of the repositories listed below. The
     # authenticated scan is a 341-operation run against a seeded stack, not something
     # every build should pay for.

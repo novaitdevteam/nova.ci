@@ -70,6 +70,7 @@ starts**. So every `call-*` job in the switcher is a ceiling for the workflow it
 | lint and unit tests (they run pull request code) | `contents: read` |
 | a switcher `call-*` job whose workflow pushes an image to GHCR | `contents: write`, `packages: write` |
 | any other `call-*` job | `contents: write` (tag deletion, releases), or `contents: read` |
+| `trivy-scan` and `api-scan`, which pull the built image from GHCR | `contents: write`, `packages: read`. Every package but `novatalks.rag`'s is public, so the read went unnoticed until rag's private one answered `denied` (NC2-3092) |
 | `flows-to-pub` | `contents: write`, down from `write-all`; its API writes use `CI_GITHUB_PAT` |
 
 `validate.sh`'s **Token permissions** check reads these statically, and fails on two
