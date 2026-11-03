@@ -19,7 +19,7 @@ Loaded when Claude Code reads a matching file; Codex and humans read it from the
 
 **Scanning**
 
-- `trivy-scan` must `needs: [build-image]` and scan the exact GHCR tag the build produced.
+- `trivy-scan` must `needs: [build-image]` and scan the exact GHCR tag the build produced. It and `api-scan` carry `packages: read`: `novatalks.rag`'s GHCR package is private (its repository is), and without the read its pull answers `denied` — every other package in the org is public, which is why it never mattered before.
 - Keep auto-scan limited to `main`/`master`/`development` plus the `scan*` trigger, and `warn-only` as the default policy.
 - Keep the pinned `aquasecurity/trivy-action`, the ~5-hour DB cache bucket, and the `.report` file with OS and Node.js sections published as artifact and release asset.
 
