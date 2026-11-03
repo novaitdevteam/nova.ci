@@ -61,7 +61,7 @@ Keep dispatch behavior in `ci-build-trigger-switcher.yaml`, not in product repos
 - **Drafts included — do not re-add `!github.event.pull_request.draft`.** The product callers' `pull_request:` carries no `types:`, so GitHub never sends `ready_for_review`; with the draft filter in place, a pull request opened as a draft and then marked ready got no lint and no unit tests at all, and reported `skipped` rather than red (`novatalks.core#217` sat open a month that way). Every head SHA arrives via `opened` or `synchronize`, so marking ready needs no event of its own. `ready_for_review` stays in the action lists: inert with today's callers, correct if one subscribes.
 - `novatalks.core` PRs lint two targets: `build-engine` and `build-reporting`; unit tests run once on `build-engine` and are skipped on `build-reporting`.
 - Other standard PR build repositories lint with `build_target: build`.
-- Tags containing `int-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: integration` (backward compatible).
+- Tags containing `int-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: integration` (backward compatible). The three test routes serve `novatalks.core` and `novatalks.rag`; rag's integration job runs pgvector (`shm` 1g, database `rag`), applies its own `docker/init-db.sql`, starts MinIO with bucket `rag-kb` and presets `RAG_TEST_FOUND_*_PORT`, matching the values its tests hardcode; its unit job runs `npm test`.
 - Tags containing `unit-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: unit`.
 - Tags containing `full-test` → `ci-build-ntk-on-push-tags-run-test.yaml` with `test_mode: both`.
 - The three test tag substrings (`int-test`, `unit-test`, `full-test`) do not collide.
@@ -99,7 +99,7 @@ Standard build repositories currently are:
 - `build-message-source-id`: `docker/message-source-id.Dockerfile`, suffix `_migrate-message-source-id`.
 - `build` or any default target: `docker/server.Dockerfile`, no suffix.
 - On `novatalks.flowrunner`, any target: `./Dockerfile` at the repository root, no suffix — it has no `docker/` directory for the default arm to find.
-- On `novatalks.rag` — microservices, one image per process, each built by its own tag: `build-<process>[-…]` → `docker/<process>.Dockerfile`, suffix `_<process>`. The process list is read from the checkout's `docker/*.Dockerfile`, not kept in nova.ci, so a new process needs no change here; the longest matching name wins (`build-worker-index-2` is `worker-index` even beside a `worker`). A bare `build` or a `scan*` tag builds the API, the representative image. A name with no Dockerfile fails the step rather than publishing the wrong image under a plausible tag — `apiscan*` too, since rag has no `api-scan` target and the run would scan nothing. It has no `server.Dockerfile`.
+- On `novatalks.rag` — microservices, one image per process, each built by its own tag: `build-<process>[-…]` → `docker/<process>.Dockerfile`, suffix `_<process>`. The process list is read from the checkout's `docker/*.Dockerfile`, not kept in nova.ci, so a new process needs no change here; the longest matching name wins (`build-worker-index-2` is `worker-index` even beside a `worker`). A bare `build`, a `scan*` or an `apiscan*` tag builds the API, the representative image — `apiscan*` then runs its `api-scan` (`jwt-es256`). A name with no Dockerfile fails the step rather than publishing the wrong image under a plausible tag. It has no `server.Dockerfile`.
 
 Pull request events run lint and unit tests only. Keep the `build-image` and notifier jobs gated on `github.event_name != 'pull_request'` so PRs never build or publish an image.
 
@@ -399,10 +399,15 @@ workflow still parses:
   real boot failures came from trusting it literally (a stray comment, unstripped quotes, a
   disagreeing port, a blank value overriding a real default); `scan.sh` filters and forces the
   values the scan itself depends on instead. `references/dast-baseline.md`.
-- **The four auth modes for `api-scan` are `login`, `db-token`, `db-insert`, `env-token` (plus
-  `none` for an unauthenticated target)** — each acquires or injects a token differently, and
-  `env-token` is the one mode that must generate and mask its token *before* the container
-  exists, since the app reads the variable once at its own startup.
+- **The five auth modes for `api-scan` are `login`, `db-token`, `db-insert`, `env-token`,
+  `jwt-es256` (plus `none` for an unauthenticated target)** — each acquires or injects a token
+  differently. `env-token` and `jwt-es256` must generate and mask their secret *before* the
+  container exists, since the app reads it once at its own startup. `jwt-es256`
+  (`novatalks.rag`) signs its own ES256 JWT for a tenant `token-sql` returns, and a scan that
+  outlives the token's 300 s is `not-run`, never `clean`. `pre-boot-command` sets up a
+  database the image cannot set up itself (rag: `init-db.sql`, then migrations from the
+  checkout); `pg-image` overrides postgres; `extra-env` is applied after the database
+  defaults.
   `references/dast-api-scan.md`.
 - **`DEFAULT_ADMIN_USER` must be a syntactically valid email at a domain that can never be
   real** (`@example.invalid`, RFC 2606) — a syntactically invalid one fails a validator and
@@ -460,7 +465,7 @@ Reference files, one per scanner surface:
 - `references/dast-baseline.md` — the unauthenticated ZAP baseline/full scan: outcomes, gates,
   tally-line format, exit ladder, triage registers, scan modes, repository scope,
   `.env.example` handling, the three "lives once" shared pieces.
-- `references/dast-api-scan.md` — the authenticated `api-scan`: the four auth modes in full,
+- `references/dast-api-scan.md` — the authenticated `api-scan`: the five auth modes in full,
   the seed identity, the `-z` quoting bug, per-connector verification notes.
 - `references/dast-live-and-pentest.md` — the two `workflow_dispatch`-only workflows: the live
   baseline against the real deployment, and the pentest workflow's ephemeral and live-target

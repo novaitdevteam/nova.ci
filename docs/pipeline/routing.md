@@ -11,9 +11,9 @@
 | `push` | standard build repositories | tag ref contains `build`, or starts with `scan` | [`…-tags-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) |
 | `pull_request` | `novatalks.core` | any PR, **drafts included**, on `opened`, `synchronize`, `reopened` | [`…-tags-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with a `build-engine` + `build-reporting` matrix |
 | `pull_request` | standard PR build repositories | any PR, drafts included, on the same actions | [`…-tags-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-build.yaml) with `build_target: build` |
-| `push` | `novatalks.core` | tag contains `int-test` | [`…-run-test.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
-| `push` | `novatalks.core` | tag contains `unit-test` | [`…-run-test.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: unit` |
-| `push` | `novatalks.core` | tag contains `full-test` | [`…-run-test.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: both` |
+| `push` | `novatalks.core`, `novatalks.rag` | tag contains `int-test` | [`…-run-test.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: integration` |
+| `push` | `novatalks.core`, `novatalks.rag` | tag contains `unit-test` | [`…-run-test.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: unit` |
+| `push` | `novatalks.core`, `novatalks.rag` | tag contains `full-test` | [`…-run-test.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-run-test.yaml) with `test_mode: both` |
 | `push` | `nova.docs` | tag contains `build` | [`…-gh-deploy.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-gh-deploy.yaml) |
 | `push` | `novatalks.ui-lite` | tag contains `build-apk` | [`…-mob-apk-build.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build.yaml) |
 | `push` | `novatalks.mobile` | tag contains `build-apk` | [`…-mob-apk-build-public.yaml`](../../.github/workflows/ci-build-ntk-on-push-tags-mob-apk-build-public.yaml) |

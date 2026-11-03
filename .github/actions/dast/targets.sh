@@ -24,6 +24,7 @@ dast_resolve_target() {
     DT_TOKEN_SQL=""; DT_TOKEN_INSERT_SQL=""; DT_TOKEN_ENV_VAR=""
     DT_SETUP_COMMAND=""; DT_SWAGGER_ENABLE=false; DT_EXTRA_ENV=""; DT_ZAP_CONTEXT=""
     DT_UNSEEDED_ENV=""
+    DT_PG_IMAGE=""; DT_PRE_BOOT_COMMAND=""; DT_JWT_CLAIMS=""; DT_AUTH_PROBE_PATH=""
 
     case "${repo}/${surface}" in
         novatalks.ui/browser)
@@ -403,6 +404,49 @@ AWS_S3_ENDPOINT=http://s3.example.invalid'
         # and docs/security/sast-dast.md for the recorded exclusion; it is also why it is not
         # offered in ci-dast-pentest.yaml's repository dropdown — a choice that always
         # fails loudly here is worse than not offering it.
+        novatalks.rag/api)
+            # NestJS API, headless (no browser surface). Every value read from the
+            # repository on 2026-11-03 (NC2-3092):
+            #   port 3000, /health/live (no I/O)     src/config/app.config.ts, health.controller.ts
+            #   spec /api-docs-json, always served   src/setup-swagger.ts (no SWAGGER_ENABLE)
+            #   pgvector 0.8                         docker-compose.test.yaml (hnsw.iterative_scan)
+            DT_PORT=3000; DT_HEALTH_PATH=/health/live; DT_SPEC_PATH=/api-docs-json
+            DT_NEEDS_DB=true; DT_SWAGGER_ENABLE=false
+            DT_PG_IMAGE=pgvector/pgvector:0.8.7-pg16
+            # Auth: ES256 JWTs only (src/shared/guards/jwt-auth.guard.ts). The kid picks a
+            # JWT_PUBLIC_KEYS entry whose iss must match; aud novatalks.rag; exp - iat <= 300;
+            # tid a registered tenant; scope space-separated (src/shared/tenant/scopes.ts).
+            # sub is digits because only ^\d{1,9}$ is kept as the actor of a write.
+            DT_AUTH_MODE=jwt-es256; DT_AUTH_HEADER=Authorization; DT_AUTH_SCHEME_PREFIX="Bearer "
+            DT_TOKEN_ENV_VAR=JWT_PUBLIC_KEYS
+            DT_JWT_CLAIMS='{"iss":"engine","aud":"novatalks.rag","sub":"1","scope":"kb:read kb:write kb:search"}'
+            # tenants has no RLS, and rag's own tests register one the same way
+            # (test/support/db.ts seedTenant). A write for an unknown tid answers 404.
+            DT_TOKEN_SQL="INSERT INTO tenants (external_ref) VALUES ('nova-ci-dast:1') RETURNING id"
+            # GET /knowledge-bases needs kb:read and a valid tenant
+            # (knowledge-base.controller.ts): 200 proves the whole token chain before ZAP.
+            DT_AUTH_PROBE_PATH=/knowledge-bases
+            # The API image carries no migrations and refuses a database without rag's roles
+            # (src/database/database-role.check.ts), so both come from the checkout, at the
+            # commit being scanned: init-db.sql as the superuser, then sequelize-cli from the
+            # image's own node_modules with .sequelizerc and src/database mounted — exactly
+            # what docker/migrate.Dockerfile does. Nothing of rag's schema is copied here.
+            DT_PRE_BOOT_COMMAND='docker exec -i -e PGPASSWORD="$DATABASE_PASSWORD" nova-pg psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" < docker/init-db.sql
+docker run --rm --network host -v "$PWD/.sequelizerc:/opt/novatalks.rag/.sequelizerc:ro" -v "$PWD/src/database:/opt/novatalks.rag/src/database:ro" -e "DATABASE_MIGRATION_URL=postgresql://rag_admin:rag_admin@127.0.0.1:5432/$DATABASE_NAME" "$DAST_IMAGE" node node_modules/sequelize-cli/lib/sequelize db:migrate'
+            # Boot requirements (src/config/env.validation.ts, engine.config.ts; the search
+            # use case asserts the Engine config before listen). DATABASE_URL as rag_app —
+            # the API refuses a superuser, a BYPASSRLS role or the tables' owner. S3 and the
+            # Engine are never contacted at boot, so their values only have to parse;
+            # NODE_ENV=production demands https for the Engine URL. KMS_MASTER_KEY is 32
+            # zero bytes, RAG_JWT_PRIVATE_KEY the per-run key scan.sh generates: nothing
+            # here is a credential, and nothing looks like one.
+            DT_EXTRA_ENV='DATABASE_URL=postgresql://rag_app:rag_app@127.0.0.1:5432/db_name
+AWS_S3_BUCKET=dast-dummy-bucket
+ENGINE_INTERNAL_URL=https://engine.example.invalid
+RAG_JWT_KID=nova-ci-dast
+RAG_JWT_PRIVATE_KEY=%JWT_PRIVATE_KEY%
+KMS_MASTER_KEY={"dast":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+            ;;
         *)
             echo "::error::No DAST configuration for '${repo}' on the '${surface}' surface. Add an arm with its port, health path and auth read from that repository's own code — a guessed value scans nothing and reports it clean."
             return 1

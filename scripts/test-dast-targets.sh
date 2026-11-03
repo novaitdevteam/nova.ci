@@ -244,6 +244,44 @@ for var in AWS_S3_ACCESS_KEY_ID AWS_S3_SECRET_ACCESS_KEY AWS_S3_BUCKET AWS_S3_RE
     esac
 done
 
+# novatalks.rag: jwt-es256, read from src/shared/guards/jwt-auth.guard.ts (ES256, aud
+# novatalks.rag, kid -> JWT_PUBLIC_KEYS, numeric sub as the actor), the role check in
+# src/database/database-role.check.ts (DATABASE_URL must be rag_app) and env.validation.ts.
+reset_dt; dast_resolve_target novatalks.rag api
+check "rag auth mode"         jwt-es256                     "$DT_AUTH_MODE"
+check "rag key variable"      JWT_PUBLIC_KEYS               "$DT_TOKEN_ENV_VAR"
+check "rag health"            /health/live                  "$DT_HEALTH_PATH"
+check "rag spec"              /api-docs-json                "$DT_SPEC_PATH"
+check "rag postgres"          pgvector/pgvector:0.8.7-pg16  "$DT_PG_IMAGE"
+check "rag swagger var"       false                         "$DT_SWAGGER_ENABLE"
+check "rag auth probe"        /knowledge-bases              "$DT_AUTH_PROBE_PATH"
+check "rag jwt audience"      novatalks.rag                 "$(jq -r .aud <<<"$DT_JWT_CLAIMS" 2>/dev/null)"
+check "rag jwt scopes"        "kb:read kb:write kb:search"  "$(jq -r .scope <<<"$DT_JWT_CLAIMS" 2>/dev/null)"
+case "$(jq -r .sub <<<"$DT_JWT_CLAIMS" 2>/dev/null)" in
+    [0-9]*) echo "ok   rag jwt sub is numeric, so writes record an actor"; pass=$((pass + 1)) ;;
+    *) echo "FAIL rag jwt sub must be digits (ACTOR_ID in jwt-auth.guard.ts)"; fail=$((fail + 1)) ;;
+esac
+case "$DT_TOKEN_SQL" in
+    *"INSERT INTO tenants"*"RETURNING id"*) echo "ok   rag registers its tenant and returns the id"; pass=$((pass + 1)) ;;
+    *) echo "FAIL rag token-sql must register a tenant and return its id"; fail=$((fail + 1)) ;;
+esac
+case "$DT_PRE_BOOT_COMMAND" in
+    *"docker/init-db.sql"*"db:migrate"*) echo "ok   rag pre-boot applies init-db.sql, then migrates"; pass=$((pass + 1)) ;;
+    *) echo "FAIL rag pre-boot must apply the checkout's init-db.sql and run the migrations"; fail=$((fail + 1)) ;;
+esac
+for var in "DATABASE_URL=postgresql://rag_app:" AWS_S3_BUCKET= "ENGINE_INTERNAL_URL=https://" RAG_JWT_KID= "RAG_JWT_PRIVATE_KEY=%JWT_PRIVATE_KEY%" KMS_MASTER_KEY=; do
+    case "$DT_EXTRA_ENV" in
+        *"$var"*) echo "ok   rag extra-env carries $var"; pass=$((pass + 1)) ;;
+        *) echo "FAIL rag extra-env is missing $var — the API refuses to boot without it"; fail=$((fail + 1)) ;;
+    esac
+done
+reset_dt
+if dast_resolve_target novatalks.rag browser >/dev/null 2>&1; then
+    echo "FAIL rag resolved a browser surface — it is a headless API"; fail=$((fail + 1))
+else
+    echo "ok   rag has no browser surface"; pass=$((pass + 1))
+fi
+
 # A guessed target scans the wrong port and reports it clean, so an unknown pair must
 # fail loudly rather than fall through to a default.
 reset_dt

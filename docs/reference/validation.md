@@ -123,8 +123,8 @@ consumer somewhere, and nothing a caller reads is left unset by the table.
 
 [`scripts/test-dast-api-scan.sh`](../../scripts/test-dast-api-scan.sh) does the ZAP-baseline
 treatment for the authenticated API scan's
-[`scan.sh`](../../.github/actions/dast-api/scan.sh) across 87 checks. It covers all four
-`auth-mode`s (`login`, `db-token`, `db-insert`, `env-token`) and their distinct
+[`scan.sh`](../../.github/actions/dast-api/scan.sh) across 87 checks. It covers all five
+`auth-mode`s (`login`, `db-token`, `db-insert`, `env-token`, `jwt-es256` — its token verified with Node's `crypto.verify`, its 300 s lifetime guard, and the `pre-boot-command`/`pg-image`/`extra-env`-order paths rag needs) and their distinct
 loud-skip/error paths, the `-S` safe-mode default versus its absence under
 `scan-mode: active`, the `::add-mask::` on the token regardless of source, and — the one
 mutation check in the suite — that a mismatched `env-token` value (the token handed to

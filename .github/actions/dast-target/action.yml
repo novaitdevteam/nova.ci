@@ -76,6 +76,18 @@ outputs:
   unseeded_env:
     description: "Newline-separated KEY=VALUE lines applied only when the scanned repository's .env.example could not be seeded at all"
     value: ${{ steps.resolve.outputs.unseeded_env }}
+  pg_image:
+    description: "Postgres image for the scan's database; empty keeps scan.sh's own choice (core 17.9, else 16)"
+    value: ${{ steps.resolve.outputs.pg_image }}
+  jwt_claims:
+    description: "jwt-es256 only: the token's static claims as JSON (iss, aud, sub, scope)"
+    value: ${{ steps.resolve.outputs.jwt_claims }}
+  auth_probe_path:
+    description: "One authenticated GET path the api-scan tries with its token before ZAP; empty skips the probe"
+    value: ${{ steps.resolve.outputs.auth_probe_path }}
+  pre_boot_command:
+    description: "Shell run on the runner, in the scanned repository's checkout, after the database is up and before the app starts"
+    value: ${{ steps.resolve.outputs.pre_boot_command }}
 
 runs:
   using: composite
@@ -108,6 +120,9 @@ runs:
           echo "token_env_var=$DT_TOKEN_ENV_VAR"
           echo "swagger_enable=$DT_SWAGGER_ENABLE"
           echo "zap_context=$DT_ZAP_CONTEXT"
+          echo "pg_image=$DT_PG_IMAGE"
+          echo "jwt_claims=$DT_JWT_CLAIMS"
+          echo "auth_probe_path=$DT_AUTH_PROBE_PATH"
         } >> "$GITHUB_OUTPUT"
 
         # Heredoc-delimited: auth_scheme_prefix carries a trailing space and
@@ -132,6 +147,9 @@ runs:
           echo "unseeded_env<<DAST_TARGET_UNSEEDED_ENV_EOF"
           printf '%s\n' "$DT_UNSEEDED_ENV"
           echo "DAST_TARGET_UNSEEDED_ENV_EOF"
+          echo "pre_boot_command<<DAST_TARGET_PRE_BOOT_COMMAND_EOF"
+          printf '%s\n' "$DT_PRE_BOOT_COMMAND"
+          echo "DAST_TARGET_PRE_BOOT_COMMAND_EOF"
         } >> "$GITHUB_OUTPUT"
 
         echo "Resolved $REPO_NAME/$SURFACE: port=$DT_PORT health-path=$DT_HEALTH_PATH auth-mode=$DT_AUTH_MODE"

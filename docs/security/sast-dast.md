@@ -415,7 +415,7 @@ though it equals their fallback, so the value never depends on who is calling.
 > so no `Resolve DAST target` arm exercises them today. They are kept here because the
 > machinery is exactly what api-scan reuses — `nova.chatsconnector.telegram-client-api`,
 > `whatsapp`, `signal` and `dialer` all now have their own `extra-env` in the `Resolve
-> api-scan target` arm too (see [Four ways to acquire the token](#four-ways-to-acquire-the-token)).
+> api-scan target` arm too (see [Five ways to acquire the token](#five-ways-to-acquire-the-token)).
 > The examples are how the mechanic was established, not a claim
 > that those repos are scanned by the baseline now. `novatalks.core`, which is kept, still exercises the `.env.example` seeding
 > and the `DATABASE_URL` build.
@@ -1093,11 +1093,11 @@ Their real coverage is the authenticated **[api-scan](#api-scanning-authenticate
 which walks an OpenAPI spec rather than spidering pages. It ships today for
 `novatalks.core` (`login`), `nova.chatsconnector.telegram-client-api` (`db-token`),
 `nova.chatsconnector.whatsapp-client-api` and `…signal-client-api` (`db-insert`), and
-`novatalks.dialer` (`env-token`) — each wired into `targets.sh` as its own per-repository
+`novatalks.dialer` (`env-token`), and `novatalks.rag` (`jwt-es256`, NC2-3092) — each wired into `targets.sh` as its own per-repository
 integration: seed data, its own token model, the spec endpoint, all verified against that
 repository's own code, never assumed from telegram's or from each other's (`whatsapp` and
 `signal` share a token schema, but `signal` diverges on health path and boot env — see
-[Four ways to acquire the token](#four-ways-to-acquire-the-token)). `novatalks.uspacy.connector`
+[Five ways to acquire the token](#five-ways-to-acquire-the-token)). `novatalks.uspacy.connector`
 and `novatalks.geoip-api` publish no OpenAPI spec — no `@fastify/swagger`-equivalent
 dependency anywhere in `novatalks.geoip-api`'s single-file `index.js`/`package.json`, verified
 directly — so `zap-api-scan.py -f openapi`, which has no spider fallback, has nothing to
@@ -1273,7 +1273,7 @@ git tag apiscan-NC2-1234
 git push origin apiscan-NC2-1234   # builds the image, then the authenticated API scan
 ```
 
-### Four ways to acquire the token
+### Five ways to acquire the token
 
 The token that authenticates the scan is obtained by one of four `auth-mode`s, and the
 header it is injected under is a per-repository input — a connector's is not the engine's:
@@ -1342,6 +1342,30 @@ header it is injected under is a per-repository input — a connector's is not t
   `MulterConfigService.createMulterOptions()` builds the S3 storage at module-init time,
   unconditionally, because `FILE_DRIVER` defaults to `s3` and none of the five
   `file.awsS3*` keys has a fallback.
+- **`jwt-es256` (`novatalks.rag`).** rag accepts only ES256 JWTs it can verify against
+  `JWT_PUBLIC_KEYS` (`src/shared/guards/jwt-auth.guard.ts`): the `kid` picks a
+  `{"iss","pem"}` entry, `aud` must be `novatalks.rag`, `exp - iat` at most 300 s, and `tid`
+  a tenant that exists. No token is stored anywhere, so `scan.sh` makes the whole chain
+  per run: before the container exists it generates a P-256 key pair with `openssl`,
+  masks every line of the private key and hands the app the public half as
+  `-e JWT_PUBLIC_KEYS={"nova-ci-dast":{"iss":…,"pem":…}}` (`%JWT_PRIVATE_KEY%` in
+  `extra-env` becomes the private half, for rag's own `RAG_JWT_PRIVATE_KEY`). After boot,
+  `token-sql` registers a tenant and returns its id; `scan.sh` signs
+  `jwt-claims` + `tid`/`iat`/`exp` with `openssl dgst` and converts the DER signature to
+  JWS's raw `r‖s`. The harness verifies the result with Node's own `crypto.verify` against
+  the key the app was given. Because ZAP cannot renew it, **a scan that runs longer than
+  the token's 300 s is `not-run`**, never `clean` — its later requests went out with an
+  expired token. rag's database needs its roles and its migrations before the API will
+  start, and the image carries neither: the arm's `pre-boot-command` pipes the checkout's
+  `docker/init-db.sql` into postgres as the superuser and runs `sequelize-cli` from the
+  scanned image's own `node_modules` with `.sequelizerc` and `src/database` mounted — what
+  `docker/migrate.Dockerfile` does — and `pg-image` is `pgvector/pgvector:0.8.7-pg16`.
+  `extra-env` is applied after the database defaults, so its `DATABASE_URL` connects as
+  `rag_app`: the API refuses a superuser. Before ZAP runs, `auth-probe-path`
+  (`/knowledge-bases`, scope `kb:read`) sends one request with the token; anything but
+  2xx is `not-run`, since a refused token would make every operation a 401 and the scan
+  would still read as clean. Run locally on 2026-11-03 against rag's own API image: probe
+  `HTTP 200`, 37 operations, 0 high, 0 medium, 2 low.
 
 > [!CAUTION]
 > **The Postgres image must be one whose entrypoint actually starts Postgres.** It was
@@ -1400,7 +1424,7 @@ header it is injected under is a per-repository input — a connector's is not t
 > which is how it survived review.
 
 The injected header, the scheme prefix and the token `SELECT`/`INSERT` are all
-per-repository **inputs**, not constants. All four modes end with a bare token that
+per-repository **inputs**, not constants. All five modes end with a bare token that
 `scan.sh` masks with `::add-mask::` before first use, and `login`/`db-token` both treat an
 **empty token** — a login that returned none, or a `SELECT` that matched no row — as a
 loud skip (`not-run`), never a scan without auth. `db-insert` and `env-token` cannot
@@ -1574,7 +1598,7 @@ Actions → DAST Pentest (active scan) → Run workflow → repository, surface,
   (`dast-api/action.yml`'s `scan-mode: active`). Both run only against the ephemeral
   container this workflow itself starts and kills — see
   [`scan-mode`: baseline or full](#scan-mode-baseline-or-full) and
-  [Four ways to acquire the token](#four-ways-to-acquire-the-token) for what each mode
+  [Five ways to acquire the token](#five-ways-to-acquire-the-token) for what each mode
   changes. **`target: live` is browser-surface only** and rejects `surface: api`
   outright; see [Live target](#live-target-real-writes-against-a-real-host).
 - **What it still cannot find.** An active ZAP scan has no model of what an endpoint is

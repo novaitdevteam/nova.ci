@@ -355,7 +355,7 @@ jobs:
       contents: write
     name: Call Test Runner On Push Tags
     if:
-      ${{ github.event.repository.name == 'novatalks.core'
+      ${{ contains(fromJSON('["novatalks.core", "novatalks.rag"]'), github.event.repository.name)
       && github.event_name == 'push'
       && github.ref_type == 'tag'
       && (contains(github.ref_name, 'int-test') || contains(github.ref_name, 'unit-test') || contains(github.ref_name, 'full-test')) }}

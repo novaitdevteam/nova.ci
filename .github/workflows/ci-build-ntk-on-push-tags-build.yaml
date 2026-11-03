@@ -507,9 +507,9 @@ jobs:
             # docker/<process>.Dockerfile, read from the checkout, so a new process needs
             # no change here. The longest matching name wins (build-worker-index-2 is
             # worker-index, not worker). A bare build or a scan* tag builds the API, the
-            # representative image, as the engine is for novatalks.core. A name with no
-            # Dockerfile fails rather than publishing the wrong image under a plausible
-            # tag, and so does apiscan*: rag has no api-scan target, so it would scan nothing.
+            # representative image, as the engine is for novatalks.core, and so does
+            # apiscan*: api-scan boots the API. A name with no Dockerfile fails rather than
+            # publishing the wrong image under a plausible tag.
             process=""
             available=""
             rest="${BUILD_TARGET#build-}"
@@ -521,7 +521,7 @@ jobs:
                 process="$name"
               fi
             done
-            case "$BUILD_TARGET" in build|scan*) process=api ;; esac
+            case "$BUILD_TARGET" in build|scan*|apiscan*) process=api ;; esac
             if [[ -z "$process" || ! -f "docker/${process}.Dockerfile" ]]; then
               echo "::error::novatalks.rag: '$BUILD_TARGET' names no image. Use one of:${available:- <no docker/*.Dockerfile found>}."
               exit 1
@@ -1205,14 +1205,14 @@ jobs:
     runs-on: ${{ inputs.runner_labels  || 'self-hosted' }}
     permissions:
       contents: write
-    # Opt-in only: an apiscan* tag on novatalks.core or the telegram connector. The
+    # Opt-in only: an apiscan* tag on one of the repositories listed below. The
     # authenticated scan is a 341-operation run against a seeded stack, not something
     # every build should pay for.
     if: >-
       ${{ always()
       && github.event_name != 'pull_request'
       && needs.build-image.result == 'success'
-      && contains(fromJSON('["novatalks.core","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api","novatalks.dialer"]'), github.event.repository.name)
+      && contains(fromJSON('["novatalks.core","nova.chatsconnector.telegram-client-api","nova.chatsconnector.whatsapp-client-api","nova.chatsconnector.signal-client-api","novatalks.dialer","novatalks.rag"]'), github.event.repository.name)
       && startsWith(github.ref_name, 'apiscan') }}
     needs: [build-image]
     outputs:
@@ -1280,6 +1280,10 @@ jobs:
           swagger-enable: ${{ steps.apiscan_target.outputs.swagger_enable }}
           needs-nats: ${{ steps.apiscan_target.outputs.needs_nats }}
           extra-env: ${{ steps.apiscan_target.outputs.extra_env }}
+          pg-image: ${{ steps.apiscan_target.outputs.pg_image }}
+          pre-boot-command: ${{ steps.apiscan_target.outputs.pre_boot_command }}
+          jwt-claims: ${{ steps.apiscan_target.outputs.jwt_claims }}
+          auth-probe-path: ${{ steps.apiscan_target.outputs.auth_probe_path }}
           report-file: ${{ env.REPORT_FILE }}
           report-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.REPORT_FILE }}
 

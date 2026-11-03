@@ -43,7 +43,7 @@ scans the wrong thing and reports it clean, which is worse than not scanning.
 Every arm sets **every** `DT_*` variable, even ones with no consumer for that surface yet, so
 a stale value from the previous `case` branch can never leak forward.
 
-## The four auth modes, and `none`
+## The five auth modes, and `none`
 
 Read the connector's own auth guard/middleware before picking one — do not pattern-match on
 what "looks like" a REST API:
@@ -65,6 +65,14 @@ what "looks like" a REST API:
   must generate and `::add-mask::` its token **before the container starts**: the app reads
   the variable once, at its own startup, so a token acquired after boot (every other mode's
   approach) would authenticate nothing.
+- **`jwt-es256`** — the app verifies ES256 JWTs against public keys it reads from an
+  environment variable, and no token exists until somebody signs one (`novatalks.rag`'s
+  `JWT_PUBLIC_KEYS`). `scan.sh` generates the key pair before the container starts, signs
+  `jwt-claims` + the `tid` that `token-sql` returns after boot, and reports a scan that
+  outlived the token's 300 s as `not-run`. Read the guard for `aud`, the key-entry shape, the
+  claim formats (rag keeps only a numeric `sub` as the actor) and the lifetime cap. If the
+  image cannot set its own database up, `pre-boot-command` does it from the checkout, and
+  `pg-image` names a postgres the schema needs (rag: pgvector).
 - **`none`** — the target has no authentication at all. Legitimate, not a placeholder: say so
   explicitly and scan unauthenticated, rather than inventing a mode that doesn't exist in the
   code.
@@ -145,7 +153,7 @@ Not every repository can be wired, and inventing an arm anyway is worse than ref
 2. **Read the health route and the production Helm chart** (`novatalks.charts`) for the real
    port and health path — chart wins over a code default when they disagree, since it is what
    is actually deployed.
-3. **Read the auth guard/middleware** to pick one of the four auth modes (or `none`), and read
+3. **Read the auth guard/middleware** to pick one of the five auth modes (or `none`), and read
    the exact header name, scheme prefix, and (for `db-token`/`db-insert`) the real table/column
    names and role value — copy nothing from a sibling connector without checking.
 4. **Check for an OpenAPI/Swagger spec** if wiring `api-scan`: find the `SwaggerModule.setup`
