@@ -97,6 +97,7 @@ Standard build repositories currently are:
 - `build-reporting`: reporting lint, `docker/reporting.Dockerfile`, suffix `_reporting`.
 - `build-restore-historical`: `docker/restore-historical.Dockerfile`, suffix `_restore-historical`.
 - `build-message-source-id`: `docker/message-source-id.Dockerfile`, suffix `_migrate-message-source-id`.
+- `build-ai-token-envelope`: `docker/ai-token-envelope.Dockerfile`, suffix `_ai-token-envelope`.
 - `build` or any default target: `docker/server.Dockerfile`, no suffix.
 - On `novatalks.flowrunner`, any target: `./Dockerfile` at the repository root, no suffix — it has no `docker/` directory for the default arm to find.
 - On `novatalks.rag` — microservices, one image per process, each built by its own tag: `build-<process>[-…]` → `docker/<process>.Dockerfile`, suffix `_<process>`. The process list is read from the checkout's `docker/*.Dockerfile`, not kept in nova.ci, so a new process needs no change here; the longest matching name wins (`build-worker-index-2` is `worker-index` even beside a `worker`). A bare `build`, a `scan*` or an `apiscan*` tag builds the API, the representative image — `apiscan*` then runs its `api-scan` (`jwt-es256`). A name with no Dockerfile fails the step rather than publishing the wrong image under a plausible tag. It has no `server.Dockerfile`.

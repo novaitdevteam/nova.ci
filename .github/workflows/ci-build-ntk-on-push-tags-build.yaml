@@ -502,6 +502,11 @@ jobs:
             echo "DOCKERFILE_PATH=./docker/message-source-id.Dockerfile" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_ENV"
             echo "IMAGE_SUFFIX=_migrate-message-source-id" >> "$GITHUB_OUTPUT"
+          elif [[ "$BUILD_TARGET" == "build-ai-token-envelope" ]]; then
+            # One-shot app that seals AI provider keys into token envelopes (novatalks.core NC2-2974-2993).
+            echo "DOCKERFILE_PATH=./docker/ai-token-envelope.Dockerfile" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_ai-token-envelope" >> "$GITHUB_ENV"
+            echo "IMAGE_SUFFIX=_ai-token-envelope" >> "$GITHUB_OUTPUT"
           elif [[ "$REPO_NAME" == "novatalks.rag" ]]; then
             # One image per process, each built by its own tag: build-<process>[-…] picks
             # docker/<process>.Dockerfile, read from the checkout, so a new process needs

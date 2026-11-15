@@ -52,6 +52,7 @@ Based on `build_target` when present, otherwise `github.ref_name`:
 | `build-reporting` | `docker/reporting.Dockerfile` | `_reporting` |
 | `build-restore-historical` | `docker/restore-historical.Dockerfile` | `_restore-historical` |
 | `build-message-source-id` | `docker/message-source-id.Dockerfile` | `_migrate-message-source-id` |
+| `build-ai-token-envelope` | `docker/ai-token-envelope.Dockerfile` | `_ai-token-envelope` |
 | `build` / default | `docker/server.Dockerfile` | none |
 | any target, on `novatalks.flowrunner` | `Dockerfile` (repository root — it has no `docker/` directory) | none |
 | `build-<process>[-…]`, on `novatalks.rag` — one tag per microservice; the process list is the checkout's own `docker/*.Dockerfile`, so a new process needs no nova.ci change, and the longest matching name wins | `docker/<process>.Dockerfile` | `_<process>` |
