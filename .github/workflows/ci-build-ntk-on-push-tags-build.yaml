@@ -149,7 +149,7 @@ jobs:
 
       - name: 💿 Setup Node.js with npm cache
         if: ${{ steps.lint_plan.outputs.node_cache == 'npm' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -157,7 +157,7 @@ jobs:
 
       - name: 💿 Setup Node.js
         if: ${{ steps.lint_plan.outputs.node_cache != 'npm' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           package-manager-cache: false
@@ -292,7 +292,7 @@ jobs:
 
       - name: 💿 Setup Node.js with npm cache
         if: ${{ steps.test_plan.outputs.node_cache == 'npm' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -300,7 +300,7 @@ jobs:
 
       - name: 💿 Setup Node.js
         if: ${{ steps.test_plan.outputs.node_cache != 'npm' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           package-manager-cache: false
@@ -440,7 +440,7 @@ jobs:
             }
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -448,7 +448,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to DockerHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           username: ${{ secrets.CR_DH_USERNAME }}
           password: ${{ secrets.CR_DH_TOKEN }}
@@ -717,7 +717,7 @@ jobs:
 
       - name: Login to GitHub Container Registry
         if: ${{ steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -819,7 +819,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -833,7 +833,7 @@ jobs:
       # Publish the .report as a downloadable release asset, like the chat widget build.
       - name: Publish report release
         if: ${{ always() && steps.scan_policy.outputs.should_scan == 'true' }}
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
@@ -971,7 +971,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -988,7 +988,7 @@ jobs:
       # PUBLISH_RELEASE above.
       - name: Publish report release
         if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
@@ -1069,7 +1069,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -1085,7 +1085,7 @@ jobs:
       # the report's copy.
       - name: Publish report release
         if: ${{ always() && env.PUBLISH_RELEASE == 'true' && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
@@ -1143,7 +1143,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1186,7 +1186,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -1198,7 +1198,7 @@ jobs:
 
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
@@ -1248,7 +1248,7 @@ jobs:
         uses: novaitdevteam/nova.ci/.github/actions/install-docker@main
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1299,7 +1299,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # A full organisation-wide artifact quota must not red a scan: the findings are in the
         # job summary, and the failed upload stays visible as this step's annotation.
         continue-on-error: true
@@ -1311,7 +1311,7 @@ jobs:
 
       - name: Publish report release
         if: ${{ always() && hashFiles(env.REPORT_FILE) != '' }}
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
